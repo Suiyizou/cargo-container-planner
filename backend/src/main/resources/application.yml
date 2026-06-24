@@ -8,6 +8,9 @@ spring:
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/cargo_planner?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai}
     username: ${SPRING_DATASOURCE_USERNAME:cargo}
     password: ${SPRING_DATASOURCE_PASSWORD:cargo_password}
+    hikari:
+      connection-timeout: 3000
+      validation-timeout: 2000
   jpa:
     hibernate:
       ddl-auto: update

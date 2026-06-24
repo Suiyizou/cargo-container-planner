@@ -1,4 +1,10 @@
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY frontend/package*.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
 FROM nginx:alpine
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
-COPY index.html app.js styles.css /usr/share/nginx/html/
-COPY vendor /usr/share/nginx/html/vendor
+COPY --from=build /app/dist /usr/share/nginx/html

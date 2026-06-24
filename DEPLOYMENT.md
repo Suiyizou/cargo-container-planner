@@ -1,98 +1,44 @@
-# Cargo Container Planner Deployment
+# Deployment
 
-This project is prepared as a front-end/back-end separated deployment.
+## Architecture
 
-## Services
+- `frontend`: Nginx serves the Vue production build and proxies `/api/*` to `backend:8080`.
+- `backend`: Spring Boot API service for packing jobs and calculation results.
+- `mysql`: Stores job requests and results.
+- `redis`: Caches repeated calculation results.
 
-- `frontend`: Nginx static site for the current Three.js UI. It proxies `/api/*` to the Java backend.
-- `backend`: Spring Boot API service. It creates async packing jobs, persists job records, and caches repeated calculation results.
-- `mysql`: Stores packing job requests/results and future business data.
-- `redis`: Caches calculation results by request hash.
+Only the frontend container publishes a host port. In normal server deployment, opening TCP port `80` is enough.
 
-## Server Deployment
-
-1. Copy the project to the server.
-2. Create an environment file:
+## Server Commands
 
 ```bash
-cp .env.example .env
-```
-
-3. Edit `.env` and replace all default passwords.
-4. Start all services:
-
-```bash
+git pull
+cp -n .env.example .env
 docker compose up -d --build
-```
-
-5. Check service status:
-
-```bash
 docker compose ps
-docker compose logs -f backend
 ```
 
-6. Open the system:
+Open:
 
 ```text
 http://your-server-ip/
 ```
 
-## API Flow
+## Useful Checks
 
-Create a packing job:
-
-```http
-POST /api/packing/jobs
-Content-Type: application/json
+```bash
+docker compose logs --tail=80 frontend
+docker compose logs --tail=120 backend
+curl http://127.0.0.1/api/health
 ```
 
-```json
-{
-  "utilizationPercent": 90,
-  "globalGapCm": 1,
-  "cargos": [
-    {
-      "id": "cargo-a",
-      "name": "Carton A",
-      "lengthCm": 60,
-      "widthCm": 40,
-      "heightCm": 35,
-      "quantity": 30,
-      "weightKg": 12,
-      "type": "normal",
-      "color": "#4e8fd0"
-    }
-  ],
-  "containers": [
-    {
-      "id": "20gp",
-      "name": "20GP Standard",
-      "lengthCm": 590,
-      "widthCm": 235,
-      "heightCm": 239,
-      "payloadKg": 28200
-    }
-  ]
-}
+From outside the server, use:
+
+```text
+http://your-server-ip/api/health
 ```
-
-Read job state/result:
-
-```http
-GET /api/packing/jobs/{jobId}
-```
-
-The response contains:
-
-- `status`: `pending`, `running`, `finished`, or `failed`
-- `progress`: 0 to 100
-- `result.bestContainerId`
-- `result.evaluations[]`
-- `result.evaluations[].packedBoxes[].placed[]`, including each cargo unit's `xCm`, `yCm`, `zCm`, `lengthCm`, `widthCm`, and `heightCm`
 
 ## Notes
 
-- The current UI is still the existing static prototype. The backend API is ready for the next step: switching the front-end calculation button to create a backend job and poll `/api/packing/jobs/{jobId}`.
-- Redis is an acceleration layer. MySQL remains the durable record.
-- For company use, put this behind an internal domain and configure HTTPS at the reverse proxy or cloud load balancer.
+- Do not expose `8080`, `3306`, or `6379` to the public network unless there is a specific operations reason.
+- If a browser keeps an old page, press `Ctrl+F5`; the Vue asset filenames are hashed, and Nginx serves `index.html` with `no-cache`.
