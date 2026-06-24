@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>货代装箱计算器</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand">
+        <p>Browser / Server Local Prototype</p>
+        <h1>货代装箱计算器</h1>
+      </div>
+      <nav class="top-actions" aria-label="主要操作">
+        <select id="containerSelect" class="visually-hidden" aria-label="当前查看箱型"></select>
+        <label class="compact-range">
+          <span>可用率 <b id="utilText">90%</b></span>
+          <input id="utilization" type="range" min="75" max="96" value="90" />
+        </label>
+        <label class="compact-range">
+          <span>间隙 <b id="gapText">1</b> cm</span>
+          <input id="globalGap" type="range" min="0" max="8" value="1" />
+        </label>
+        <button id="openCargoBtn" class="primary" type="button">录入货物</button>
+        <button id="addContainerBtn" type="button">添加箱型</button>
+        <button id="algorithmBtn" type="button">算法说明</button>
+        <details class="data-menu">
+          <summary>数据操作</summary>
+          <div class="data-menu-panel">
+            <button id="sampleBtn" type="button">套用示例</button>
+            <button id="clearBtn" type="button">清空货物</button>
+            <button id="exportBtn" type="button">导出 CSV</button>
+            <label class="file-button">
+              导入 CSV
+              <input id="importInput" type="file" accept=".csv,text/csv" />
+            </label>
+            <button id="resetContainersBtn" type="button">恢复默认箱型</button>
+          </div>
+        </details>
+      </nav>
+      <div class="header-summary">
+        <span id="storageStatus">Map 内存数据</span>
+        <strong id="headerAdvice">正在计算推荐箱型</strong>
+      </div>
+    </header>
+
+    <main id="plannerPage" class="workspace">
+      <section class="panel recommendation">
+        <div class="recommendation-head">
+          <div>
+            <h2>箱型排序对比</h2>
+            <p id="recommendText">录入货物后自动比较。</p>
+          </div>
+          <div id="compareList" class="compare-list compact"></div>
+        </div>
+        <div id="containerCards" class="container-cards"></div>
+      </section>
+
+      <section class="panel result-panel">
+        <div class="box-switcher">
+          <h2>货舱视图</h2>
+          <div id="boxTabs" class="box-tabs"></div>
+          <p id="boxHint">当前显示第 1 箱。</p>
+        </div>
+        <div class="metric-list">
+          <div>
+            <span>已摆放数量</span>
+            <strong id="packedCount">0 / 0</strong>
+          </div>
+          <div>
+            <span>体积占用</span>
+            <strong id="volumeUsage">0%</strong>
+          </div>
+          <div>
+            <span>剩余可用体积</span>
+            <strong id="freeVolume">0 m³</strong>
+          </div>
+          <div>
+            <span>总重量</span>
+            <strong id="totalWeight">0 kg</strong>
+          </div>
+          <div>
+            <span>预计箱数</span>
+            <strong id="boxCount">0</strong>
+          </div>
+        </div>
+        <div id="statusBox" class="status-box">等待计算</div>
+      </section>
+
+      <section class="panel visual-panel">
+        <div class="section-head">
+          <div>
+            <h2>物理摆放视图</h2>
+            <p id="visualSubtitle">主视图看整体空间，三视图看层数、铺底和高度堆叠。</p>
+          </div>
+          <div class="view-tabs">
+            <button id="viewPacked" class="active" type="button">显示货物</button>
+            <button id="viewFree" type="button">显示剩余</button>
+            <button id="resetViewBtn" type="button">重置视角</button>
+          </div>
+        </div>
+        <div class="canvas-grid">
+          <div class="canvas-card main-view">
+            <h3>主视图：3D 摆放</h3>
+            <div class="main-canvas-wrap">
+              <canvas id="boxCanvas" width="1280" height="680"></canvas>
+              <div id="dimensionBadge" class="dimension-badge"></div>
+              <div id="mainLegend" class="main-legend"></div>
+              <div id="hoverTooltip" class="hover-tooltip"></div>
+            </div>
+          </div>
+          <div class="ortho-grid">
+            <div class="canvas-card">
+              <h3>顶视图：长 x 宽</h3>
+              <div id="topViewMeta" class="view-meta"></div>
+              <canvas id="topCanvas" width="420" height="220"></canvas>
+            </div>
+            <div class="canvas-card">
+              <h3>正视图：长 x 高</h3>
+              <div id="frontViewMeta" class="view-meta"></div>
+              <canvas id="frontCanvas" width="420" height="220"></canvas>
+            </div>
+            <div class="canvas-card">
+              <h3>侧视图：宽 x 高</h3>
+              <div id="sideViewMeta" class="view-meta"></div>
+              <canvas id="sideCanvas" width="420" height="220"></canvas>
+            </div>
+          </div>
+        </div>
+        <div id="legend" class="legend"></div>
+      </section>
+
+      <section class="panel">
+        <div class="section-head compact">
+          <h2>货物清单</h2>
+          <button id="deleteCargoBtn" type="button" disabled>删除选中</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>名称</th>
+                <th>尺寸 cm</th>
+                <th>数量</th>
+                <th>单重</th>
+                <th>摆放规则</th>
+                <th>体积</th>
+              </tr>
+            </thead>
+            <tbody id="cargoTable"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <section id="algorithmPage" class="algorithm-page" hidden>
+      <div class="algorithm-shell">
+        <div class="section-head">
+          <div>
+            <h2>装箱算法说明</h2>
+            <p>这里描述当前版本如何估算箱型、摆放货物和判断剩余空间。</p>
+          </div>
+          <button id="closeAlgorithmBtn" type="button">返回计算器</button>
+        </div>
+        <div class="algorithm-grid">
+          <article>
+            <strong>1. 货物展开</strong>
+            <p>系统把每条货物记录按数量展开为单件箱体，并把全局间隙和规则附加间隙计入尺寸。普通货物允许旋转，保持朝上和托盘类货物按保守姿态摆放。</p>
+          </article>
+          <article>
+            <strong>2. 箱型逐一试装</strong>
+            <p>每个箱型都会单独计算：先检查单件尺寸是否超过箱体，再按体积从大到小尝试放入第一箱。放不完时继续估算第二箱、第三箱。</p>
+          </article>
+          <article>
+            <strong>3. 候选位置搜索</strong>
+            <p>每放一件货物，程序会利用已放货物的长、宽、高边界生成候选点，在这些点上尝试所有允许方向，并做三维碰撞检测，确保货物不重叠、不越界。</p>
+          </article>
+          <article>
+            <strong>4. 堆叠规则</strong>
+            <p>如果货物放在上层，底面必须由下方货物完整支撑；不可重压货物不会作为上层支撑面，避免后续货物压在它上面。</p>
+          </article>
+          <article>
+            <strong>5. 推荐排序</strong>
+            <p>箱型卡片按预计箱数优先排序，同箱数时优先展示单箱利用率更高的箱型，再用箱体体积做辅助排序，帮助选择更接近满载的方案。</p>
+          </article>
+          <article>
+            <strong>6. 注意事项</strong>
+            <p>剩余体积不等于还能放入某件货物；真实判断要看连续的长、宽、高空间和支撑面。当前算法适合业务辅助估算，不等同于全局最优的工业排柜求解器。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <dialog id="cargoDialog" class="modal">
+      <form method="dialog" class="modal-card">
+        <h2 id="cargoDialogTitle">录入货物</h2>
+        <div class="form-grid">
+          <label class="field wide">
+            <span>名称</span>
+            <input id="cargoName" type="text" placeholder="如：纸箱 A" />
+          </label>
+          <label class="field">
+            <span>长 cm</span>
+            <input id="cargoLength" type="number" min="1" value="60" />
+          </label>
+          <label class="field">
+            <span>宽 cm</span>
+            <input id="cargoWidth" type="number" min="1" value="40" />
+          </label>
+          <label class="field">
+            <span>高 cm</span>
+            <input id="cargoHeight" type="number" min="1" value="35" />
+          </label>
+          <label class="field">
+            <span>数量</span>
+            <input id="cargoQty" type="number" min="1" value="30" />
+          </label>
+          <label class="field">
+            <span>单重 kg</span>
+            <input id="cargoWeight" type="number" min="0" value="12" />
+          </label>
+          <label class="field">
+            <span>摆放规则</span>
+            <select id="cargoType">
+              <option value="normal">普通纸箱，可旋转</option>
+              <option value="upright">保持朝上，不侧放</option>
+              <option value="nonstack">不可重压，不上堆</option>
+              <option value="pallet">托盘/异形，保守摆放</option>
+            </select>
+          </label>
+        </div>
+        <div class="button-row modal-actions">
+          <button id="cancelCargoBtn" value="cancel" type="button">取消</button>
+          <button id="addCargoBtn" class="primary" type="button">添加货物</button>
+          <button id="updateCargoBtn" type="button" disabled>保存修改</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="containerDialog" class="modal">
+      <form method="dialog" class="modal-card">
+        <h2>添加箱型</h2>
+        <div class="form-grid">
+          <label class="field wide">
+            <span>箱型名称</span>
+            <input id="containerName" type="text" placeholder="如：自定义 40HQ" />
+          </label>
+          <label class="field">
+            <span>内部长 cm</span>
+            <input id="containerLength" type="number" min="1" value="1203" />
+          </label>
+          <label class="field">
+            <span>内部宽 cm</span>
+            <input id="containerWidth" type="number" min="1" value="235" />
+          </label>
+          <label class="field">
+            <span>内部高 cm</span>
+            <input id="containerHeight" type="number" min="1" value="270" />
+          </label>
+          <label class="field">
+            <span>最大载重 kg</span>
+            <input id="containerPayload" type="number" min="1" value="26500" />
+          </label>
+        </div>
+        <div class="button-row modal-actions">
+          <button id="cancelContainerBtn" value="cancel" type="button">取消</button>
+          <button id="saveContainerBtn" class="primary" value="default" type="button">保存箱型</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast"></div>
+    <div id="loadingOverlay" class="loading-overlay">
+      <div class="spinner"></div>
+      <span>正在计算装箱视图...</span>
+    </div>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./vendor/three/build/three.module.js",
+          "three/addons/": "./vendor/three/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
