@@ -17,11 +17,17 @@ import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class PackingJobService {
+  private static final Logger log = LoggerFactory.getLogger(PackingJobService.class);
   private static final String STATUS_PENDING = "pending";
   private static final String STATUS_RUNNING = "running";
   private static final String STATUS_FINISHED = "finished";
@@ -32,6 +38,7 @@ public class PackingJobService {
   private final ObjectMapper objectMapper;
   private final StringRedisTemplate redisTemplate;
   private final TaskExecutor packingTaskExecutor;
+  private final TransactionTemplate transactionTemplate;
   private final Duration cacheTtl;
 
   public PackingJobService(
@@ -40,6 +47,7 @@ public class PackingJobService {
       ObjectMapper objectMapper,
       StringRedisTemplate redisTemplate,
       TaskExecutor packingTaskExecutor,
+      TransactionTemplate transactionTemplate,
       @Value("${planner.cache-ttl-seconds:86400}") long cacheTtlSeconds
   ) {
     this.repository = repository;
@@ -47,6 +55,7 @@ public class PackingJobService {
     this.objectMapper = objectMapper;
     this.redisTemplate = redisTemplate;
     this.packingTaskExecutor = packingTaskExecutor;
+    this.transactionTemplate = transactionTemplate;
     this.cacheTtl = Duration.ofSeconds(cacheTtlSeconds);
   }
 
@@ -78,7 +87,7 @@ public class PackingJobService {
     }
 
     repository.saveAndFlush(job);
-    packingTaskExecutor.execute(() -> runJob(jobId, request, requestHash));
+    scheduleRunJob(jobId, request, requestHash);
     return toResponse(job);
   }
 
@@ -97,19 +106,39 @@ public class PackingJobService {
       writeCache(requestHash, resultJson);
       updateJob(jobId, STATUS_FINISHED, 100, "Calculation finished", resultJson);
     } catch (Exception ex) {
-      updateJob(jobId, STATUS_FAILED, 100, "Calculation failed: " + ex.getMessage(), null);
+      try {
+        updateJob(jobId, STATUS_FAILED, 100, "Calculation failed: " + ex.getMessage(), null);
+      } catch (Exception updateEx) {
+        log.error("Failed to mark packing job {} as failed", jobId, updateEx);
+      }
     }
   }
 
-  @Transactional
-  protected void updateJob(String jobId, String status, int progress, String message, String resultJson) {
-    PackingJobEntity job = repository.findById(jobId).orElseThrow();
-    job.setStatus(status);
-    job.setProgress(progress);
-    job.setMessage(message);
-    if (resultJson != null) job.setResultJson(resultJson);
-    job.setUpdatedAt(Instant.now());
-    repository.save(job);
+  private void scheduleRunJob(String jobId, PackingRequest request, String requestHash) {
+    Runnable enqueue = () -> packingTaskExecutor.execute(() -> runJob(jobId, request, requestHash));
+    if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+      enqueue.run();
+      return;
+    }
+    TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+      @Override
+      public void afterCommit() {
+        enqueue.run();
+      }
+    });
+  }
+
+  private void updateJob(String jobId, String status, int progress, String message, String resultJson) {
+    transactionTemplate.executeWithoutResult(transactionStatus -> {
+      PackingJobEntity job = repository.findById(jobId)
+          .orElseThrow(() -> new IllegalStateException("Packing job not found: " + jobId));
+      job.setStatus(status);
+      job.setProgress(progress);
+      job.setMessage(message);
+      if (resultJson != null) job.setResultJson(resultJson);
+      job.setUpdatedAt(Instant.now());
+      repository.save(job);
+    });
   }
 
   private PackingJobResponse toResponse(PackingJobEntity job) {
