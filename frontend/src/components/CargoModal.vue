@@ -42,10 +42,19 @@
             <option value="pallet">托盘/异形货</option>
           </select>
         </label>
-        <label>
-          显示颜色
-          <input v-model="model.color" type="color" />
-        </label>
+        <details class="color-options span-2">
+          <summary>
+            <span>颜色设置</span>
+            <em>{{ model.color ? "已自定义颜色" : "系统自动推荐颜色" }}</em>
+          </summary>
+          <div class="color-picker-row">
+            <label>
+              货物颜色
+              <input v-model="colorValue" type="color" />
+            </label>
+            <button type="button" @click="useAutoColor">使用系统推荐色</button>
+          </div>
+        </details>
         <div class="modal-actions span-2">
           <button type="button" @click="$emit('close')">取消</button>
           <button class="primary" type="submit">{{ model.id ? "保存修改" : "添加货物" }}</button>
@@ -56,13 +65,19 @@
 </template>
 
 <script setup>
-import { reactive, watch } from "vue";
+import { computed, reactive, watch } from "vue";
 import { uid } from "../utils/format";
 
 const props = defineProps({ cargo: { type: Object, default: null } });
 const emit = defineEmits(["close", "save"]);
 
 const model = reactive(defaultCargo());
+const colorValue = computed({
+  get: () => model.color || "#4e8fd0",
+  set: (value) => {
+    model.color = value;
+  }
+});
 
 watch(
   () => props.cargo,
@@ -80,8 +95,12 @@ function defaultCargo() {
     quantity: 10,
     weightKg: 12,
     type: "normal",
-    color: "#4e8fd0"
+    color: ""
   };
+}
+
+function useAutoColor() {
+  model.color = "";
 }
 
 function submit() {

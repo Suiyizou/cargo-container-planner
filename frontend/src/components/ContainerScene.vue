@@ -93,11 +93,16 @@ watch(
 
 function initScene() {
   scene = new THREE.Scene();
-  scene.background = new THREE.Color("#f6f8fb");
+  scene.background = new THREE.Color("#f8fafc");
+  scene.fog = new THREE.Fog("#f8fafc", 28, 54);
   camera = new THREE.PerspectiveCamera(40, 1, 0.1, 2000);
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.08;
   host.value.appendChild(renderer.domElement);
 
   controls = new OrbitControls(camera, renderer.domElement);
@@ -113,13 +118,25 @@ function initScene() {
   pointer = new THREE.Vector2();
   rootGroup = new THREE.Group();
   scene.add(rootGroup);
-  scene.add(new THREE.AmbientLight("#ffffff", 1.8));
-  const keyLight = new THREE.DirectionalLight("#ffffff", 2.2);
-  keyLight.position.set(8, 12, 10);
+  scene.add(new THREE.HemisphereLight("#ffffff", "#c6d2e0", 1.7));
+  const keyLight = new THREE.DirectionalLight("#ffffff", 2.35);
+  keyLight.position.set(10, 16, 12);
+  keyLight.castShadow = true;
+  keyLight.shadow.mapSize.width = 2048;
+  keyLight.shadow.mapSize.height = 2048;
+  keyLight.shadow.camera.near = 1;
+  keyLight.shadow.camera.far = 80;
+  keyLight.shadow.camera.left = -22;
+  keyLight.shadow.camera.right = 22;
+  keyLight.shadow.camera.top = 22;
+  keyLight.shadow.camera.bottom = -22;
   scene.add(keyLight);
-  const fillLight = new THREE.DirectionalLight("#d9eaff", 1.2);
-  fillLight.position.set(-10, 8, -8);
+  const fillLight = new THREE.DirectionalLight("#dbeafe", 1.05);
+  fillLight.position.set(-12, 10, -10);
   scene.add(fillLight);
+  const rimLight = new THREE.DirectionalLight("#ffffff", 0.75);
+  rimLight.position.set(-8, 5, 14);
+  scene.add(rimLight);
 
   resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(host.value);
@@ -165,31 +182,15 @@ function drawScene() {
     rootGroup.add(remain);
   }
 
-  visiblePlacements.value.forEach((item) => {
-    const geometry = new THREE.BoxGeometry(item.lengthCm, item.heightCm, item.widthCm);
-    const material = new THREE.MeshStandardMaterial({
-      color: item.color || "#4e8fd0",
-      roughness: 0.58,
-      metalness: 0.03,
-      transparent: true,
-      opacity: 0.88
-    });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.set(
+  visiblePlacements.value.forEach((item, index) => {
+    const cargoUnit = createCargoUnit(item, index);
+    cargoUnit.position.set(
       item.xCm + item.lengthCm / 2 - c.lengthCm / 2,
       item.zCm + item.heightCm / 2,
       item.yCm + item.widthCm / 2 - c.widthCm / 2
     );
-    mesh.userData.item = item;
-    rootGroup.add(mesh);
-    hoverMeshes.push(mesh);
-
-    const edge = new THREE.LineSegments(
-      new THREE.EdgesGeometry(geometry),
-      new THREE.LineBasicMaterial({ color: "#17385c", transparent: true, opacity: 0.45 })
-    );
-    edge.position.copy(mesh.position);
-    rootGroup.add(edge);
+    rootGroup.add(cargoUnit);
+    hoverMeshes.push(cargoUnit.userData.hitTarget);
   });
 
   addAxisFloor(c);
@@ -212,6 +213,51 @@ function showAll() {
   hideTooltip();
 }
 
+function createCargoUnit(item, index) {
+  const group = new THREE.Group();
+  const geometry = new THREE.BoxGeometry(item.lengthCm, item.heightCm, item.widthCm);
+  const baseColor = new THREE.Color(item.color || "#4e8fd0");
+  const bodyColor = cargoTone(baseColor, index);
+  const edgeColor = baseColor.clone().offsetHSL(0, -0.18, -0.2);
+  const topColor = baseColor.clone().offsetHSL(0, -0.08, 0.22);
+
+  const body = new THREE.Mesh(
+    geometry,
+    new THREE.MeshStandardMaterial({
+      color: bodyColor,
+      roughness: 0.66,
+      metalness: 0.04,
+      transparent: true,
+      opacity: 0.94
+    })
+  );
+  body.castShadow = true;
+  body.receiveShadow = true;
+  body.userData.item = item;
+  group.add(body);
+
+  const edge = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geometry),
+    new THREE.LineBasicMaterial({ color: edgeColor, transparent: true, opacity: 0.48 })
+  );
+  group.add(edge);
+
+  const topHighlight = new THREE.Mesh(
+    new THREE.PlaneGeometry(Math.max(1, item.lengthCm * 0.9), Math.max(1, item.widthCm * 0.9)),
+    new THREE.MeshBasicMaterial({ color: topColor, transparent: true, opacity: 0.22, depthWrite: false })
+  );
+  topHighlight.rotation.x = -Math.PI / 2;
+  topHighlight.position.y = item.heightCm / 2 + 0.08;
+  group.add(topHighlight);
+
+  group.userData.hitTarget = body;
+  return group;
+}
+
+function cargoTone(baseColor, index) {
+  return baseColor.clone().offsetHSL(0, -0.03, (index % 6) * 0.018 - 0.035);
+}
+
 function zoomIn() {
   dollyCamera(0.82);
 }
@@ -230,8 +276,23 @@ function dollyCamera(multiplier) {
 }
 
 function addAxisFloor(c) {
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(c.lengthCm, c.widthCm),
+    new THREE.MeshStandardMaterial({
+      color: "#eef7f3",
+      roughness: 0.88,
+      metalness: 0,
+      transparent: true,
+      opacity: 0.72
+    })
+  );
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.set(0, -0.34, 0);
+  floor.receiveShadow = true;
+  rootGroup.add(floor);
+
   const grid = new THREE.GridHelper(Math.max(c.lengthCm, c.widthCm), 12, "#9db7d6", "#d7e1ec");
-  grid.position.set(0, -0.2, 0);
+  grid.position.set(0, -0.28, 0);
   grid.scale.x = c.lengthCm / Math.max(c.lengthCm, c.widthCm);
   grid.scale.z = c.widthCm / Math.max(c.lengthCm, c.widthCm);
   rootGroup.add(grid);

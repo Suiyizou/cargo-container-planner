@@ -5,7 +5,7 @@ const TYPE_RULES = {
   pallet: { rotatable: false, nonStack: false, extraGapCm: 3 }
 };
 
-const COLORS = ["#ef7c2a", "#4e8fd0", "#8b62c8", "#25a389", "#d25f74", "#f2b13e", "#6da847", "#c96b36", "#5e77d6"];
+const COLORS = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3", "#ca8a04", "#475569"];
 
 self.onmessage = (event) => {
   const { id, payload } = event.data || {};

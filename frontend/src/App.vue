@@ -50,12 +50,12 @@
           <button class="primary wide" type="button" @click="openCargoModal()">录入货物</button>
           <div class="cargo-list">
             <div
-              v-for="cargo in cargos"
+              v-for="(cargo, index) in cargos"
               :key="cargo.id"
               class="cargo-item"
             >
               <button class="cargo-row" type="button" @click="openCargoModal(cargo)">
-                <i :style="{ background: cargo.color }"></i>
+                <i :style="{ background: cargo.color || systemColorFor(index) }"></i>
                 <span>
                   <strong>{{ cargo.name }}</strong>
                   <small>{{ cargo.lengthCm }} × {{ cargo.widthCm }} × {{ cargo.heightCm }} cm / {{ cargo.quantity }} 件</small>
@@ -177,7 +177,7 @@ import { cloneDefaultContainers } from "./services/localData";
 import { fmt, shortType, uid } from "./utils/format";
 
 const STORAGE_KEY = "cargo-planner-vue-state";
-const colors = ["#2b9a83", "#4f8ed1", "#8b62c8", "#ef7c2a", "#d25f74", "#72a447"];
+const colors = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3", "#ca8a04", "#475569"];
 
 const activePage = ref("planner");
 const cargos = ref([]);
@@ -311,7 +311,7 @@ function closeCargoModal() {
 function saveCargo(cargo) {
   const index = cargos.value.findIndex((item) => item.id === cargo.id);
   if (index >= 0) cargos.value.splice(index, 1, cargo);
-  else cargos.value.push({ ...cargo, color: cargo.color || colors[cargos.value.length % colors.length] });
+  else cargos.value.push(cargo);
   closeCargoModal();
 }
 
@@ -340,9 +340,9 @@ function resetContainers() {
 
 function loadSample(notify = true) {
   cargos.value = [
-    { id: uid("cargo"), name: "蝶阀木箱 A", lengthCm: 110, widthCm: 45, heightCm: 82, quantity: 8, weightKg: 180, type: "pallet", color: "#2b9a83" },
-    { id: uid("cargo"), name: "纸箱 B", lengthCm: 60, widthCm: 40, heightCm: 35, quantity: 30, weightKg: 12, type: "normal", color: "#4f8ed1" },
-    { id: uid("cargo"), name: "易碎品 C", lengthCm: 55, widthCm: 45, heightCm: 30, quantity: 12, weightKg: 18, type: "nonstack", color: "#8b62c8" }
+    { id: uid("cargo"), name: "蝶阀木箱 A", lengthCm: 110, widthCm: 45, heightCm: 82, quantity: 8, weightKg: 180, type: "pallet", color: systemColorFor(0) },
+    { id: uid("cargo"), name: "纸箱 B", lengthCm: 60, widthCm: 40, heightCm: 35, quantity: 30, weightKg: 12, type: "normal", color: systemColorFor(1) },
+    { id: uid("cargo"), name: "易碎品 C", lengthCm: 55, widthCm: 45, heightCm: 30, quantity: 12, weightKg: 18, type: "nonstack", color: systemColorFor(2) }
   ];
   if (notify) showToast("已套用示例货物。");
 }
@@ -384,7 +384,7 @@ function importCsv(event) {
         quantity: Number(item.quantity || 1),
         weightKg: Number(item.weightKg || 0),
         type: item.type || "normal",
-        color: item.color || colors[index % colors.length]
+        color: item.color || ""
       };
     });
     showToast("CSV 已导入。");
@@ -398,6 +398,10 @@ function containerIcon(name) {
   if (name.includes("45")) return "45";
   if (name.includes("40")) return "40";
   return "20";
+}
+
+function systemColorFor(index) {
+  return colors[index % colors.length];
 }
 
 function showToast(message) {
