@@ -6,6 +6,10 @@ const TYPE_RULES = {
 };
 
 const COLORS = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3", "#ca8a04", "#475569"];
+const MAX_EXHAUSTIVE_CANDIDATES = 1200;
+const MAX_BOUNDED_CANDIDATES = 320;
+const MAX_AXIS_VALUES = 8;
+const MAX_Z_LEVELS = 6;
 
 self.onmessage = (event) => {
   const { id, payload } = event.data || {};
@@ -33,9 +37,11 @@ function calculate(request) {
 function evaluateContainer(container, units, total, utilizationPercent) {
   const multi = packMultiple(container, units);
   const usableVolume = volumeM3(container) * utilizationPercent / 100;
-  const firstPackedVolume = multi.firstBox.placed.reduce((sum, unit) => sum + unit.volumeM3, 0);
-  const fillPercent = usableVolume > 0 ? firstPackedVolume / usableVolume * 100 : 0;
-  const remainingVolume = usableVolume - firstPackedVolume;
+  const firstPackedRawVolume = multi.firstBox.placed.reduce((sum, unit) => sum + unit.volumeM3, 0);
+  const firstPackedOccupiedVolume = multi.firstBox.placed.reduce((sum, unit) => sum + occupiedVolumeM3(unit), 0);
+  const fillPercent = usableVolume > 0 ? firstPackedOccupiedVolume / usableVolume * 100 : 0;
+  const rawFillPercent = usableVolume > 0 ? firstPackedRawVolume / usableVolume * 100 : 0;
+  const remainingVolume = usableVolume - firstPackedOccupiedVolume;
   const weightBoxes = container.payloadKg > 0 ? Math.ceil(total.totalWeightKg / container.payloadKg) : 0;
   const boxes = multi.fatalOversize ? -1 : Math.max(multi.boxes, weightBoxes);
 
@@ -49,7 +55,10 @@ function evaluateContainer(container, units, total, utilizationPercent) {
     totalRawVolumeM3: round(total.totalRawVolumeM3),
     totalWeightKg: round(total.totalWeightKg),
     firstBoxFillPercent: round(fillPercent),
+    firstBoxRawFillPercent: round(rawFillPercent),
+    firstBoxOccupiedVolumeM3: round(firstPackedOccupiedVolume),
     firstBoxRemainingVolumeM3: round(Math.max(0, remainingVolume)),
+    estimatedBoxes: multi.estimated,
     packedBoxes: multi.packedBoxes.map((box, index) => ({
       index: index + 1,
       placed: box.placed.map(toPlacementDto),
@@ -64,7 +73,9 @@ function packMultiple(container, allUnits) {
   let firstBox = { placed: [], unplaced: remaining };
   let fatalOversize = false;
   let boxes = 0;
-  const maxBoxes = 30;
+  let estimated = false;
+  const maxBoxes = 100;
+  const detailLimit = detailedBoxLimit(allUnits.length);
 
   while (remaining.length && boxes < maxBoxes) {
     const packed = packSingle(container, remaining);
@@ -77,14 +88,28 @@ function packMultiple(container, allUnits) {
     const placedIds = new Set(packed.placed.map((unit) => unit.unitKey));
     remaining = remaining.filter((unit) => !placedIds.has(unit.unitKey));
     boxes += 1;
+    if (remaining.length && boxes >= detailLimit) {
+      const averagePlaced = Math.max(1, Math.round(packedBoxes.reduce((sum, box) => sum + box.placed.length, 0) / packedBoxes.length));
+      boxes += Math.ceil(remaining.length / averagePlaced);
+      estimated = true;
+      remaining = [];
+      break;
+    }
   }
 
   return {
     boxes: remaining.length ? -1 : boxes,
     firstBox,
     packedBoxes,
+    estimated,
     fatalOversize: fatalOversize || remaining.length > 0
   };
+}
+
+function detailedBoxLimit(totalUnits) {
+  if (totalUnits > 180) return 1;
+  if (totalUnits > 100) return 2;
+  return 6;
 }
 
 function packSingle(container, units) {
@@ -104,7 +129,10 @@ function packSingle(container, units) {
       z: placement.z,
       lengthCm: placement.lengthCm,
       widthCm: placement.widthCm,
-      heightCm: placement.heightCm
+      heightCm: placement.heightCm,
+      lengthAxis: placement.lengthAxis,
+      widthAxis: placement.widthAxis,
+      heightAxis: placement.heightAxis
     });
   }
 
@@ -120,6 +148,7 @@ function findPlacement(unit, placed, container) {
       if (!hasSupport(position, dims, placed)) continue;
       const score = placementScore(position, dims, container);
       if (!best || score < best.score) best = { ...position, ...dims, score };
+      break;
     }
   }
   return best;
@@ -129,6 +158,10 @@ function candidatePositions(placed, container, dims) {
   const xs = uniqueSorted(placed.map((unit) => unit.x + unit.lengthCm), 0);
   const ys = uniqueSorted(placed.map((unit) => unit.y + unit.widthCm), 0);
   const zs = uniqueSorted(placed.map((unit) => unit.z + unit.heightCm), 0);
+  const possibleCount = xs.length * ys.length * zs.length;
+  if (possibleCount > MAX_EXHAUSTIVE_CANDIDATES) {
+    return boundedCandidatePositions(placed, container, dims, xs, ys, zs);
+  }
   const points = [];
   for (const z of zs) {
     if (z + dims.heightCm > container.heightCm + 0.0001) continue;
@@ -139,7 +172,42 @@ function candidatePositions(placed, container, dims) {
       }
     }
   }
-  return points;
+  return points.sort((a, b) => placementScore(a, dims, container) - placementScore(b, dims, container));
+}
+
+function boundedCandidatePositions(placed, container, dims, xs, ys, zs) {
+  const points = new Map();
+  const add = (x, y, z) => {
+    if (x < -0.0001 || y < -0.0001 || z < -0.0001) return;
+    if (x + dims.lengthCm > container.lengthCm + 0.0001) return;
+    if (y + dims.widthCm > container.widthCm + 0.0001) return;
+    if (z + dims.heightCm > container.heightCm + 0.0001) return;
+    const point = { x: round3(x), y: round3(y), z: round3(z) };
+    points.set(`${point.x}/${point.y}/${point.z}`, point);
+  };
+
+  add(0, 0, 0);
+  for (const box of placed) {
+    add(box.x + box.lengthCm, box.y, box.z);
+    add(box.x, box.y + box.widthCm, box.z);
+    add(box.x, box.y, box.z + box.heightCm);
+    add(box.x + box.lengthCm, box.y + box.widthCm, box.z);
+    add(box.x + box.lengthCm, box.y, box.z + box.heightCm);
+    add(box.x, box.y + box.widthCm, box.z + box.heightCm);
+  }
+
+  const limitedXs = xs.filter((x) => x + dims.lengthCm <= container.lengthCm + 0.0001).slice(0, MAX_AXIS_VALUES);
+  const limitedYs = ys.filter((y) => y + dims.widthCm <= container.widthCm + 0.0001).slice(0, MAX_AXIS_VALUES);
+  const limitedZs = zs.filter((z) => z + dims.heightCm <= container.heightCm + 0.0001).slice(0, MAX_Z_LEVELS);
+  for (const z of limitedZs) {
+    for (const y of limitedYs) {
+      for (const x of limitedXs) add(x, y, z);
+    }
+  }
+
+  return [...points.values()]
+    .sort((a, b) => placementScore(a, dims, container) - placementScore(b, dims, container))
+    .slice(0, MAX_BOUNDED_CANDIDATES);
 }
 
 function fitsAt(position, dims, placed, container) {
@@ -219,14 +287,21 @@ function placementScore(position, dims, container) {
 }
 
 function orientations(unit) {
-  const result = [{ lengthCm: unit.lengthCm, widthCm: unit.widthCm, heightCm: unit.heightCm }];
+  const result = [{
+    lengthCm: unit.lengthCm,
+    widthCm: unit.widthCm,
+    heightCm: unit.heightCm,
+    lengthAxis: "长",
+    widthAxis: "宽",
+    heightAxis: "高"
+  }];
   if (unit.rotatable) {
     result.push(
-      { lengthCm: unit.widthCm, widthCm: unit.lengthCm, heightCm: unit.heightCm },
-      { lengthCm: unit.lengthCm, widthCm: unit.heightCm, heightCm: unit.widthCm },
-      { lengthCm: unit.heightCm, widthCm: unit.lengthCm, heightCm: unit.widthCm },
-      { lengthCm: unit.widthCm, widthCm: unit.heightCm, heightCm: unit.lengthCm },
-      { lengthCm: unit.heightCm, widthCm: unit.widthCm, heightCm: unit.lengthCm }
+      { lengthCm: unit.widthCm, widthCm: unit.lengthCm, heightCm: unit.heightCm, lengthAxis: "宽", widthAxis: "长", heightAxis: "高" },
+      { lengthCm: unit.lengthCm, widthCm: unit.heightCm, heightCm: unit.widthCm, lengthAxis: "长", widthAxis: "高", heightAxis: "宽" },
+      { lengthCm: unit.heightCm, widthCm: unit.lengthCm, heightCm: unit.widthCm, lengthAxis: "高", widthAxis: "长", heightAxis: "宽" },
+      { lengthCm: unit.widthCm, widthCm: unit.heightCm, heightCm: unit.lengthCm, lengthAxis: "宽", widthAxis: "高", heightAxis: "长" },
+      { lengthCm: unit.heightCm, widthCm: unit.widthCm, heightCm: unit.lengthCm, lengthAxis: "高", widthAxis: "宽", heightAxis: "长" }
     );
   }
   const seen = new Set();
@@ -299,6 +374,9 @@ function toPlacementDto(unit) {
     lengthCm: round(unit.lengthCm),
     widthCm: round(unit.widthCm),
     heightCm: round(unit.heightCm),
+    bottomFace: `${unit.lengthAxis || "长"}×${unit.widthAxis || "宽"}`,
+    heightAxis: unit.heightAxis || "高",
+    orientationLabel: `底面 ${unit.lengthAxis || "长"}×${unit.widthAxis || "宽"} / 高度 ${unit.heightAxis || "高"}`,
     xCm: round(unit.x),
     yCm: round(unit.y),
     zCm: round(unit.z),
@@ -309,6 +387,10 @@ function toPlacementDto(unit) {
 
 function volumeM3(container) {
   return Number(container.lengthCm) * Number(container.widthCm) * Number(container.heightCm) / 1_000_000;
+}
+
+function occupiedVolumeM3(unit) {
+  return Number(unit.lengthCm) * Number(unit.widthCm) * Number(unit.heightCm) / 1_000_000;
 }
 
 function safeUtilizationPercent(value) {

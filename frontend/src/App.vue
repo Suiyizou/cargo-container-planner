@@ -77,13 +77,13 @@
             <strong>{{ selectedEvaluation?.container?.name || "等待计算" }}</strong>
           </div>
           <div class="metric-grid">
-            <div><span>预计箱数</span><strong>{{ selectedEvaluation?.boxes > 0 ? selectedEvaluation.boxes : "-" }}</strong></div>
-            <div><span>首箱利用率</span><strong>{{ fmt(selectedEvaluation?.firstBoxFillPercent, 1) }}%</strong></div>
+            <div><span>预计箱数</span><strong>{{ selectedEvaluation?.boxes > 0 ? `${selectedEvaluation.estimatedBoxes ? "约 " : ""}${selectedEvaluation.boxes}` : "-" }}</strong></div>
+            <div><span>首箱空间占用</span><strong>{{ fmt(selectedEvaluation?.firstBoxFillPercent, 1) }}%</strong></div>
             <div><span>总体积</span><strong>{{ fmt(selectedEvaluation?.totalRawVolumeM3, 2) }} m³</strong></div>
             <div><span>总重量</span><strong>{{ fmt((selectedEvaluation?.totalWeightKg || 0) / 1000, 2) }} t</strong></div>
           </div>
           <div class="box-switch" v-if="selectedEvaluation?.packedBoxes?.length > 1">
-            <span>显示货舱</span>
+            <span>{{ selectedEvaluation?.estimatedBoxes ? "显示已详算货舱" : "显示货舱" }}</span>
             <button
               v-for="box in selectedEvaluation.packedBoxes"
               :key="box.index"
@@ -118,8 +118,8 @@
               <span class="container-icon">{{ containerIcon(evaluation.container.name) }}</span>
               <strong>{{ evaluation.container.name }}</strong>
               <small>{{ evaluation.container.lengthCm }} × {{ evaluation.container.widthCm }} × {{ evaluation.container.heightCm }} cm</small>
-              <b>{{ evaluation.boxes > 0 ? `${evaluation.boxes} 箱` : "不可装" }}</b>
-              <em>利用率 {{ fmt(evaluation.firstBoxFillPercent, 1) }}%</em>
+              <b>{{ evaluation.boxes > 0 ? `${evaluation.estimatedBoxes ? "约 " : ""}${evaluation.boxes} 箱` : "不可装" }}</b>
+              <em>占用率 {{ fmt(evaluation.firstBoxFillPercent, 1) }}%</em>
             </button>
           </div>
         </section>
@@ -132,6 +132,8 @@
             </div>
             <div class="view-actions">
               <label><input v-model="showRemaining" type="checkbox" /> 显示剩余空间</label>
+              <button type="button" :disabled="exportingReport || loading || !selectedPlacements.length" @click="exportCurrentReport('png')">导出图片</button>
+              <button type="button" :disabled="exportingReport || loading || !selectedPlacements.length" @click="exportCurrentReport('pdf')">导出 PDF</button>
               <button type="button" @click="recalculate">重新计算</button>
             </div>
           </div>
@@ -172,6 +174,7 @@ import CargoModal from "./components/CargoModal.vue";
 import ContainerModal from "./components/ContainerModal.vue";
 import ContainerScene from "./components/ContainerScene.vue";
 import ProjectionCanvas from "./components/ProjectionCanvas.vue";
+import { exportPackingReport } from "./services/exportReport";
 import { calculatePacking } from "./services/packingClient";
 import { cloneDefaultContainers } from "./services/localData";
 import { fmt, shortType, uid } from "./utils/format";
@@ -194,6 +197,7 @@ const cargoModalOpen = ref(false);
 const containerModalOpen = ref(false);
 const editingCargo = ref(null);
 const menuOpen = ref(false);
+const exportingReport = ref(false);
 const toast = ref("");
 const apiStatus = ref("本机计算");
 
@@ -363,6 +367,32 @@ function exportCsv() {
   a.download = "cargo-list.csv";
   a.click();
   URL.revokeObjectURL(url);
+}
+
+async function exportCurrentReport(format) {
+  if (!selectedContainer.value || !selectedPlacements.value.length) {
+    showToast("当前没有可导出的摆放结果。");
+    return;
+  }
+  exportingReport.value = true;
+  showToast(format === "pdf" ? "正在生成 PDF 报告..." : "正在生成剖析图片...");
+  try {
+    await exportPackingReport({
+      format,
+      container: selectedContainer.value,
+      evaluation: selectedEvaluation.value,
+      placements: selectedPlacements.value,
+      cargos: cargos.value,
+      boxIndex: selectedBoxIndex.value,
+      utilizationPercent: utilizationPercent.value,
+      globalGapCm: globalGapCm.value
+    });
+    showToast(format === "pdf" ? "PDF 已导出。" : "图片已导出。");
+  } catch (error) {
+    showToast(error.message || "导出失败，请稍后重试。");
+  } finally {
+    exportingReport.value = false;
+  }
 }
 
 function importCsv(event) {

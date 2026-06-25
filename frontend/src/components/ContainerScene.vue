@@ -30,6 +30,7 @@
     <div v-if="tooltip.visible" class="scene-tooltip" :style="{ left: `${tooltip.x}px`, top: `${tooltip.y}px` }">
       <strong>{{ tooltip.item.name }}</strong>
       <span>{{ tooltip.item.lengthCm }} × {{ tooltip.item.widthCm }} × {{ tooltip.item.heightCm }} cm</span>
+      <span>底面 {{ tooltip.item.bottomFace || "长×宽" }} · 高度 {{ tooltip.item.heightAxis || "高" }}</span>
       <span>位置 X{{ tooltip.item.xCm }} / Y{{ tooltip.item.yCm }} / Z{{ tooltip.item.zCm }} cm</span>
       <span>类型 {{ tooltip.item.type }} · {{ tooltip.item.weightKg }} kg</span>
     </div>

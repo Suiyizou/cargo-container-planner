@@ -14,7 +14,7 @@ export function calculatePacking(payload) {
     const timer = window.setTimeout(() => {
       cleanup();
       reject(new Error("本机计算超时，请减少货物数量或拆分批次计算。"));
-    }, 30000);
+    }, 60000);
 
     currentWorker.onmessage = (event) => {
       const { id, type, result, message } = event.data || {};
