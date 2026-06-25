@@ -4,16 +4,27 @@
       <button type="button" @click="resetCamera">重置视角</button>
       <button type="button" @click="setTopView">俯视</button>
       <button type="button" @click="setFrontView">正视</button>
+      <button type="button" @click="zoomIn">放大</button>
+      <button type="button" @click="zoomOut">缩小</button>
     </div>
     <div class="dimension-card" v-if="container">
       <strong>{{ container.name }}</strong>
       <span>长 {{ container.lengthCm }} cm · 宽 {{ container.widthCm }} cm · 高 {{ container.heightCm }} cm</span>
       <span>载重 {{ (container.payloadKg / 1000).toFixed(2) }} t</span>
     </div>
-    <div class="legend" v-if="legend.length">
-      <span v-for="item in legend" :key="item.name">
-        <i :style="{ background: item.color }"></i>{{ item.name }}
-      </span>
+    <div class="legend interactive" v-if="legend.length">
+      <button
+        v-for="item in legend"
+        :key="item.name"
+        :class="{ muted: isHidden(item.name) }"
+        type="button"
+        @click="toggleLegend(item.name)"
+      >
+        <i :style="{ background: item.color }"></i>
+        <span>{{ item.name }}</span>
+        <em>{{ isHidden(item.name) ? "隐藏" : "显示" }}</em>
+      </button>
+      <button v-if="hiddenNames.length" class="legend-reset" type="button" @click="showAll">全部显示</button>
       <span v-if="showRemaining"><i class="remain"></i>剩余空间</span>
     </div>
     <div v-if="tooltip.visible" class="scene-tooltip" :style="{ left: `${tooltip.x}px`, top: `${tooltip.y}px` }">
@@ -39,6 +50,7 @@ const props = defineProps({
 
 const host = ref(null);
 const tooltip = reactive({ visible: false, x: 0, y: 0, item: {} });
+const hiddenNames = ref([]);
 const legend = computed(() => {
   const map = new Map();
   props.placements.forEach((item) => {
@@ -46,6 +58,7 @@ const legend = computed(() => {
   });
   return [...map.entries()].map(([name, color]) => ({ name, color }));
 });
+const visiblePlacements = computed(() => props.placements.filter((item) => !isHidden(item.name)));
 
 let scene;
 let camera;
@@ -73,7 +86,7 @@ onBeforeUnmount(() => {
 });
 
 watch(
-  () => [props.container, props.placements, props.showRemaining],
+  () => [props.container, props.showRemaining, visiblePlacements.value],
   () => drawScene(),
   { deep: true }
 );
@@ -89,9 +102,12 @@ function initScene() {
 
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
-  controls.enableZoom = false;
+  controls.enableZoom = true;
   controls.enablePan = true;
+  controls.minDistance = 4;
+  controls.maxDistance = 34;
   controls.rotateSpeed = 0.75;
+  controls.zoomSpeed = 0.85;
 
   raycaster = new THREE.Raycaster();
   pointer = new THREE.Vector2();
@@ -149,7 +165,7 @@ function drawScene() {
     rootGroup.add(remain);
   }
 
-  props.placements.forEach((item) => {
+  visiblePlacements.value.forEach((item) => {
     const geometry = new THREE.BoxGeometry(item.lengthCm, item.heightCm, item.widthCm);
     const material = new THREE.MeshStandardMaterial({
       color: item.color || "#4e8fd0",
@@ -178,6 +194,39 @@ function drawScene() {
 
   addAxisFloor(c);
   resetCamera();
+}
+
+function toggleLegend(name) {
+  hiddenNames.value = isHidden(name)
+    ? hiddenNames.value.filter((item) => item !== name)
+    : [...hiddenNames.value, name];
+  hideTooltip();
+}
+
+function isHidden(name) {
+  return hiddenNames.value.includes(name);
+}
+
+function showAll() {
+  hiddenNames.value = [];
+  hideTooltip();
+}
+
+function zoomIn() {
+  dollyCamera(0.82);
+}
+
+function zoomOut() {
+  dollyCamera(1.18);
+}
+
+function dollyCamera(multiplier) {
+  if (!camera || !controls) return;
+  const direction = new THREE.Vector3().subVectors(camera.position, controls.target);
+  const nextLength = THREE.MathUtils.clamp(direction.length() * multiplier, controls.minDistance, controls.maxDistance);
+  direction.setLength(nextLength);
+  camera.position.copy(controls.target).add(direction);
+  controls.update();
 }
 
 function addAxisFloor(c) {

@@ -49,19 +49,20 @@
           </div>
           <button class="primary wide" type="button" @click="openCargoModal()">录入货物</button>
           <div class="cargo-list">
-            <button
+            <div
               v-for="cargo in cargos"
               :key="cargo.id"
-              class="cargo-row"
-              type="button"
-              @click="openCargoModal(cargo)"
+              class="cargo-item"
             >
-              <i :style="{ background: cargo.color }"></i>
-              <span>
-                <strong>{{ cargo.name }}</strong>
-                <small>{{ cargo.lengthCm }} × {{ cargo.widthCm }} × {{ cargo.heightCm }} cm / {{ cargo.quantity }} 件</small>
-              </span>
-            </button>
+              <button class="cargo-row" type="button" @click="openCargoModal(cargo)">
+                <i :style="{ background: cargo.color }"></i>
+                <span>
+                  <strong>{{ cargo.name }}</strong>
+                  <small>{{ cargo.lengthCm }} × {{ cargo.widthCm }} × {{ cargo.heightCm }} cm / {{ cargo.quantity }} 件</small>
+                </span>
+              </button>
+              <button class="danger ghost" type="button" @click="deleteCargo(cargo.id, cargo.name)">删除</button>
+            </div>
             <p v-if="!cargos.length" class="empty">还没有录入货物，先添加一类货物开始计算。</p>
           </div>
         </section>
@@ -323,6 +324,13 @@ function saveCargo(cargo) {
   if (index >= 0) cargos.value.splice(index, 1, cargo);
   else cargos.value.push({ ...cargo, color: cargo.color || colors[cargos.value.length % colors.length] });
   closeCargoModal();
+}
+
+function deleteCargo(id, name) {
+  if (!window.confirm(`确认删除「${name}」吗？`)) return;
+  cargos.value = cargos.value.filter((item) => item.id !== id);
+  if (!cargos.value.length) result.value = null;
+  showToast("已删除货物。");
 }
 
 function openContainerModal() {

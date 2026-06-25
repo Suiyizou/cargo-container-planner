@@ -42,6 +42,15 @@ button.active {
   color: #fff;
 }
 
+button.danger {
+  color: #a33a3a;
+  border-color: #d6b7b7;
+}
+
+button.ghost {
+  background: #fff;
+}
+
 button.wide {
   width: 100%;
 }
@@ -216,6 +225,12 @@ select {
   overflow: auto;
 }
 
+.cargo-item {
+  display: grid;
+  grid-template-columns: 1fr 64px;
+  gap: 8px;
+}
+
 .cargo-row {
   display: grid;
   grid-template-columns: 14px 1fr;
@@ -223,6 +238,8 @@ select {
   gap: 10px;
   text-align: left;
   color: #172235;
+  width: 100%;
+  min-width: 0;
 }
 
 .cargo-row i {
@@ -418,8 +435,10 @@ select {
   top: 14px;
   left: 14px;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 8px;
+  max-width: calc(100% - 300px);
 }
 
 .dimension-card {
@@ -441,15 +460,45 @@ select {
   bottom: 14px;
   display: flex;
   flex-wrap: wrap;
-  gap: 10px 16px;
-  max-width: 60%;
-  padding: 10px 12px;
+  gap: 8px;
+  max-width: 70%;
+  padding: 8px;
 }
 
-.legend span {
+.legend span,
+.legend button {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.legend button {
+  min-height: 30px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  color: #234866;
+  background: #fff;
+}
+
+.legend button.muted {
+  color: #7e8b9a;
+  background: #eef2f6;
+  text-decoration: line-through;
+}
+
+.legend button.muted i {
+  opacity: 0.35;
+}
+
+.legend button em {
+  color: #6c7f94;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.legend .legend-reset {
+  color: #1f6fbe;
+  border-color: #9dc2eb;
 }
 
 .legend i {
