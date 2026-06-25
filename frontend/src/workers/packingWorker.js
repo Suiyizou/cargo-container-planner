@@ -10,6 +10,13 @@ const MAX_EXHAUSTIVE_CANDIDATES = 1200;
 const MAX_BOUNDED_CANDIDATES = 320;
 const MAX_AXIS_VALUES = 8;
 const MAX_Z_LEVELS = 6;
+const SUPPORT_RATIO = 0.985;
+const ORDER_STRATEGIES = [
+  { id: "support-first", name: "承重优先：可堆放货物先铺底，不可重压货物后上层" },
+  { id: "volume-desc", name: "体积优先：含间隙体积从大到小" },
+  { id: "footprint-desc", name: "底面积优先：更大底面先形成支撑面" },
+  { id: "height-desc", name: "高度优先：高件先定位" }
+];
 
 self.onmessage = (event) => {
   const { id, payload } = event.data || {};
@@ -22,11 +29,12 @@ self.onmessage = (event) => {
 };
 
 function calculate(request) {
-  const units = expandUnits(request.cargos || [], safeGlobalGapCm(request.globalGapCm));
+  const globalGapCm = safeGlobalGapCm(request.globalGapCm);
+  const units = expandUnits(request.cargos || [], globalGapCm);
   const total = totals(request.cargos || []);
   const utilization = safeUtilizationPercent(request.utilizationPercent);
   const evaluations = (request.containers || [])
-    .map((container) => evaluateContainer(container, units, total, utilization))
+    .map((container) => evaluateContainer(container, units, total, utilization, globalGapCm))
     .sort(compareEvaluation);
   return {
     bestContainerId: evaluations[0]?.container.id || null,
@@ -34,7 +42,7 @@ function calculate(request) {
   };
 }
 
-function evaluateContainer(container, units, total, utilizationPercent) {
+function evaluateContainer(container, units, total, utilizationPercent, globalGapCm) {
   const multi = packMultiple(container, units);
   const usableVolume = volumeM3(container) * utilizationPercent / 100;
   const firstPackedRawVolume = multi.firstBox.placed.reduce((sum, unit) => sum + unit.volumeM3, 0);
@@ -59,8 +67,23 @@ function evaluateContainer(container, units, total, utilizationPercent) {
     firstBoxOccupiedVolumeM3: round(firstPackedOccupiedVolume),
     firstBoxRemainingVolumeM3: round(Math.max(0, remainingVolume)),
     estimatedBoxes: multi.estimated,
+    trace: buildTrace(container, units, total, multi, {
+      utilizationPercent,
+      globalGapCm,
+      usableVolume,
+      firstPackedRawVolume,
+      firstPackedOccupiedVolume,
+      fillPercent,
+      rawFillPercent,
+      remainingVolume,
+      weightBoxes,
+      boxes
+    }),
     packedBoxes: multi.packedBoxes.map((box, index) => ({
       index: index + 1,
+      strategyId: box.strategyId,
+      strategyName: box.strategyName,
+      strategySummary: box.strategySummary,
       placed: box.placed.map(toPlacementDto),
       unplacedUnitKeys: box.unplaced.map((unit) => unit.unitKey)
     }))
@@ -113,6 +136,11 @@ function detailedBoxLimit(totalUnits) {
 }
 
 function packSingle(container, units) {
+  const attempts = ORDER_STRATEGIES.map((strategy) => packSingleWithOrder(container, orderUnits(units, strategy.id), strategy));
+  return attempts.sort(comparePackAttempt(container))[0] || { placed: [], unplaced: units, strategyId: "none", strategyName: "无可行摆放" };
+}
+
+function packSingleWithOrder(container, units, strategy) {
   const placed = [];
   const unplaced = [];
 
@@ -136,7 +164,18 @@ function packSingle(container, units) {
     });
   }
 
-  return { placed, unplaced };
+  return {
+    placed,
+    unplaced,
+    strategyId: strategy.id,
+    strategyName: strategy.name,
+    strategySummary: {
+      placedCount: placed.length,
+      unplacedCount: unplaced.length,
+      occupiedVolumeM3: round(placed.reduce((sum, unit) => sum + occupiedVolumeM3(unit), 0)),
+      maxTopCm: round(maxTop(placed))
+    }
+  };
 }
 
 function findPlacement(unit, placed, container) {
@@ -233,7 +272,7 @@ function hasSupport(position, dims, placed) {
     .map((box) => overlapRect(target, { x: box.x, y: box.y, lengthCm: box.lengthCm, widthCm: box.widthCm }))
     .filter(Boolean);
   if (!supports.length) return false;
-  return unionArea(supports) >= dims.lengthCm * dims.widthCm * 0.985;
+  return unionArea(supports) >= dims.lengthCm * dims.widthCm * SUPPORT_RATIO;
 }
 
 function overlapRect(a, b) {
@@ -286,6 +325,69 @@ function placementScore(position, dims, container) {
   return top * 1_000_000 + front * 1_000 + right + (container.lengthCm - right) * 0.01;
 }
 
+function orderUnits(units, strategyId) {
+  return [...units].sort((a, b) => {
+    if (strategyId === "support-first" && a.nonStack !== b.nonStack) return a.nonStack ? 1 : -1;
+    if (strategyId === "footprint-desc") {
+      const areaDiff = unitFootprintCm2(b) - unitFootprintCm2(a);
+      if (Math.abs(areaDiff) > 0.0001) return areaDiff;
+    } else if (strategyId === "height-desc") {
+      const heightDiff = b.heightCm - a.heightCm;
+      if (Math.abs(heightDiff) > 0.0001) return heightDiff;
+    }
+    const volumeDiff = unitVolumeCm3(b) - unitVolumeCm3(a);
+    if (Math.abs(volumeDiff) > 0.0001) return volumeDiff;
+    const areaDiff = unitFootprintCm2(b) - unitFootprintCm2(a);
+    if (Math.abs(areaDiff) > 0.0001) return areaDiff;
+    if (a.cargoIndex !== b.cargoIndex) return a.cargoIndex - b.cargoIndex;
+    return a.itemIndex - b.itemIndex;
+  });
+}
+
+function comparePackAttempt(container) {
+  return (a, b) => {
+    if (a.placed.length !== b.placed.length) return b.placed.length - a.placed.length;
+    const occupiedDiff = sumOccupiedVolumeM3(b.placed) - sumOccupiedVolumeM3(a.placed);
+    if (Math.abs(occupiedDiff) > 0.0001) return occupiedDiff;
+    const rawDiff = sumRawVolumeM3(b.placed) - sumRawVolumeM3(a.placed);
+    if (Math.abs(rawDiff) > 0.0001) return rawDiff;
+    const supportDiff = supportSurfaceScore(b.placed, container) - supportSurfaceScore(a.placed, container);
+    if (Math.abs(supportDiff) > 0.0001) return supportDiff;
+    return maxTop(a.placed) - maxTop(b.placed);
+  };
+}
+
+function supportSurfaceScore(placed, container) {
+  if (!placed.length) return 0;
+  return placed
+    .filter((unit) => !unit.nonStack)
+    .reduce((score, unit) => {
+      const top = unit.z + unit.heightCm;
+      const normalizedHeight = container.heightCm > 0 ? 1 - top / container.heightCm : 0;
+      return score + unit.lengthCm * unit.widthCm * Math.max(0, normalizedHeight);
+    }, 0);
+}
+
+function unitVolumeCm3(unit) {
+  return Number(unit.lengthCm || 0) * Number(unit.widthCm || 0) * Number(unit.heightCm || 0);
+}
+
+function unitFootprintCm2(unit) {
+  return Number(unit.lengthCm || 0) * Number(unit.widthCm || 0);
+}
+
+function sumOccupiedVolumeM3(units) {
+  return units.reduce((sum, unit) => sum + occupiedVolumeM3(unit), 0);
+}
+
+function sumRawVolumeM3(units) {
+  return units.reduce((sum, unit) => sum + Number(unit.volumeM3 || 0), 0);
+}
+
+function maxTop(units) {
+  return units.length ? Math.max(...units.map((unit) => Number(unit.z || 0) + Number(unit.heightCm || 0))) : 0;
+}
+
 function orientations(unit) {
   const result = [{
     lengthCm: unit.lengthCm,
@@ -323,6 +425,8 @@ function expandUnits(cargos, globalGapCm) {
       units.push({
         unitKey: `${cargoId}-${i}`,
         cargoId,
+        cargoIndex,
+        itemIndex: i,
         name: cargo.name,
         color: cargo.color || COLORS[cargoIndex % COLORS.length],
         type: cargo.type || "normal",
@@ -338,12 +442,14 @@ function expandUnits(cargos, globalGapCm) {
         weightKg: Number(cargo.weightKg || 0),
         rotatable: rule.rotatable,
         nonStack: rule.nonStack,
+        extraGapCm: rule.extraGapCm,
+        globalGapCm,
+        gapCm: gap,
         volumeM3: Number(cargo.lengthCm) * Number(cargo.widthCm) * Number(cargo.heightCm) / 1_000_000
       });
     }
   });
-  units.sort((a, b) => b.lengthCm * b.widthCm * b.heightCm - a.lengthCm * a.widthCm * a.heightCm);
-  return units;
+  return orderUnits(units, "support-first");
 }
 
 function totals(cargos) {
@@ -359,6 +465,81 @@ function compareEvaluation(a, b) {
   if (a.boxes !== b.boxes) return a.boxes - b.boxes;
   if (b.firstBoxFillPercent !== a.firstBoxFillPercent) return b.firstBoxFillPercent - a.firstBoxFillPercent;
   return volumeM3(a.container) - volumeM3(b.container);
+}
+
+function buildTrace(container, units, total, multi, metrics) {
+  const firstBox = multi.firstBox || { placed: [], unplaced: [] };
+  const containerVolume = volumeM3(container);
+  return {
+    worker: "frontend/src/workers/packingWorker.js",
+    mode: "Browser WebWorker 本机计算",
+    pipeline: [
+      "主线程把货物、箱型、计划可用率、货物间隙复制给 Web Worker",
+      "Worker 将每类货物按数量展开为单件，并把全局间隙、类型额外间隙计入外廓尺寸",
+      "每个箱型独立试算；每个货舱会尝试多种摆放顺序，而不是只按体积排序",
+      "每件货物枚举允许的旋转方向，再扫描候选坐标，满足边界、不相交、支撑面后落位",
+      "同一货舱选择已摆数量更多、占用体积更高、可承重支撑面更好的方案",
+      "所有箱型按箱数更少、首箱占用更高、箱型体积更小排序推荐"
+    ],
+    strategies: ORDER_STRATEGIES.map((strategy) => strategy.name),
+    selectedStrategy: firstBox.strategyName || "",
+    supportRatioPercent: round(SUPPORT_RATIO * 100),
+    parameters: {
+      utilizationPercent: metrics.utilizationPercent,
+      globalGapCm: metrics.globalGapCm,
+      unitCount: units.length,
+      cargoTypeCounts: countBy(units, "type")
+    },
+    formulas: [
+      "单件原始体积(m³) = 长 × 宽 × 高 ÷ 1,000,000",
+      "计入间隙尺寸(cm) = 原始尺寸 + 全局货物间隙 + 类型额外间隙",
+      "单件占用体积(m³) = 计入间隙长 × 计入间隙宽 × 计入间隙高 ÷ 1,000,000",
+      "箱体体积(m³) = 箱长 × 箱宽 × 箱高 ÷ 1,000,000",
+      "计划可用体积(m³) = 箱体体积 × 计划可用率",
+      "首箱空间占用率 = 首箱已摆放占用体积 ÷ 计划可用体积 × 100%",
+      "重量箱数 = ceil(总重量 ÷ 箱型载重)",
+      "推荐箱数 = max(几何装箱箱数, 重量箱数)",
+      "上层支撑条件 = 下方可承重重叠面积 ÷ 当前底面积 ≥ 98.5%"
+    ],
+    current: {
+      containerName: container.name,
+      containerVolumeM3: round(containerVolume),
+      usableVolumeM3: round(metrics.usableVolume),
+      totalRawVolumeM3: round(total.totalRawVolumeM3),
+      totalWeightKg: round(total.totalWeightKg),
+      firstBoxRawVolumeM3: round(metrics.firstPackedRawVolume),
+      firstBoxOccupiedVolumeM3: round(metrics.firstPackedOccupiedVolume),
+      firstBoxRemainingVolumeM3: round(Math.max(0, metrics.remainingVolume)),
+      firstBoxFillPercent: round(metrics.fillPercent),
+      firstBoxRawFillPercent: round(metrics.rawFillPercent),
+      geometryBoxes: multi.boxes,
+      weightBoxes: metrics.weightBoxes,
+      finalBoxes: metrics.boxes
+    },
+    firstBox: {
+      placedCount: firstBox.placed.length,
+      unplacedCount: firstBox.unplaced.length,
+      maxTopCm: round(maxTop(firstBox.placed)),
+      strategyId: firstBox.strategyId || "",
+      strategyName: firstBox.strategyName || ""
+    },
+    boxStrategies: multi.packedBoxes.map((box, index) => ({
+      boxIndex: index + 1,
+      strategyName: box.strategyName || "",
+      placedCount: box.placed.length,
+      unplacedCount: box.unplaced.length,
+      occupiedVolumeM3: round(sumOccupiedVolumeM3(box.placed)),
+      maxTopCm: round(maxTop(box.placed))
+    }))
+  };
+}
+
+function countBy(items, key) {
+  return items.reduce((acc, item) => {
+    const value = item[key] || "unknown";
+    acc[value] = (acc[value] || 0) + 1;
+    return acc;
+  }, {});
 }
 
 function toPlacementDto(unit) {

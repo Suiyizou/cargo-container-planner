@@ -159,7 +159,10 @@
       </section>
     </main>
 
-    <AlgorithmPage v-else />
+    <AlgorithmPage
+      v-else
+      :evaluation="selectedEvaluation"
+    />
 
     <CargoModal v-if="cargoModalOpen" :cargo="editingCargo" @close="closeCargoModal" @save="saveCargo" />
     <ContainerModal v-if="containerModalOpen" @close="containerModalOpen = false" @save="saveContainer" />
