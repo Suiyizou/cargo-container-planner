@@ -73,7 +73,7 @@ function drawHeader(ctx, options, catalog, layers) {
   ctx.fillText("装箱分层剖析图", 132, 68);
   ctx.fillStyle = "#52657b";
   ctx.font = "400 18px Microsoft YaHei, Arial";
-  ctx.fillText("整体俯视 + 分层俯视 + 分层 45° 斜视，颜色和编号对应当前录入货物顺序", 134, 104);
+  ctx.fillText("整体俯视 + 分层俯视 + 分层侧视，XYZ 标注对应箱体长宽高方向", 134, 104);
 
   const rightX = 1240;
   ctx.fillStyle = "#174a7f";
@@ -115,7 +115,7 @@ function drawLegend(ctx, x, y, width, height, catalog) {
   ctx.fillText("货物编号与颜色图例", x + 24, y + 32);
   ctx.fillStyle = "#64748b";
   ctx.font = "400 15px Microsoft YaHei, Arial";
-  ctx.fillText("图中 #编号 对应货物；X向/Y向表示货物原始哪条边落在箱体长/宽方向。", x + 250, y + 32);
+  ctx.fillText("图中 #编号 对应货物；俯视图标注 X/Y 底面边，侧视图标注 X/Z，高度与底面方向在本层统计中完整列出。", x + 250, y + 32);
 
   const columns = 4;
   const cellWidth = (width - 48) / columns;
@@ -140,7 +140,7 @@ function drawLegend(ctx, x, y, width, height, catalog) {
 }
 
 function drawOverview(ctx, x, y, width, height, container, placements, options) {
-  drawSectionCard(ctx, x, y, width, height, "整体视图", `当前箱型：${container.name} / 第 ${options.boxIndex || 1} 货舱。左侧看铺底关系，右侧看整体堆叠层次。`);
+  drawSectionCard(ctx, x, y, width, height, "整体视图", `当前箱型：${container.name} / 第 ${options.boxIndex || 1} 货舱。左侧看 X/Y 铺底关系，右侧看 X/Z 堆叠高度。`);
   const gap = 24;
   const plotY = y + 82;
   const plotHeight = height - 112;
@@ -150,9 +150,9 @@ function drawOverview(ctx, x, y, width, height, container, placements, options) 
     title: "整体俯视图",
     note: "X=长，Y=宽；重叠区域按高度由低到高覆盖"
   });
-  drawIsoProjection(ctx, { x: x + 24 + leftWidth + gap, y: plotY, width: rightWidth, height: plotHeight }, container, placements, {
-    title: "整体 45° 斜视图",
-    note: "用于识别堆叠高度、层间关系和旋转方向"
+  drawSideProjection(ctx, { x: x + 24 + leftWidth + gap, y: plotY, width: rightWidth, height: plotHeight }, container, placements, {
+    title: "整体侧视图：长 × 高",
+    note: "沿 Y 向观察；X=箱体长方向，Z=高度方向"
   });
 }
 
@@ -166,20 +166,20 @@ function drawLayerBreakdown(ctx, x, y, width, height, container, layer, index, t
   const plotY = y + 82;
   const plotHeight = height - 112;
   const topWidth = Math.round((width - 48 - gap * 2 - statsWidth) * 0.48);
-  const isoWidth = width - 48 - gap * 2 - statsWidth - topWidth;
+  const sideWidth = width - 48 - gap * 2 - statsWidth - topWidth;
   const topPlot = { x: x + 24, y: plotY, width: topWidth, height: plotHeight };
-  const isoPlot = { x: topPlot.x + topWidth + gap, y: plotY, width: isoWidth, height: plotHeight };
+  const sidePlot = { x: topPlot.x + topWidth + gap, y: plotY, width: sideWidth, height: plotHeight };
   drawTopProjection(ctx, topPlot, container, layer.items, {
     title: "分层俯视图",
-    note: "仅显示本层货物底面"
+    note: "仅显示本层货物底面；X=长方向，Y=宽方向"
   });
-  drawIsoProjection(ctx, isoPlot, container, layer.items, {
-    title: "分层 45° 斜视图",
-    note: "本层单独抬出展示",
+  drawSideProjection(ctx, sidePlot, container, layer.items, {
+    title: "分层侧视图：长 × 高",
+    note: "仅显示本层高度切片；X=长方向，Z=高度方向",
     normalizeZ: true,
     layerZ: layer.z
   });
-  drawLayerStats(ctx, isoPlot.x + isoWidth + gap, plotY, statsWidth, plotHeight, layer.items);
+  drawLayerStats(ctx, sidePlot.x + sideWidth + gap, plotY, statsWidth, plotHeight, layer.items);
 }
 
 function drawTopProjection(ctx, plot, container, items, config = {}) {
@@ -213,31 +213,49 @@ function drawTopProjection(ctx, plot, container, items, config = {}) {
   drawDimensionLabels(ctx, ox, oy, w, h, container);
 }
 
-function drawIsoProjection(ctx, plot, container, items, config = {}) {
+function drawSideProjection(ctx, plot, container, items, config = {}) {
   drawPlotFrame(ctx, plot, config.title, config.note);
-  const inner = inset(plot, 28, 52, 28, 30);
-  const zOffset = config.normalizeZ ? Math.min(...items.map((item) => Number(item.zCm || 0)), 0) : 0;
-  const bounds = isoBounds(container, items, zOffset);
-  const scale = Math.min(inner.width / Math.max(1, bounds.width), inner.height / Math.max(1, bounds.height)) * 0.86;
-  const origin = {
-    x: inner.x + inner.width / 2 - ((bounds.minX + bounds.maxX) / 2) * scale,
-    y: inner.y + inner.height / 2 - ((bounds.minY + bounds.maxY) / 2) * scale + 12
-  };
+  const inner = inset(plot, 42, 58, 34, 42);
+  const minItemZ = items.length ? Math.min(...items.map((item) => Number(item.zCm || 0))) : 0;
+  const zOffset = config.normalizeZ ? Number(config.layerZ ?? minItemZ) : 0;
+  const maxItemTop = items.length
+    ? Math.max(...items.map((item) => Number(item.zCm || 0) + Number(item.heightCm || 0)))
+    : Number(container.heightCm || 0);
+  const viewHeight = config.normalizeZ
+    ? Math.max(1, maxItemTop - zOffset)
+    : Number(container.heightCm || maxItemTop || 1);
+  const scale = Math.min(inner.width / container.lengthCm, inner.height / viewHeight);
+  const frameW = container.lengthCm * scale;
+  const frameH = viewHeight * scale;
+  const ox = inner.x + (inner.width - frameW) / 2;
+  const oy = inner.y + (inner.height - frameH) / 2;
+  const baseY = oy + frameH;
 
-  drawIsoContainer(ctx, container, origin, scale);
+  drawGrid(ctx, ox, oy, frameW, frameH);
   [...items]
-    .sort((a, b) => (a.xCm + a.yCm + a.zCm) - (b.xCm + b.yCm + b.zCm))
-    .forEach((item) => drawIsoBox(ctx, item, origin, scale, zOffset));
+    .sort((a, b) => Number(a.yCm || 0) - Number(b.yCm || 0) || Number(a.zCm || 0) - Number(b.zCm || 0) || Number(a.xCm || 0) - Number(b.xCm || 0))
+    .forEach((item) => {
+      const localZ = Math.max(0, Number(item.zCm || 0) - zOffset);
+      const rx = ox + Number(item.xCm || 0) * scale;
+      const rw = Math.max(2, Number(item.lengthCm || 0) * scale);
+      const rh = Math.max(2, Number(item.heightCm || 0) * scale);
+      const ry = baseY - (localZ + Number(item.heightCm || 0)) * scale;
+      ctx.fillStyle = hexToRgba(item.color, 0.76);
+      ctx.fillRect(rx, ry, rw, rh);
+      ctx.strokeStyle = hexToRgba("#12263f", 0.48);
+      ctx.lineWidth = 1.4;
+      ctx.strokeRect(rx, ry, rw, rh);
+      drawSideCargoLabel(ctx, item, rx, ry, rw, rh, { compact: rw < 76 || rh < 48 });
+    });
 
-  if (config.normalizeZ) {
-    ctx.fillStyle = "#64748b";
-    ctx.font = "400 13px Microsoft YaHei, Arial";
-    ctx.fillText(`原始 z=${formatNum(config.layerZ || 0)} cm，本视图已单独抬出`, plot.x + 22, plot.y + plot.height - 16);
-  }
+  ctx.strokeStyle = "#1f6fbe";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(ox, oy, frameW, frameH);
+  drawSideDimensionLabels(ctx, ox, oy, frameW, frameH, container, viewHeight, config);
 }
 
 function drawLayerStats(ctx, x, y, width, height, items) {
-  drawPlotFrame(ctx, { x, y, width, height }, "本层统计", "X向=箱体长方向，Y向=箱体宽方向");
+  drawPlotFrame(ctx, { x, y, width, height }, "本层统计", "底面 X/Y + 高度 Z");
   const stats = countByCargo(items);
   let rowY = y + 72;
   stats.forEach((item) => {
@@ -256,91 +274,13 @@ function drawLayerStats(ctx, x, y, width, height, items) {
     ctx.fillText(`${item.count} 件`, x + 58, rowY + 14);
     const details = item.orientationDetails.slice(0, 2);
     details.forEach((detail, detailIndex) => {
-      wrapText(ctx, detail, x + 18, rowY + 38 + detailIndex * 18, width - 36, 16, 1);
+      wrapText(ctx, detail, x + 18, rowY + 38 + detailIndex * 34, width - 36, 16, 2);
     });
     if (item.orientationDetails.length > 2) {
-      ctx.fillText(`另有 ${item.orientationDetails.length - 2} 种方向`, x + 18, rowY + 38 + details.length * 18);
+      ctx.fillText(`另有 ${item.orientationDetails.length - 2} 种方向`, x + 18, rowY + 38 + details.length * 34);
     }
-    rowY += 98;
+    rowY += 128;
   });
-}
-
-function drawIsoBox(ctx, item, origin, scale, zOffset = 0) {
-  const x = Number(item.xCm || 0);
-  const y = Number(item.yCm || 0);
-  const z = Number(item.zCm || 0) - zOffset;
-  const l = Number(item.lengthCm || 0);
-  const w = Number(item.widthCm || 0);
-  const h = Number(item.heightCm || 0);
-  const points = {
-    a: isoPoint(x, y, z, origin, scale),
-    b: isoPoint(x + l, y, z, origin, scale),
-    c: isoPoint(x + l, y + w, z, origin, scale),
-    d: isoPoint(x, y + w, z, origin, scale),
-    e: isoPoint(x, y, z + h, origin, scale),
-    f: isoPoint(x + l, y, z + h, origin, scale),
-    g: isoPoint(x + l, y + w, z + h, origin, scale),
-    hh: isoPoint(x, y + w, z + h, origin, scale)
-  };
-  const color = item.color || "#4e8fd0";
-  drawPolygon(ctx, [points.d, points.c, points.g, points.hh], shadeColor(color, -0.14), "#1f314855");
-  drawPolygon(ctx, [points.b, points.c, points.g, points.f], shadeColor(color, -0.06), "#1f314855");
-  drawPolygon(ctx, [points.e, points.f, points.g, points.hh], shadeColor(color, 0.12), "#1f314866");
-
-  const labelPoint = centroid([points.e, points.f, points.g, points.hh]);
-  drawIsoLabel(ctx, item, labelPoint.x, labelPoint.y);
-}
-
-function drawIsoContainer(ctx, container, origin, scale) {
-  const l = container.lengthCm;
-  const w = container.widthCm;
-  const h = container.heightCm;
-  const vertices = [
-    [0, 0, 0], [l, 0, 0], [l, w, 0], [0, w, 0],
-    [0, 0, h], [l, 0, h], [l, w, h], [0, w, h]
-  ].map(([x, y, z]) => isoPoint(x, y, z, origin, scale));
-  const edges = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
-  ctx.save();
-  ctx.strokeStyle = "#1f6fbe";
-  ctx.lineWidth = 1.6;
-  edges.forEach(([a, b]) => {
-    ctx.beginPath();
-    ctx.moveTo(vertices[a].x, vertices[a].y);
-    ctx.lineTo(vertices[b].x, vertices[b].y);
-    ctx.stroke();
-  });
-  ctx.restore();
-}
-
-function isoBounds(container, items, zOffset = 0) {
-  const points = [];
-  const pushBox = (x, y, z, l, w, h) => {
-    [[0, 0, 0], [l, 0, 0], [l, w, 0], [0, w, 0], [0, 0, h], [l, 0, h], [l, w, h], [0, w, h]]
-      .forEach(([dx, dy, dz]) => points.push(isoRaw(x + dx, y + dy, z + dz - zOffset)));
-  };
-  pushBox(0, 0, 0, container.lengthCm, container.widthCm, container.heightCm);
-  items.forEach((item) => pushBox(item.xCm, item.yCm, item.zCm, item.lengthCm, item.widthCm, item.heightCm));
-  const xs = points.map((point) => point.x);
-  const ys = points.map((point) => point.y);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  return { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY };
-}
-
-function isoPoint(x, y, z, origin, scale) {
-  const raw = isoRaw(x, y, z);
-  return { x: origin.x + raw.x * scale, y: origin.y + raw.y * scale };
-}
-
-function isoRaw(x, y, z) {
-  const angleX = Math.cos(Math.PI / 6);
-  const angleY = Math.sin(Math.PI / 6);
-  return {
-    x: (Number(x || 0) - Number(y || 0)) * angleX,
-    y: (Number(x || 0) + Number(y || 0)) * angleY - Number(z || 0) * 0.82
-  };
 }
 
 function drawCargoLabel(ctx, item, x, y, width, height, options = {}) {
@@ -360,8 +300,8 @@ function drawCargoLabel(ctx, item, x, y, width, height, options = {}) {
 
   if (!options.compact && width > 92 && height > 60) {
     const lines = [
-      `X:${item.xAxis || "长"}${formatNum(item.xAxisBaseCm, 0)}`,
-      `Y:${item.yAxis || "宽"}${formatNum(item.yAxisBaseCm, 0)}`
+      `X:${item.xAxis || "长"}${formatNum(item.xAxisBaseCm, 0)}cm`,
+      `Y:${item.yAxis || "宽"}${formatNum(item.yAxisBaseCm, 0)}cm`
     ];
     ctx.font = "700 11px Microsoft YaHei, Arial";
     const textY = py + pillHeight + 14;
@@ -377,15 +317,37 @@ function drawCargoLabel(ctx, item, x, y, width, height, options = {}) {
   }
 }
 
-function drawIsoLabel(ctx, item, x, y) {
+function drawSideCargoLabel(ctx, item, x, y, width, height, options = {}) {
   const label = `#${item.cargoNo}`;
-  ctx.font = "800 13px Microsoft YaHei, Arial";
-  const width = ctx.measureText(label).width + 14;
+  const size = options.compact ? 13 : Math.max(13, Math.min(18, Math.floor(Math.min(width, height) * 0.3)));
+  ctx.font = `800 ${size}px Microsoft YaHei, Arial`;
+  const pillWidth = Math.min(Math.max(ctx.measureText(label).width + 14, 34), Math.max(width - 6, 34));
+  const pillHeight = Math.min(size + 12, Math.max(height - 6, size + 8));
+  const px = x + width / 2 - pillWidth / 2;
+  const py = y + height / 2 - pillHeight / 2;
   ctx.fillStyle = "rgba(255,255,255,0.88)";
-  roundRect(ctx, x - width / 2, y - 22, width, 22, 8);
+  roundRect(ctx, px, py, pillWidth, pillHeight, Math.min(10, pillHeight / 2));
   ctx.fill();
   ctx.fillStyle = "#132033";
-  centerText(ctx, label, x, y - 7);
+  centerText(ctx, label, x + width / 2, py + pillHeight / 2 + size * 0.36);
+
+  if (!options.compact && width > 96 && height > 56) {
+    const lines = [
+      `X:${item.xAxis || "长"}${formatNum(item.xAxisBaseCm, 0)}cm`,
+      `Z:${item.zAxis || item.heightAxis || "高"}${formatNum(item.zAxisBaseCm, 0)}cm`
+    ];
+    ctx.font = "700 11px Microsoft YaHei, Arial";
+    const textY = py + pillHeight + 14;
+    if (textY + 16 < y + height - 5) {
+      const labelWidth = Math.min(Math.max(...lines.map((line) => ctx.measureText(line).width)) + 12, width - 8);
+      ctx.fillStyle = "rgba(255,255,255,0.8)";
+      roundRect(ctx, x + width / 2 - labelWidth / 2, textY - 12, labelWidth, 34, 7);
+      ctx.fill();
+      ctx.fillStyle = "#1f3148";
+      centerText(ctx, lines[0], x + width / 2, textY);
+      centerText(ctx, lines[1], x + width / 2, textY + 15);
+    }
+  }
 }
 
 function drawSectionCard(ctx, x, y, width, height, title, subtitle) {
@@ -433,12 +395,28 @@ function drawGrid(ctx, x, y, width, height) {
 function drawDimensionLabels(ctx, ox, oy, width, height, container) {
   ctx.fillStyle = "#2d5f93";
   ctx.font = "700 14px Microsoft YaHei, Arial";
-  centerText(ctx, `长 ${container.lengthCm} cm`, ox + width / 2, oy - 10);
+  centerText(ctx, `X向=箱体长 ${container.lengthCm} cm`, ox + width / 2, oy - 10);
   ctx.save();
   ctx.translate(ox - 14, oy + height / 2);
   ctx.rotate(-Math.PI / 2);
-  centerText(ctx, `宽 ${container.widthCm} cm`, 0, 0);
+  centerText(ctx, `Y向=箱体宽 ${container.widthCm} cm`, 0, 0);
   ctx.restore();
+}
+
+function drawSideDimensionLabels(ctx, ox, oy, width, height, container, viewHeight, config = {}) {
+  ctx.fillStyle = "#2d5f93";
+  ctx.font = "700 14px Microsoft YaHei, Arial";
+  centerText(ctx, `X向=箱体长 ${container.lengthCm} cm`, ox + width / 2, oy - 10);
+  ctx.save();
+  ctx.translate(ox - 16, oy + height / 2);
+  ctx.rotate(-Math.PI / 2);
+  const label = config.normalizeZ ? `Z向=本层高度 ${formatNum(viewHeight)} cm` : `Z向=箱体高 ${container.heightCm} cm`;
+  centerText(ctx, label, 0, 0);
+  ctx.restore();
+
+  ctx.fillStyle = "#64748b";
+  ctx.font = "400 12px Microsoft YaHei, Arial";
+  ctx.fillText("侧视沿 Y 向观察，Y 向底面边见右侧统计", ox, oy + height + 22);
 }
 
 function drawFooter(ctx, y) {
@@ -449,7 +427,7 @@ function drawFooter(ctx, y) {
   ctx.stroke();
   ctx.fillStyle = "#64748b";
   ctx.font = "400 14px Microsoft YaHei, Arial";
-  ctx.fillText("说明：分层按货物底面 z 坐标分组；矩形和立方体外廓包含计算间隙；编号、颜色与当前录入货物顺序保持一致。", 48, y);
+  ctx.fillText("说明：分层按货物底面 z 坐标分组；俯视图显示 X/Y 底面边，侧视图显示 X/Z 高度边；右侧统计完整列出每类货物的 X/Y/Z 原始边方向。", 48, y);
 }
 
 function buildCargoCatalog(cargos, placements) {
@@ -512,9 +490,9 @@ function countByCargo(items) {
 
 function orientationDetail(item) {
   return [
-    `X向=${item.xAxis || "长"}${formatNum(item.xAxisBaseCm, 0)}cm`,
-    `Y向=${item.yAxis || "宽"}${formatNum(item.yAxisBaseCm, 0)}cm`,
-    `Z向=${item.zAxis || item.heightAxis || "高"}${formatNum(item.zAxisBaseCm, 0)}cm`
+    `底面X=${item.xAxis || "长"}${formatNum(item.xAxisBaseCm, 0)}cm`,
+    `底面Y=${item.yAxis || "宽"}${formatNum(item.yAxisBaseCm, 0)}cm`,
+    `高度Z=${item.zAxis || item.heightAxis || "高"}${formatNum(item.zAxisBaseCm, 0)}cm`
   ].join(" / ");
 }
 
@@ -665,25 +643,6 @@ function inset(rect, left, top, right, bottom) {
   };
 }
 
-function drawPolygon(ctx, points, fill, stroke) {
-  ctx.beginPath();
-  ctx.moveTo(points[0].x, points[0].y);
-  points.slice(1).forEach((point) => ctx.lineTo(point.x, point.y));
-  ctx.closePath();
-  ctx.fillStyle = fill;
-  ctx.fill();
-  ctx.strokeStyle = stroke;
-  ctx.lineWidth = 1.1;
-  ctx.stroke();
-}
-
-function centroid(points) {
-  return {
-    x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
-    y: points.reduce((sum, point) => sum + point.y, 0) / points.length
-  };
-}
-
 function centerText(ctx, text, x, y) {
   ctx.textAlign = "center";
   ctx.fillText(text, x, y);
@@ -700,12 +659,6 @@ function hexToRgb(hex) {
 function hexToRgba(hex, alpha) {
   const rgb = hexToRgb(hex);
   return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
-}
-
-function shadeColor(hex, amount) {
-  const rgb = hexToRgb(hex);
-  const shade = (value) => Math.max(0, Math.min(255, Math.round(value + (amount >= 0 ? (255 - value) * amount : value * amount))));
-  return `rgb(${shade(rgb.r)}, ${shade(rgb.g)}, ${shade(rgb.b)})`;
 }
 
 function formatNum(value, digits = 1) {
