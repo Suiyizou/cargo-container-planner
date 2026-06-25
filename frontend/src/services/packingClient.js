@@ -31,7 +31,7 @@ export function calculatePacking(payload) {
       reject(new Error(error.message || "本机计算失败"));
     };
 
-    currentWorker.postMessage({ id: jobId, payload });
+    currentWorker.postMessage({ id: jobId, payload: toWorkerPayload(payload) });
   });
 }
 
@@ -40,4 +40,8 @@ function cleanup() {
     currentWorker.terminate();
     currentWorker = null;
   }
+}
+
+function toWorkerPayload(payload) {
+  return JSON.parse(JSON.stringify(payload));
 }
