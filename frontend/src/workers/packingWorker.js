@@ -11,11 +11,25 @@ const MAX_BOUNDED_CANDIDATES = 320;
 const MAX_AXIS_VALUES = 8;
 const MAX_Z_LEVELS = 6;
 const SUPPORT_RATIO = 0.985;
+const DEFAULT_SEARCH = {
+  maxExhaustiveCandidates: MAX_EXHAUSTIVE_CANDIDATES,
+  maxBoundedCandidates: MAX_BOUNDED_CANDIDATES,
+  maxAxisValues: MAX_AXIS_VALUES,
+  maxZLevels: MAX_Z_LEVELS
+};
+const DEEP_REFILL_SEARCH = {
+  maxExhaustiveCandidates: 12000,
+  maxBoundedCandidates: 1600,
+  maxAxisValues: 22,
+  maxZLevels: 14
+};
+const REFILL_FINALIST_COUNT = 1;
+const REFILL_MAX_REMAINING_RATIO = 0.12;
 const ORDER_STRATEGIES = [
   { id: "support-first", name: "承重优先：可堆放货物先铺底，不可重压货物后上层" },
+  { id: "height-desc", name: "高度优先：高件先定位" },
   { id: "volume-desc", name: "体积优先：含间隙体积从大到小" },
-  { id: "footprint-desc", name: "底面积优先：更大底面先形成支撑面" },
-  { id: "height-desc", name: "高度优先：高件先定位" }
+  { id: "footprint-desc", name: "底面积优先：更大底面先形成支撑面" }
 ];
 
 self.onmessage = (event) => {
@@ -33,9 +47,24 @@ function calculate(request) {
   const units = expandUnits(request.cargos || [], globalGapCm);
   const total = totals(request.cargos || []);
   const utilization = safeUtilizationPercent(request.utilizationPercent);
-  const evaluations = (request.containers || [])
-    .map((container) => evaluateContainer(container, units, total, utilization, globalGapCm))
-    .sort(compareEvaluation);
+  const evaluations = [];
+  let reusableOneBox = null;
+
+  for (const container of request.containers || []) {
+    const evaluation = reusableOneBox && canReuseOneBox(reusableOneBox, container, total)
+      ? evaluateContainerFromReusable(container, units, total, utilization, globalGapCm, reusableOneBox)
+      : evaluateContainer(container, units, total, utilization, globalGapCm);
+
+    if (canSeedReusableOneBox(evaluation)) {
+      reusableOneBox = {
+        container: evaluation.container,
+        firstBox: evaluation._sourceFirstBox
+      };
+    }
+    evaluations.push(evaluation);
+  }
+
+  evaluations.sort(compareEvaluation);
   return {
     bestContainerId: evaluations[0]?.container.id || null,
     evaluations
@@ -44,6 +73,38 @@ function calculate(request) {
 
 function evaluateContainer(container, units, total, utilizationPercent, globalGapCm) {
   const multi = packMultiple(container, units);
+  return buildEvaluation(container, units, total, utilizationPercent, globalGapCm, multi);
+}
+
+function evaluateContainerFromReusable(container, units, total, utilizationPercent, globalGapCm, reusable) {
+  const placed = reusable.firstBox.placed.map(copyUnit);
+  const placedIds = new Set(placed.map((unit) => unit.unitKey));
+  const unplaced = units.filter((unit) => !placedIds.has(unit.unitKey));
+  const firstBox = {
+    placed,
+    unplaced,
+    strategyId: "reused-one-box",
+    strategyName: `复用 ${reusable.container.name} 的单箱摆放坐标`,
+    strategySummary: {
+      placedCount: placed.length,
+      unplacedCount: unplaced.length,
+      occupiedVolumeM3: round(sumOccupiedVolumeM3(placed)),
+      maxTopCm: round(maxTop(placed)),
+      refillPlacedCount: 0,
+      refillPasses: 0
+    }
+  };
+  const multi = {
+    boxes: unplaced.length ? 2 : 1,
+    firstBox,
+    packedBoxes: [firstBox],
+    estimated: unplaced.length > 0,
+    fatalOversize: false
+  };
+  return buildEvaluation(container, units, total, utilizationPercent, globalGapCm, multi);
+}
+
+function buildEvaluation(container, units, total, utilizationPercent, globalGapCm, multi) {
   const usableVolume = volumeM3(container) * utilizationPercent / 100;
   const firstPackedRawVolume = multi.firstBox.placed.reduce((sum, unit) => sum + unit.volumeM3, 0);
   const firstPackedOccupiedVolume = multi.firstBox.placed.reduce((sum, unit) => sum + occupiedVolumeM3(unit), 0);
@@ -53,7 +114,7 @@ function evaluateContainer(container, units, total, utilizationPercent, globalGa
   const weightBoxes = container.payloadKg > 0 ? Math.ceil(total.totalWeightKg / container.payloadKg) : 0;
   const boxes = multi.fatalOversize ? -1 : Math.max(multi.boxes, weightBoxes);
 
-  return {
+  const evaluation = {
     container,
     feasible: !multi.fatalOversize && boxes > 0,
     fatalOversize: multi.fatalOversize,
@@ -88,6 +149,25 @@ function evaluateContainer(container, units, total, utilizationPercent, globalGa
       unplacedUnitKeys: box.unplaced.map((unit) => unit.unitKey)
     }))
   };
+  Object.defineProperty(evaluation, "_sourceFirstBox", { value: multi.firstBox, enumerable: false });
+  return evaluation;
+}
+
+function canSeedReusableOneBox(evaluation) {
+  return evaluation.boxes === 1
+    && evaluation._sourceFirstBox
+    && evaluation._sourceFirstBox.placed.length === evaluation.totalUnits
+    && !evaluation._sourceFirstBox.unplaced.length;
+}
+
+function canReuseOneBox(reusable, container, total) {
+  if (!reusable?.firstBox?.placed?.length) return false;
+  if (container.payloadKg > 0 && total.totalWeightKg > container.payloadKg) return false;
+  return reusable.firstBox.placed.every((unit) =>
+    unit.x + unit.lengthCm <= container.lengthCm + 0.0001
+    && unit.y + unit.widthCm <= container.widthCm + 0.0001
+    && unit.z + unit.heightCm <= container.heightCm + 0.0001
+  );
 }
 
 function packMultiple(container, allUnits) {
@@ -136,8 +216,27 @@ function detailedBoxLimit(totalUnits) {
 }
 
 function packSingle(container, units) {
-  const attempts = ORDER_STRATEGIES.map((strategy) => packSingleWithOrder(container, orderUnits(units, strategy.id), strategy));
-  return attempts.sort(comparePackAttempt(container))[0] || { placed: [], unplaced: units, strategyId: "none", strategyName: "无可行摆放" };
+  const attempts = [];
+  for (const strategy of ORDER_STRATEGIES) {
+    const attempt = packSingleWithOrder(container, orderUnits(units, strategy.id), strategy);
+    if (!attempt.unplaced.length) return attempt;
+    if (shouldRefillAttempt(attempt, units.length)) {
+      refillAttempt(container, attempt);
+      if (!attempt.unplaced.length) return attempt;
+    }
+    attempts.push(attempt);
+  }
+  const ranked = attempts.sort(comparePackAttempt(container));
+  ranked
+    .slice(0, REFILL_FINALIST_COUNT)
+    .filter((attempt) => shouldRefillAttempt(attempt, units.length))
+    .forEach((attempt) => refillAttempt(container, attempt));
+  return ranked.sort(comparePackAttempt(container))[0] || { placed: [], unplaced: units, strategyId: "none", strategyName: "无可行摆放" };
+}
+
+function shouldRefillAttempt(attempt, totalCount) {
+  const maxUnplaced = Math.max(8, Math.ceil(totalCount * REFILL_MAX_REMAINING_RATIO));
+  return attempt.unplaced.length <= maxUnplaced;
 }
 
 function packSingleWithOrder(container, units, strategy) {
@@ -150,18 +249,7 @@ function packSingleWithOrder(container, units, strategy) {
       unplaced.push(unit);
       continue;
     }
-    placed.push({
-      ...unit,
-      x: placement.x,
-      y: placement.y,
-      z: placement.z,
-      lengthCm: placement.lengthCm,
-      widthCm: placement.widthCm,
-      heightCm: placement.heightCm,
-      lengthAxis: placement.lengthAxis,
-      widthAxis: placement.widthAxis,
-      heightAxis: placement.heightAxis
-    });
+    placed.push(applyPlacement(unit, placement));
   }
 
   return {
@@ -173,16 +261,81 @@ function packSingleWithOrder(container, units, strategy) {
       placedCount: placed.length,
       unplacedCount: unplaced.length,
       occupiedVolumeM3: round(placed.reduce((sum, unit) => sum + occupiedVolumeM3(unit), 0)),
-      maxTopCm: round(maxTop(placed))
+      maxTopCm: round(maxTop(placed)),
+      refillPlacedCount: 0,
+      refillPasses: 0
     }
   };
 }
 
-function findPlacement(unit, placed, container) {
+function refillAttempt(container, attempt) {
+  if (!attempt.unplaced.length) return attempt;
+  const refill = refillUnplaced(container, attempt.placed, attempt.unplaced);
+  attempt.strategySummary = {
+    ...attempt.strategySummary,
+    placedCount: attempt.placed.length,
+    unplacedCount: attempt.unplaced.length,
+    occupiedVolumeM3: round(attempt.placed.reduce((sum, unit) => sum + occupiedVolumeM3(unit), 0)),
+    maxTopCm: round(maxTop(attempt.placed)),
+    refillPlacedCount: refill.placedCount,
+    refillPasses: refill.passes
+  };
+  return attempt;
+}
+
+function refillUnplaced(container, placed, unplaced) {
+  let placedCount = 0;
+  let passes = 0;
+  while (unplaced.length && passes < 3) {
+    passes += 1;
+    let changed = false;
+    const retryUnits = orderRefillUnits(unplaced);
+    for (const unit of retryUnits) {
+      const index = unplaced.findIndex((item) => item.unitKey === unit.unitKey);
+      if (index < 0) continue;
+      const placement = findPlacement(unit, placed, container, DEEP_REFILL_SEARCH);
+      if (!placement) continue;
+      placed.push(applyPlacement(unit, placement));
+      unplaced.splice(index, 1);
+      placedCount += 1;
+      changed = true;
+    }
+    if (!changed) break;
+  }
+  return { placedCount, passes };
+}
+
+function orderRefillUnits(units) {
+  return [...units].sort((a, b) => {
+    if (a.nonStack !== b.nonStack) return a.nonStack ? -1 : 1;
+    const heightDiff = a.heightCm - b.heightCm;
+    if (Math.abs(heightDiff) > 0.0001) return heightDiff;
+    const volumeDiff = unitVolumeCm3(a) - unitVolumeCm3(b);
+    if (Math.abs(volumeDiff) > 0.0001) return volumeDiff;
+    return a.cargoIndex - b.cargoIndex || a.itemIndex - b.itemIndex;
+  });
+}
+
+function applyPlacement(unit, placement) {
+  return {
+    ...unit,
+    x: placement.x,
+    y: placement.y,
+    z: placement.z,
+    lengthCm: placement.lengthCm,
+    widthCm: placement.widthCm,
+    heightCm: placement.heightCm,
+    lengthAxis: placement.lengthAxis,
+    widthAxis: placement.widthAxis,
+    heightAxis: placement.heightAxis
+  };
+}
+
+function findPlacement(unit, placed, container, search = DEFAULT_SEARCH) {
   let best = null;
   for (const dims of orientations(unit)) {
     if (dims.lengthCm > container.lengthCm || dims.widthCm > container.widthCm || dims.heightCm > container.heightCm) continue;
-    for (const position of candidatePositions(placed, container, dims)) {
+    for (const position of candidatePositions(placed, container, dims, search)) {
       if (!fitsAt(position, dims, placed, container)) continue;
       if (!hasSupport(position, dims, placed)) continue;
       const score = placementScore(position, dims, container);
@@ -193,13 +346,13 @@ function findPlacement(unit, placed, container) {
   return best;
 }
 
-function candidatePositions(placed, container, dims) {
+function candidatePositions(placed, container, dims, search = DEFAULT_SEARCH) {
   const xs = uniqueSorted(placed.map((unit) => unit.x + unit.lengthCm), 0);
   const ys = uniqueSorted(placed.map((unit) => unit.y + unit.widthCm), 0);
   const zs = uniqueSorted(placed.map((unit) => unit.z + unit.heightCm), 0);
   const possibleCount = xs.length * ys.length * zs.length;
-  if (possibleCount > MAX_EXHAUSTIVE_CANDIDATES) {
-    return boundedCandidatePositions(placed, container, dims, xs, ys, zs);
+  if (possibleCount > search.maxExhaustiveCandidates) {
+    return boundedCandidatePositions(placed, container, dims, xs, ys, zs, search);
   }
   const points = [];
   for (const z of zs) {
@@ -211,10 +364,10 @@ function candidatePositions(placed, container, dims) {
       }
     }
   }
-  return points.sort((a, b) => placementScore(a, dims, container) - placementScore(b, dims, container));
+  return points;
 }
 
-function boundedCandidatePositions(placed, container, dims, xs, ys, zs) {
+function boundedCandidatePositions(placed, container, dims, xs, ys, zs, search = DEFAULT_SEARCH) {
   const points = new Map();
   const add = (x, y, z) => {
     if (x < -0.0001 || y < -0.0001 || z < -0.0001) return;
@@ -235,9 +388,9 @@ function boundedCandidatePositions(placed, container, dims, xs, ys, zs) {
     add(box.x, box.y + box.widthCm, box.z + box.heightCm);
   }
 
-  const limitedXs = xs.filter((x) => x + dims.lengthCm <= container.lengthCm + 0.0001).slice(0, MAX_AXIS_VALUES);
-  const limitedYs = ys.filter((y) => y + dims.widthCm <= container.widthCm + 0.0001).slice(0, MAX_AXIS_VALUES);
-  const limitedZs = zs.filter((z) => z + dims.heightCm <= container.heightCm + 0.0001).slice(0, MAX_Z_LEVELS);
+  const limitedXs = xs.filter((x) => x + dims.lengthCm <= container.lengthCm + 0.0001).slice(0, search.maxAxisValues);
+  const limitedYs = ys.filter((y) => y + dims.widthCm <= container.widthCm + 0.0001).slice(0, search.maxAxisValues);
+  const limitedZs = zs.filter((z) => z + dims.heightCm <= container.heightCm + 0.0001).slice(0, search.maxZLevels);
   for (const z of limitedZs) {
     for (const y of limitedYs) {
       for (const x of limitedXs) add(x, y, z);
@@ -246,7 +399,7 @@ function boundedCandidatePositions(placed, container, dims, xs, ys, zs) {
 
   return [...points.values()]
     .sort((a, b) => placementScore(a, dims, container) - placementScore(b, dims, container))
-    .slice(0, MAX_BOUNDED_CANDIDATES);
+    .slice(0, search.maxBoundedCandidates);
 }
 
 function fitsAt(position, dims, placed, container) {
@@ -435,7 +588,7 @@ function expandUnits(cargos, globalGapCm) {
         baseHeightCm: Number(cargo.heightCm),
         lengthCm: Number(cargo.lengthCm) + gap,
         widthCm: Number(cargo.widthCm) + gap,
-        heightCm: Number(cargo.heightCm) + gap,
+        heightCm: Number(cargo.heightCm) + rule.extraGapCm,
         x: 0,
         y: 0,
         z: 0,
@@ -444,6 +597,7 @@ function expandUnits(cargos, globalGapCm) {
         nonStack: rule.nonStack,
         extraGapCm: rule.extraGapCm,
         globalGapCm,
+        verticalGapCm: rule.extraGapCm,
         gapCm: gap,
         volumeM3: Number(cargo.lengthCm) * Number(cargo.widthCm) * Number(cargo.heightCm) / 1_000_000
       });
@@ -475,10 +629,12 @@ function buildTrace(container, units, total, multi, metrics) {
     mode: "Browser WebWorker 本机计算",
     pipeline: [
       "主线程把货物、箱型、计划可用率、货物间隙复制给 Web Worker",
-      "Worker 将每类货物按数量展开为单件，并把全局间隙、类型额外间隙计入外廓尺寸",
+      "Worker 将每类货物按数量展开为单件；全局间隙计入长宽方向，类型额外间隙计入长宽和必要高度余量",
       "每个箱型独立试算；每个货舱会尝试多种摆放顺序，而不是只按体积排序",
       "每件货物枚举允许的旋转方向，再扫描候选坐标，满足边界、不相交、支撑面后落位",
+      "快速选出最优候选方案后，对未摆货物做深度回填，优先把不可重压货物放到可承重顶面",
       "同一货舱选择已摆数量更多、占用体积更高、可承重支撑面更好的方案",
+      "如果前序箱型已经单箱成功，后续箱型会先检查同一套 x/y/z 坐标是否完全落入新箱体边界，能复用就直接复用坐标",
       "所有箱型按箱数更少、首箱占用更高、箱型体积更小排序推荐"
     ],
     strategies: ORDER_STRATEGIES.map((strategy) => strategy.name),
@@ -492,14 +648,16 @@ function buildTrace(container, units, total, multi, metrics) {
     },
     formulas: [
       "单件原始体积(m³) = 长 × 宽 × 高 ÷ 1,000,000",
-      "计入间隙尺寸(cm) = 原始尺寸 + 全局货物间隙 + 类型额外间隙",
-      "单件占用体积(m³) = 计入间隙长 × 计入间隙宽 × 计入间隙高 ÷ 1,000,000",
+      "计入间隙长/宽(cm) = 原始长/宽 + 全局货物间隙 + 类型额外间隙",
+      "计入高度(cm) = 原始高度 + 类型额外高度余量；全局水平间隙不再层层累加到高度",
+      "单件占用体积(m³) = 计入长 × 计入宽 × 计入高 ÷ 1,000,000",
       "箱体体积(m³) = 箱长 × 箱宽 × 箱高 ÷ 1,000,000",
       "计划可用体积(m³) = 箱体体积 × 计划可用率",
       "首箱空间占用率 = 首箱已摆放占用体积 ÷ 计划可用体积 × 100%",
       "重量箱数 = ceil(总重量 ÷ 箱型载重)",
       "推荐箱数 = max(几何装箱箱数, 重量箱数)",
-      "上层支撑条件 = 下方可承重重叠面积 ÷ 当前底面积 ≥ 98.5%"
+      "上层支撑条件 = 下方可承重重叠面积 ÷ 当前底面积 ≥ 98.5%",
+      "单箱坐标复用 = 已验证摆放的 x/y/z + 尺寸全部落入新箱体边界，且总重量不超过新箱型载重"
     ],
     current: {
       containerName: container.name,

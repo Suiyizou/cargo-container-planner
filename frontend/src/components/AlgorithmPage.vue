@@ -13,7 +13,7 @@
     <div class="algorithm-grid">
       <article>
         <strong>1. 货物展开</strong>
-        <p>系统先把每一类货物按数量展开为单件货物，并计算“原始尺寸 + 全局间隙 + 类型额外间隙”后的外廓尺寸。</p>
+        <p>系统先把每一类货物按数量展开为单件货物。全局货物间隙主要作为长宽方向的水平间隙；高度方向只叠加货物类型带来的必要余量，避免每层都虚增高度。</p>
       </article>
       <article>
         <strong>2. 多策略排序</strong>
@@ -25,7 +25,7 @@
       </article>
       <article>
         <strong>4. 候选坐标</strong>
-        <p>候选点来自箱底、已摆货物右侧、前侧、上方以及边界组合点。每个候选点都要通过边界、不相交、支撑面积三类检查。</p>
+        <p>候选点来自箱底、已摆货物右侧、前侧、上方以及边界组合点。快速方案选出后，会对剩余货物做一次深度回填，避免明明有顶面空间却开第二箱。</p>
       </article>
       <article>
         <strong>5. 支撑约束</strong>
@@ -33,7 +33,7 @@
       </article>
       <article>
         <strong>6. 箱型推荐</strong>
-        <p>每个箱型分别试算。推荐顺序优先箱数更少，其次首箱空间占用更高，最后选择箱体体积更小的箱型。</p>
+        <p>每个箱型分别试算。推荐顺序优先箱数更少，其次首箱空间占用更高，最后选择箱体体积更小的箱型；如果前一个箱型已经单箱成功，后续更大箱型会先检查能否复用同一套坐标，减少重复计算。</p>
       </article>
     </div>
 
@@ -52,7 +52,7 @@
           <div><span>计算模式</span><b>{{ trace.mode }}</b></div>
           <div><span>货物展开</span><b>{{ trace.parameters.unitCount }} 件</b></div>
           <div><span>计划可用率</span><b>{{ trace.parameters.utilizationPercent }}%</b></div>
-          <div><span>货物间隙</span><b>{{ trace.parameters.globalGapCm }} cm</b></div>
+          <div><span>水平间隙</span><b>{{ trace.parameters.globalGapCm }} cm</b></div>
           <div><span>支撑阈值</span><b>{{ trace.supportRatioPercent }}%</b></div>
           <div><span>首箱策略</span><b>{{ trace.selectedStrategy || "-" }}</b></div>
           <div><span>首箱已摆</span><b>{{ trace.firstBox.placedCount }} / {{ trace.parameters.unitCount }} 件</b></div>
@@ -89,14 +89,16 @@ const props = defineProps({
 
 const fallbackFormulas = [
   "单件原始体积(m³) = 长 × 宽 × 高 ÷ 1,000,000",
-  "计入间隙尺寸(cm) = 原始尺寸 + 全局货物间隙 + 类型额外间隙",
-  "单件占用体积(m³) = 计入间隙长 × 计入间隙宽 × 计入间隙高 ÷ 1,000,000",
+  "计入间隙长/宽(cm) = 原始长/宽 + 全局货物间隙 + 类型额外间隙",
+  "计入高度(cm) = 原始高度 + 类型额外高度余量；全局水平间隙不再层层累加到高度",
+  "单件占用体积(m³) = 计入长 × 计入宽 × 计入高 ÷ 1,000,000",
   "箱体体积(m³) = 箱长 × 箱宽 × 箱高 ÷ 1,000,000",
   "计划可用体积(m³) = 箱体体积 × 计划可用率",
   "首箱空间占用率 = 首箱已摆放占用体积 ÷ 计划可用体积 × 100%",
   "重量箱数 = ceil(总重量 ÷ 箱型载重)",
   "推荐箱数 = max(几何装箱箱数, 重量箱数)",
-  "上层支撑条件 = 下方可承重重叠面积 ÷ 当前底面积 ≥ 98.5%"
+  "上层支撑条件 = 下方可承重重叠面积 ÷ 当前底面积 ≥ 98.5%",
+  "单箱坐标复用 = 已验证摆放的 x/y/z + 尺寸全部落入新箱体边界，且总重量不超过新箱型载重"
 ];
 
 const trace = computed(() => props.evaluation?.trace || null);
