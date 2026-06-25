@@ -6,45 +6,35 @@ const TYPE_RULES = {
 };
 
 const COLORS = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3", "#ca8a04", "#475569"];
-const MAX_EXHAUSTIVE_CANDIDATES = 1200;
-const MAX_BOUNDED_CANDIDATES = 320;
-const MAX_AXIS_VALUES = 8;
-const MAX_Z_LEVELS = 6;
+const EPS = 0.0001;
 const SUPPORT_RATIO = 0.985;
-const DEFAULT_SEARCH = {
-  maxExhaustiveCandidates: MAX_EXHAUSTIVE_CANDIDATES,
-  maxBoundedCandidates: MAX_BOUNDED_CANDIDATES,
-  maxAxisValues: MAX_AXIS_VALUES,
-  maxZLevels: MAX_Z_LEVELS
-};
-const DEEP_REFILL_SEARCH = {
-  maxExhaustiveCandidates: 12000,
-  maxBoundedCandidates: 1600,
-  maxAxisValues: 22,
-  maxZLevels: 14
-};
-const REFILL_FINALIST_COUNT = 1;
-const REFILL_MAX_REMAINING_RATIO = 0.12;
-const ORDER_STRATEGIES = [
-  { id: "support-first", name: "承重优先：可堆放货物先铺底，不可重压货物后上层" },
-  { id: "height-desc", name: "高度优先：高件先定位" },
-  { id: "volume-desc", name: "体积优先：含间隙体积从大到小" },
-  { id: "footprint-desc", name: "底面积优先：更大底面先形成支撑面" }
+const MAX_DETAILED_BOXES = 6;
+const LOCAL_SEARCH_PASSES = 5;
+
+const SEARCH_STRATEGIES = [
+  { id: "laff-footprint", name: "LAFF 大底面积优先", unitOrder: "footprint", pointOrder: "low-wide", blueVertical: false },
+  { id: "laff-height", name: "LAFF 高度优先", unitOrder: "height", pointOrder: "low-wide", blueVertical: false },
+  { id: "support-first", name: "普通承重货物优先", unitOrder: "support", pointOrder: "support", blueVertical: false },
+  { id: "nonstack-last", name: "不可重压货物最后", unitOrder: "nonstack-last", pointOrder: "low-wide", blueVertical: false },
+  { id: "blue-vertical", name: "蓝色/小件竖放支撑", unitOrder: "small-vertical", pointOrder: "support", blueVertical: true }
 ];
 
-self.onmessage = (event) => {
-  const { id, payload } = event.data || {};
-  try {
-    const result = calculate(payload);
-    self.postMessage({ id, type: "result", result });
-  } catch (error) {
-    self.postMessage({ id, type: "error", message: error.message || "本机计算失败" });
-  }
-};
+const workerScope = typeof self !== "undefined" ? self : null;
+if (workerScope?.addEventListener) {
+  workerScope.onmessage = (event) => {
+    const { id, payload } = event.data || {};
+    try {
+      const result = calculate(payload || {});
+      workerScope.postMessage({ id, type: "result", result });
+    } catch (error) {
+      workerScope.postMessage({ id, type: "error", message: error.message || "本机计算失败" });
+    }
+  };
+}
 
-function calculate(request) {
+export function calculate(request = {}) {
   const globalGapCm = safeGlobalGapCm(request.globalGapCm);
-  const units = expandUnits(request.cargos || [], globalGapCm);
+  const units = buildUnits(request.cargos || [], globalGapCm);
   const total = totals(request.cargos || []);
   const utilization = safeUtilizationPercent(request.utilizationPercent);
   const evaluations = [];
@@ -80,20 +70,10 @@ function evaluateContainerFromReusable(container, units, total, utilizationPerce
   const placed = reusable.firstBox.placed.map(copyUnit);
   const placedIds = new Set(placed.map((unit) => unit.unitKey));
   const unplaced = units.filter((unit) => !placedIds.has(unit.unitKey));
-  const firstBox = {
-    placed,
-    unplaced,
-    strategyId: "reused-one-box",
-    strategyName: `复用 ${reusable.container.name} 的单箱摆放坐标`,
-    strategySummary: {
-      placedCount: placed.length,
-      unplacedCount: unplaced.length,
-      occupiedVolumeM3: round(sumOccupiedVolumeM3(placed)),
-      maxTopCm: round(maxTop(placed)),
-      refillPlacedCount: 0,
-      refillPasses: 0
-    }
-  };
+  const firstBox = makePackedBox(placed, unplaced, {
+    id: "reused-one-box",
+    name: `复用 ${reusable.container.name} 的单箱坐标`
+  }, { localSearchPasses: 0, repairedCount: 0 });
   const multi = {
     boxes: unplaced.length ? 2 : 1,
     firstBox,
@@ -164,25 +144,22 @@ function canReuseOneBox(reusable, container, total) {
   if (!reusable?.firstBox?.placed?.length) return false;
   if (container.payloadKg > 0 && total.totalWeightKg > container.payloadKg) return false;
   return reusable.firstBox.placed.every((unit) =>
-    unit.x + unit.lengthCm <= container.lengthCm + 0.0001
-    && unit.y + unit.widthCm <= container.widthCm + 0.0001
-    && unit.z + unit.heightCm <= container.heightCm + 0.0001
+    unit.x + unit.lengthCm <= container.lengthCm + EPS
+    && unit.y + unit.widthCm <= container.widthCm + EPS
+    && unit.z + unit.heightCm <= container.heightCm + EPS
   );
 }
 
 function packMultiple(container, allUnits) {
   let remaining = allUnits.map(copyUnit);
   const packedBoxes = [];
-  let firstBox = { placed: [], unplaced: remaining };
-  let fatalOversize = false;
-  let boxes = 0;
+  let firstBox = { placed: [], unplaced: remaining, strategyId: "none", strategyName: "无可行摆放", strategySummary: {} };
   let estimated = false;
-  const maxBoxes = 100;
-  const detailLimit = detailedBoxLimit(allUnits.length);
+  let fatalOversize = false;
 
-  while (remaining.length && boxes < maxBoxes) {
-    const packed = packSingle(container, remaining);
-    if (boxes === 0) firstBox = packed;
+  for (let boxIndex = 0; remaining.length && boxIndex < MAX_DETAILED_BOXES; boxIndex += 1) {
+    const packed = packContainer(container, remaining);
+    if (boxIndex === 0) firstBox = packed;
     if (!packed.placed.length) {
       fatalOversize = true;
       break;
@@ -190,14 +167,14 @@ function packMultiple(container, allUnits) {
     packedBoxes.push(packed);
     const placedIds = new Set(packed.placed.map((unit) => unit.unitKey));
     remaining = remaining.filter((unit) => !placedIds.has(unit.unitKey));
-    boxes += 1;
-    if (remaining.length && boxes >= detailLimit) {
-      const averagePlaced = Math.max(1, Math.round(packedBoxes.reduce((sum, box) => sum + box.placed.length, 0) / packedBoxes.length));
-      boxes += Math.ceil(remaining.length / averagePlaced);
-      estimated = true;
-      remaining = [];
-      break;
-    }
+  }
+
+  let boxes = packedBoxes.length;
+  if (remaining.length && packedBoxes.length) {
+    const averagePlaced = Math.max(1, Math.round(packedBoxes.reduce((sum, box) => sum + box.placed.length, 0) / packedBoxes.length));
+    boxes += Math.ceil(remaining.length / averagePlaced);
+    estimated = true;
+    remaining = [];
   }
 
   return {
@@ -209,460 +186,14 @@ function packMultiple(container, allUnits) {
   };
 }
 
-function detailedBoxLimit(totalUnits) {
-  if (totalUnits > 180) return 1;
-  if (totalUnits > 100) return 2;
-  return 6;
-}
-
-function packSingle(container, units) {
-  const attempts = [];
-  for (const strategy of ORDER_STRATEGIES) {
-    const attempt = packSingleWithOrder(container, orderUnits(units, strategy.id), strategy);
-    if (!attempt.unplaced.length) return attempt;
-    const shouldDeepRefill = shouldRefillAttempt(attempt, units.length);
-    if (shouldDeepRefill || shouldTopRefillAttempt(attempt)) {
-      refillAttempt(container, attempt, { deep: shouldDeepRefill });
-      if (!attempt.unplaced.length) return attempt;
-    }
-    attempts.push(attempt);
-  }
-  const ranked = attempts.sort(comparePackAttempt(container));
-  ranked
-    .slice(0, REFILL_FINALIST_COUNT)
-    .filter((attempt) => shouldRefillAttempt(attempt, units.length) || shouldTopRefillAttempt(attempt))
-    .forEach((attempt) => refillAttempt(container, attempt, { deep: shouldRefillAttempt(attempt, units.length) }));
-  return ranked.sort(comparePackAttempt(container))[0] || { placed: [], unplaced: units, strategyId: "none", strategyName: "无可行摆放" };
-}
-
-function shouldRefillAttempt(attempt, totalCount) {
-  const maxUnplaced = Math.max(8, Math.ceil(totalCount * REFILL_MAX_REMAINING_RATIO));
-  return attempt.unplaced.length <= maxUnplaced;
-}
-
-function shouldTopRefillAttempt(attempt) {
-  return attempt.unplaced.some((unit) => unit.nonStack)
-    && attempt.placed.some((unit) => !unit.nonStack);
-}
-
-function packSingleWithOrder(container, units, strategy) {
-  const placed = [];
-  const unplaced = [];
-
-  for (const unit of units) {
-    const placement = findPlacement(unit, placed, container);
-    if (!placement) {
-      unplaced.push(unit);
-      continue;
-    }
-    placed.push(applyPlacement(unit, placement));
-  }
-
-  return {
-    placed,
-    unplaced,
-    strategyId: strategy.id,
-    strategyName: strategy.name,
-    strategySummary: {
-      placedCount: placed.length,
-      unplacedCount: unplaced.length,
-      occupiedVolumeM3: round(placed.reduce((sum, unit) => sum + occupiedVolumeM3(unit), 0)),
-      maxTopCm: round(maxTop(placed)),
-      refillPlacedCount: 0,
-      refillPasses: 0
-    }
-  };
-}
-
-function refillAttempt(container, attempt, options = {}) {
-  if (!attempt.unplaced.length) return attempt;
-  const previousRefillPlaced = Number(attempt.strategySummary?.refillPlacedCount || 0);
-  const previousRefillPasses = Number(attempt.strategySummary?.refillPasses || 0);
-  const topRefill = refillOnSingleSupports(container, attempt.placed, attempt.unplaced);
-  const refill = options.deep === false
-    ? { placedCount: 0, passes: 0 }
-    : refillUnplaced(container, attempt.placed, attempt.unplaced);
-  attempt.strategySummary = {
-    ...attempt.strategySummary,
-    placedCount: attempt.placed.length,
-    unplacedCount: attempt.unplaced.length,
-    occupiedVolumeM3: round(attempt.placed.reduce((sum, unit) => sum + occupiedVolumeM3(unit), 0)),
-    maxTopCm: round(maxTop(attempt.placed)),
-    refillPlacedCount: previousRefillPlaced + topRefill.placedCount + refill.placedCount,
-    refillPasses: previousRefillPasses + topRefill.passes + refill.passes
-  };
-  return attempt;
-}
-
-function refillOnSingleSupports(container, placed, unplaced) {
-  let placedCount = 0;
-  let passes = 0;
-  while (unplaced.length && passes < 3) {
-    passes += 1;
-    let changed = false;
-    const retryUnits = orderRefillUnits(unplaced);
-    for (const unit of retryUnits) {
-      const index = unplaced.findIndex((item) => item.unitKey === unit.unitKey);
-      if (index < 0) continue;
-      const placement = findSingleSupportPlacement(unit, placed, container);
-      if (!placement) continue;
-      placed.push(applyPlacement(unit, placement));
-      unplaced.splice(index, 1);
-      placedCount += 1;
-      changed = true;
-    }
-    if (!changed) break;
-  }
-  return { placedCount, passes };
-}
-
-function findSingleSupportPlacement(unit, placed, container) {
-  let best = null;
-  const supports = placed
-    .filter((box) => !box.nonStack)
-    .sort((a, b) => {
-      const topDiff = (a.z + a.heightCm) - (b.z + b.heightCm);
-      if (Math.abs(topDiff) > 0.0001) return topDiff;
-      const areaDiff = (b.lengthCm * b.widthCm) - (a.lengthCm * a.widthCm);
-      if (Math.abs(areaDiff) > 0.0001) return areaDiff;
-      return a.x - b.x || a.y - b.y;
-    });
-
-  for (const dims of orientations(unit)) {
-    if (dims.lengthCm > container.lengthCm || dims.widthCm > container.widthCm || dims.heightCm > container.heightCm) continue;
-    for (const support of supports) {
-      const z = support.z + support.heightCm;
-      if (z + dims.heightCm > container.heightCm + 0.0001) continue;
-      if (dims.lengthCm > support.lengthCm + 0.0001 || dims.widthCm > support.widthCm + 0.0001) continue;
-      for (const position of supportTopPositions(support, dims, z)) {
-        if (!fitsAt(position, dims, placed, container)) continue;
-        if (!hasSupport(position, dims, placed)) continue;
-        const score = placementScore(position, dims, container);
-        if (!best || score < best.score) best = { ...position, ...dims, score };
-      }
-    }
-  }
-  return best;
-}
-
-function supportTopPositions(support, dims, z) {
-  const points = new Map();
-  const add = (x, y) => {
-    if (x < support.x - 0.0001 || y < support.y - 0.0001) return;
-    if (x + dims.lengthCm > support.x + support.lengthCm + 0.0001) return;
-    if (y + dims.widthCm > support.y + support.widthCm + 0.0001) return;
-    const point = { x: round3(x), y: round3(y), z: round3(z) };
-    points.set(`${point.x}/${point.y}/${point.z}`, point);
-  };
-  add(support.x, support.y);
-  add(support.x + support.lengthCm - dims.lengthCm, support.y);
-  add(support.x, support.y + support.widthCm - dims.widthCm);
-  add(support.x + support.lengthCm - dims.lengthCm, support.y + support.widthCm - dims.widthCm);
-  add(support.x + (support.lengthCm - dims.lengthCm) / 2, support.y + (support.widthCm - dims.widthCm) / 2);
-
-  const xStep = Math.max(1, dims.lengthCm);
-  const yStep = Math.max(1, dims.widthCm);
-  for (let x = support.x; x + dims.lengthCm <= support.x + support.lengthCm + 0.0001; x += xStep) {
-    for (let y = support.y; y + dims.widthCm <= support.y + support.widthCm + 0.0001; y += yStep) {
-      add(x, y);
-    }
-  }
-  return [...points.values()];
-}
-
-function refillUnplaced(container, placed, unplaced) {
-  let placedCount = 0;
-  let passes = 0;
-  while (unplaced.length && passes < 3) {
-    passes += 1;
-    let changed = false;
-    const retryUnits = orderRefillUnits(unplaced);
-    for (const unit of retryUnits) {
-      const index = unplaced.findIndex((item) => item.unitKey === unit.unitKey);
-      if (index < 0) continue;
-      const placement = findPlacement(unit, placed, container, DEEP_REFILL_SEARCH);
-      if (!placement) continue;
-      placed.push(applyPlacement(unit, placement));
-      unplaced.splice(index, 1);
-      placedCount += 1;
-      changed = true;
-    }
-    if (!changed) break;
-  }
-  return { placedCount, passes };
-}
-
-function orderRefillUnits(units) {
-  return [...units].sort((a, b) => {
-    if (a.nonStack !== b.nonStack) return a.nonStack ? -1 : 1;
-    const heightDiff = a.heightCm - b.heightCm;
-    if (Math.abs(heightDiff) > 0.0001) return heightDiff;
-    const volumeDiff = unitVolumeCm3(a) - unitVolumeCm3(b);
-    if (Math.abs(volumeDiff) > 0.0001) return volumeDiff;
-    return a.cargoIndex - b.cargoIndex || a.itemIndex - b.itemIndex;
-  });
-}
-
-function applyPlacement(unit, placement) {
-  return {
-    ...unit,
-    x: placement.x,
-    y: placement.y,
-    z: placement.z,
-    lengthCm: placement.lengthCm,
-    widthCm: placement.widthCm,
-    heightCm: placement.heightCm,
-    lengthAxis: placement.lengthAxis,
-    widthAxis: placement.widthAxis,
-    heightAxis: placement.heightAxis
-  };
-}
-
-function findPlacement(unit, placed, container, search = DEFAULT_SEARCH) {
-  let best = null;
-  for (const dims of orientations(unit)) {
-    if (dims.lengthCm > container.lengthCm || dims.widthCm > container.widthCm || dims.heightCm > container.heightCm) continue;
-    for (const position of candidatePositions(placed, container, dims, search)) {
-      if (!fitsAt(position, dims, placed, container)) continue;
-      if (!hasSupport(position, dims, placed)) continue;
-      const score = placementScore(position, dims, container);
-      if (!best || score < best.score) best = { ...position, ...dims, score };
-      break;
-    }
-  }
-  return best;
-}
-
-function candidatePositions(placed, container, dims, search = DEFAULT_SEARCH) {
-  const xs = uniqueSorted(placed.map((unit) => unit.x + unit.lengthCm), 0);
-  const ys = uniqueSorted(placed.map((unit) => unit.y + unit.widthCm), 0);
-  const zs = uniqueSorted(placed.map((unit) => unit.z + unit.heightCm), 0);
-  const possibleCount = xs.length * ys.length * zs.length;
-  if (possibleCount > search.maxExhaustiveCandidates) {
-    return boundedCandidatePositions(placed, container, dims, xs, ys, zs, search);
-  }
-  const points = [];
-  for (const z of zs) {
-    if (z + dims.heightCm > container.heightCm + 0.0001) continue;
-    for (const y of ys) {
-      if (y + dims.widthCm > container.widthCm + 0.0001) continue;
-      for (const x of xs) {
-        if (x + dims.lengthCm <= container.lengthCm + 0.0001) points.push({ x, y, z });
-      }
-    }
-  }
-  return points;
-}
-
-function boundedCandidatePositions(placed, container, dims, xs, ys, zs, search = DEFAULT_SEARCH) {
-  const points = new Map();
-  const add = (x, y, z) => {
-    if (x < -0.0001 || y < -0.0001 || z < -0.0001) return;
-    if (x + dims.lengthCm > container.lengthCm + 0.0001) return;
-    if (y + dims.widthCm > container.widthCm + 0.0001) return;
-    if (z + dims.heightCm > container.heightCm + 0.0001) return;
-    const point = { x: round3(x), y: round3(y), z: round3(z) };
-    points.set(`${point.x}/${point.y}/${point.z}`, point);
-  };
-
-  add(0, 0, 0);
-  for (const box of placed) {
-    add(box.x + box.lengthCm, box.y, box.z);
-    add(box.x, box.y + box.widthCm, box.z);
-    add(box.x, box.y, box.z + box.heightCm);
-    add(box.x + box.lengthCm, box.y + box.widthCm, box.z);
-    add(box.x + box.lengthCm, box.y, box.z + box.heightCm);
-    add(box.x, box.y + box.widthCm, box.z + box.heightCm);
-  }
-
-  const limitedXs = xs.filter((x) => x + dims.lengthCm <= container.lengthCm + 0.0001).slice(0, search.maxAxisValues);
-  const limitedYs = ys.filter((y) => y + dims.widthCm <= container.widthCm + 0.0001).slice(0, search.maxAxisValues);
-  const limitedZs = zs.filter((z) => z + dims.heightCm <= container.heightCm + 0.0001).slice(0, search.maxZLevels);
-  for (const z of limitedZs) {
-    for (const y of limitedYs) {
-      for (const x of limitedXs) add(x, y, z);
-    }
-  }
-
-  return [...points.values()]
-    .sort((a, b) => placementScore(a, dims, container) - placementScore(b, dims, container))
-    .slice(0, search.maxBoundedCandidates);
-}
-
-function fitsAt(position, dims, placed, container) {
-  if (position.x < 0 || position.y < 0 || position.z < 0) return false;
-  if (position.x + dims.lengthCm > container.lengthCm + 0.0001) return false;
-  if (position.y + dims.widthCm > container.widthCm + 0.0001) return false;
-  if (position.z + dims.heightCm > container.heightCm + 0.0001) return false;
-  const candidate = { ...position, ...dims };
-  return !placed.some((box) => intersects(candidate, box));
-}
-
-function intersects(a, b) {
-  return a.x < b.x + b.lengthCm - 0.0001 && a.x + a.lengthCm > b.x + 0.0001
-    && a.y < b.y + b.widthCm - 0.0001 && a.y + a.widthCm > b.y + 0.0001
-    && a.z < b.z + b.heightCm - 0.0001 && a.z + a.heightCm > b.z + 0.0001;
-}
-
-function hasSupport(position, dims, placed) {
-  if (position.z <= 0.0001) return true;
-  const target = { x: position.x, y: position.y, lengthCm: dims.lengthCm, widthCm: dims.widthCm };
-  const supports = placed
-    .filter((box) => !box.nonStack && Math.abs(box.z + box.heightCm - position.z) < 0.0001)
-    .map((box) => overlapRect(target, { x: box.x, y: box.y, lengthCm: box.lengthCm, widthCm: box.widthCm }))
-    .filter(Boolean);
-  if (!supports.length) return false;
-  return unionArea(supports) >= dims.lengthCm * dims.widthCm * SUPPORT_RATIO;
-}
-
-function overlapRect(a, b) {
-  const x1 = Math.max(a.x, b.x);
-  const y1 = Math.max(a.y, b.y);
-  const x2 = Math.min(a.x + a.lengthCm, b.x + b.lengthCm);
-  const y2 = Math.min(a.y + a.widthCm, b.y + b.widthCm);
-  if (x2 <= x1 || y2 <= y1) return null;
-  return { x: x1, y: y1, lengthCm: x2 - x1, widthCm: y2 - y1 };
-}
-
-function unionArea(rects) {
-  const xs = uniqueSorted(rects.flatMap((rect) => [rect.x, rect.x + rect.lengthCm]), Number.NaN)
-    .filter((value) => !Number.isNaN(value));
-  let area = 0;
-  for (let i = 0; i < xs.length - 1; i += 1) {
-    const x1 = xs[i];
-    const x2 = xs[i + 1];
-    const width = x2 - x1;
-    if (width <= 0) continue;
-    const spans = rects
-      .filter((rect) => rect.x < x2 && rect.x + rect.lengthCm > x1)
-      .map((rect) => [rect.y, rect.y + rect.widthCm])
-      .sort((a, b) => a[0] - b[0]);
-    let covered = 0;
-    let start = null;
-    let end = 0;
-    for (const span of spans) {
-      if (start === null) {
-        start = span[0];
-        end = span[1];
-      } else if (span[0] <= end) {
-        end = Math.max(end, span[1]);
-      } else {
-        covered += end - start;
-        start = span[0];
-        end = span[1];
-      }
-    }
-    if (start !== null) covered += end - start;
-    area += width * covered;
-  }
-  return area;
-}
-
-function placementScore(position, dims, container) {
-  const top = position.z + dims.heightCm;
-  const front = position.y + dims.widthCm;
-  const right = position.x + dims.lengthCm;
-  return top * 1_000_000 + front * 1_000 + right + (container.lengthCm - right) * 0.01;
-}
-
-function orderUnits(units, strategyId) {
-  return [...units].sort((a, b) => {
-    if (strategyId === "support-first" && a.nonStack !== b.nonStack) return a.nonStack ? 1 : -1;
-    if (strategyId === "footprint-desc") {
-      const areaDiff = unitFootprintCm2(b) - unitFootprintCm2(a);
-      if (Math.abs(areaDiff) > 0.0001) return areaDiff;
-    } else if (strategyId === "height-desc") {
-      const heightDiff = b.heightCm - a.heightCm;
-      if (Math.abs(heightDiff) > 0.0001) return heightDiff;
-    }
-    const volumeDiff = unitVolumeCm3(b) - unitVolumeCm3(a);
-    if (Math.abs(volumeDiff) > 0.0001) return volumeDiff;
-    const areaDiff = unitFootprintCm2(b) - unitFootprintCm2(a);
-    if (Math.abs(areaDiff) > 0.0001) return areaDiff;
-    if (a.cargoIndex !== b.cargoIndex) return a.cargoIndex - b.cargoIndex;
-    return a.itemIndex - b.itemIndex;
-  });
-}
-
-function comparePackAttempt(container) {
-  return (a, b) => {
-    if (a.placed.length !== b.placed.length) return b.placed.length - a.placed.length;
-    const occupiedDiff = sumOccupiedVolumeM3(b.placed) - sumOccupiedVolumeM3(a.placed);
-    if (Math.abs(occupiedDiff) > 0.0001) return occupiedDiff;
-    const rawDiff = sumRawVolumeM3(b.placed) - sumRawVolumeM3(a.placed);
-    if (Math.abs(rawDiff) > 0.0001) return rawDiff;
-    const supportDiff = supportSurfaceScore(b.placed, container) - supportSurfaceScore(a.placed, container);
-    if (Math.abs(supportDiff) > 0.0001) return supportDiff;
-    return maxTop(a.placed) - maxTop(b.placed);
-  };
-}
-
-function supportSurfaceScore(placed, container) {
-  if (!placed.length) return 0;
-  return placed
-    .filter((unit) => !unit.nonStack)
-    .reduce((score, unit) => {
-      const top = unit.z + unit.heightCm;
-      const normalizedHeight = container.heightCm > 0 ? 1 - top / container.heightCm : 0;
-      return score + unit.lengthCm * unit.widthCm * Math.max(0, normalizedHeight);
-    }, 0);
-}
-
-function unitVolumeCm3(unit) {
-  return Number(unit.lengthCm || 0) * Number(unit.widthCm || 0) * Number(unit.heightCm || 0);
-}
-
-function unitFootprintCm2(unit) {
-  return Number(unit.lengthCm || 0) * Number(unit.widthCm || 0);
-}
-
-function sumOccupiedVolumeM3(units) {
-  return units.reduce((sum, unit) => sum + occupiedVolumeM3(unit), 0);
-}
-
-function sumRawVolumeM3(units) {
-  return units.reduce((sum, unit) => sum + Number(unit.volumeM3 || 0), 0);
-}
-
-function maxTop(units) {
-  return units.length ? Math.max(...units.map((unit) => Number(unit.z || 0) + Number(unit.heightCm || 0))) : 0;
-}
-
-function orientations(unit) {
-  const result = [{
-    lengthCm: unit.lengthCm,
-    widthCm: unit.widthCm,
-    heightCm: unit.heightCm,
-    lengthAxis: "长",
-    widthAxis: "宽",
-    heightAxis: "高"
-  }];
-  if (unit.rotatable) {
-    result.push(
-      { lengthCm: unit.widthCm, widthCm: unit.lengthCm, heightCm: unit.heightCm, lengthAxis: "宽", widthAxis: "长", heightAxis: "高" },
-      { lengthCm: unit.lengthCm, widthCm: unit.heightCm, heightCm: unit.widthCm, lengthAxis: "长", widthAxis: "高", heightAxis: "宽" },
-      { lengthCm: unit.heightCm, widthCm: unit.lengthCm, heightCm: unit.widthCm, lengthAxis: "高", widthAxis: "长", heightAxis: "宽" },
-      { lengthCm: unit.widthCm, widthCm: unit.heightCm, heightCm: unit.lengthCm, lengthAxis: "宽", widthAxis: "高", heightAxis: "长" },
-      { lengthCm: unit.heightCm, widthCm: unit.widthCm, heightCm: unit.lengthCm, lengthAxis: "高", widthAxis: "宽", heightAxis: "长" }
-    );
-  }
-  const seen = new Set();
-  return result.filter((dims) => {
-    const key = `${dims.lengthCm}/${dims.widthCm}/${dims.heightCm}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function expandUnits(cargos, globalGapCm) {
+function buildUnits(cargos, globalGapCm) {
   const units = [];
   cargos.forEach((cargo, cargoIndex) => {
     const rule = TYPE_RULES[cargo.type] || TYPE_RULES.normal;
     const gap = globalGapCm + rule.extraGapCm;
     const cargoId = cargo.id || `cargo-${cargoIndex}`;
     for (let i = 0; i < Number(cargo.quantity || 0); i += 1) {
-      units.push({
+      const unit = {
         unitKey: `${cargoId}-${i}`,
         cargoId,
         cargoIndex,
@@ -687,10 +218,485 @@ function expandUnits(cargos, globalGapCm) {
         verticalGapCm: rule.extraGapCm,
         gapCm: gap,
         volumeM3: Number(cargo.lengthCm) * Number(cargo.widthCm) * Number(cargo.heightCm) / 1_000_000
-      });
+      };
+      unit.orientations = generateOrientations(unit);
+      units.push(unit);
     }
   });
-  return orderUnits(units, "support-first");
+  return orderUnits(units, "support");
+}
+
+function generateOrientations(unit, options = {}) {
+  const base = [
+    { lengthCm: unit.lengthCm, widthCm: unit.widthCm, heightCm: unit.heightCm, lengthAxis: "长", widthAxis: "宽", heightAxis: "高" }
+  ];
+  if (unit.rotatable) {
+    base.push(
+      { lengthCm: unit.widthCm, widthCm: unit.lengthCm, heightCm: unit.heightCm, lengthAxis: "宽", widthAxis: "长", heightAxis: "高" },
+      { lengthCm: unit.lengthCm, widthCm: unit.heightCm, heightCm: unit.widthCm, lengthAxis: "长", widthAxis: "高", heightAxis: "宽" },
+      { lengthCm: unit.heightCm, widthCm: unit.lengthCm, heightCm: unit.widthCm, lengthAxis: "高", widthAxis: "长", heightAxis: "宽" },
+      { lengthCm: unit.widthCm, widthCm: unit.heightCm, heightCm: unit.lengthCm, lengthAxis: "宽", widthAxis: "高", heightAxis: "长" },
+      { lengthCm: unit.heightCm, widthCm: unit.widthCm, heightCm: unit.lengthCm, lengthAxis: "高", widthAxis: "宽", heightAxis: "长" }
+    );
+  }
+
+  const seen = new Set();
+  const orientations = base.filter((dims) => {
+    const key = `${round3(dims.lengthCm)}/${round3(dims.widthCm)}/${round3(dims.heightCm)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return orientations.sort((a, b) => {
+    if (options.preferVertical || shouldPreferVertical(unit)) {
+      const heightDiff = b.heightCm - a.heightCm;
+      if (Math.abs(heightDiff) > EPS) return heightDiff;
+    }
+    const areaDiff = b.lengthCm * b.widthCm - a.lengthCm * a.widthCm;
+    if (Math.abs(areaDiff) > EPS) return areaDiff;
+    return a.heightCm - b.heightCm;
+  });
+}
+
+function packContainer(container, units) {
+  const attempts = [];
+  for (const strategy of SEARCH_STRATEGIES) {
+    const ordered = orderUnits(units, strategy.unitOrder);
+    let attempt = packLayerLaff(container, ordered, strategy);
+    if (attempt.unplaced.length) {
+      attempt = repairWithLocalSearch(container, attempt, ordered, strategy);
+    }
+    attempts.push(attempt);
+    if (!attempt.unplaced.length) break;
+  }
+
+  return attempts.sort(comparePackAttempt(container))[0]
+    || makePackedBox([], units, { id: "none", name: "无可行摆放" }, { localSearchPasses: 0, repairedCount: 0 });
+}
+
+function packLayerLaff(container, units, strategy) {
+  const placed = [];
+  const unplaced = [];
+  const active = units.map(copyUnit);
+
+  while (active.length) {
+    const seedIndex = pickLayerSeedIndex(active, container, placed, strategy);
+    if (seedIndex < 0) {
+      unplaced.push(...active.splice(0));
+      break;
+    }
+
+    const seed = active.splice(seedIndex, 1)[0];
+    const seedPlacement = packExtremePoint(container, placed, seed, strategy);
+    if (!seedPlacement) {
+      unplaced.push(seed);
+      continue;
+    }
+
+    const placedSeed = applyPlacement(seed, seedPlacement);
+    placed.push(placedSeed);
+
+    const layerTop = placedSeed.z + placedSeed.heightCm;
+    let changed = true;
+    while (changed) {
+      changed = false;
+      const layerCandidates = orderLayerCandidates(active, placedSeed.z, layerTop, strategy);
+      for (const unit of layerCandidates) {
+        const index = active.findIndex((item) => item.unitKey === unit.unitKey);
+        if (index < 0) continue;
+        const placement = packExtremePoint(container, placed, unit, strategy, { layerTop });
+        if (!placement) continue;
+        active.splice(index, 1);
+        placed.push(applyPlacement(unit, placement));
+        changed = true;
+      }
+    }
+  }
+
+  const valid = validateAllPlacements(container, placed);
+  return makePackedBox(valid ? placed : [], valid ? unplaced : units, strategy, {
+    localSearchPasses: 0,
+    repairedCount: 0,
+    layerCount: countLayers(placed)
+  });
+}
+
+function packExtremePoint(container, placed, unit, strategy, options = {}) {
+  let best = null;
+  const orientations = generateOrientations(unit, { preferVertical: strategy.blueVertical });
+  for (const dims of orientations) {
+    if (!fitsContainerDims(container, dims)) continue;
+    for (const point of extremePoints(container, placed, dims, options)) {
+      const placement = { ...point, ...dims };
+      const validation = validatePlacement(container, placed, unit, placement);
+      if (!validation.valid) continue;
+      const score = placementScore(placement, unit, container, strategy);
+      if (!best || score < best.score) best = { ...placement, score };
+    }
+  }
+  return best;
+}
+
+function repairWithLocalSearch(container, attempt, originalUnits, strategy) {
+  let best = cloneAttempt(attempt);
+  const movableWindows = [4, 6, 9, 12, 16];
+
+  for (let pass = 0; pass < LOCAL_SEARCH_PASSES && best.unplaced.length; pass += 1) {
+    const windowSize = movableWindows[pass] || movableWindows[movableWindows.length - 1];
+    const removed = chooseRemovalSet(best.placed, best.unplaced, windowSize, pass);
+    const kept = best.placed.filter((unit) => !removed.has(unit.unitKey)).map(copyUnit);
+    const retry = [
+      ...best.unplaced.map(stripPlacement),
+      ...best.placed.filter((unit) => removed.has(unit.unitKey)).map(stripPlacement)
+    ];
+    const orderedRetry = orderUnits(retry, pass % 2 ? "height" : strategy.unitOrder);
+    const placed = kept.map(copyUnit);
+    const unplaced = [];
+
+    for (const unit of orderedRetry) {
+      const placement = packExtremePoint(container, placed, unit, strategy);
+      if (placement) placed.push(applyPlacement(unit, placement));
+      else unplaced.push(unit);
+    }
+
+    const candidate = makePackedBox(placed, unplaced, strategy, {
+      localSearchPasses: pass + 1,
+      repairedCount: attempt.unplaced.length - unplaced.length,
+      layerCount: countLayers(placed)
+    });
+    if (validateAllPlacements(container, candidate.placed) && comparePackAttempt(container)(candidate, best) < 0) {
+      best = candidate;
+    }
+  }
+
+  return best;
+}
+
+function validatePlacement(container, placed, unit, placement) {
+  if (!fitsContainerDims(container, placement)) return { valid: false, reason: "out-of-bounds" };
+  if (placed.some((box) => intersects(placement, box))) return { valid: false, reason: "intersects" };
+  if (!hasSupport(placement, placed)) return { valid: false, reason: "unsupported" };
+  if (unit.nonStack && hasAnyBoxAbove(placement, placed)) return { valid: false, reason: "nonstack-under-load" };
+  return { valid: true, reason: "" };
+}
+
+function validateAllPlacements(container, placed) {
+  for (let i = 0; i < placed.length; i += 1) {
+    const current = placed[i];
+    if (!fitsContainerDims(container, current)) return false;
+    for (let j = i + 1; j < placed.length; j += 1) {
+      if (intersects(current, placed[j])) return false;
+    }
+    const below = placed.filter((_, index) => index !== i);
+    if (!hasSupport(current, below)) return false;
+    if (current.nonStack && hasAnyBoxAbove(current, below)) return false;
+  }
+  return true;
+}
+
+function pickLayerSeedIndex(units, container, placed, strategy) {
+  let best = -1;
+  let bestScore = Infinity;
+  for (let i = 0; i < units.length; i += 1) {
+    const unit = units[i];
+    const placement = packExtremePoint(container, placed, unit, strategy);
+    if (!placement) continue;
+    const area = placement.lengthCm * placement.widthCm;
+    const score = placement.z * 1_000_000 - area * 100 - placement.heightCm;
+    if (score < bestScore) {
+      best = i;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+function orderLayerCandidates(units, layerBottom, layerTop, strategy) {
+  return [...units].sort((a, b) => {
+    if (a.nonStack !== b.nonStack) return a.nonStack ? 1 : -1;
+    const aCanShare = a.orientations.some((dims) => dims.heightCm <= layerTop - layerBottom + EPS);
+    const bCanShare = b.orientations.some((dims) => dims.heightCm <= layerTop - layerBottom + EPS);
+    if (aCanShare !== bCanShare) return aCanShare ? -1 : 1;
+    return orderUnits([a, b], strategy.unitOrder)[0].unitKey === a.unitKey ? -1 : 1;
+  });
+}
+
+function extremePoints(container, placed, dims, options = {}) {
+  const points = new Map();
+  const add = (x, y, z) => {
+    const point = { x: round3(x), y: round3(y), z: round3(z) };
+    if (point.x < -EPS || point.y < -EPS || point.z < -EPS) return;
+    if (point.x + dims.lengthCm > container.lengthCm + EPS) return;
+    if (point.y + dims.widthCm > container.widthCm + EPS) return;
+    if (point.z + dims.heightCm > container.heightCm + EPS) return;
+    if (options.layerTop && point.z + dims.heightCm > options.layerTop + EPS) return;
+    points.set(`${point.x}/${point.y}/${point.z}`, point);
+  };
+
+  add(0, 0, 0);
+  for (const box of placed) {
+    add(box.x + box.lengthCm, box.y, box.z);
+    add(box.x, box.y + box.widthCm, box.z);
+    add(box.x, box.y, box.z + box.heightCm);
+    add(box.x + box.lengthCm, box.y + box.widthCm, box.z);
+    add(box.x + box.lengthCm, box.y, box.z + box.heightCm);
+    add(box.x, box.y + box.widthCm, box.z + box.heightCm);
+    add(box.x + box.lengthCm, box.y + box.widthCm, box.z + box.heightCm);
+  }
+
+  const zs = uniqueSorted(placed.map((box) => box.z + box.heightCm), 0);
+  const xs = uniqueSorted(placed.flatMap((box) => [box.x, box.x + box.lengthCm]), 0);
+  const ys = uniqueSorted(placed.flatMap((box) => [box.y, box.y + box.widthCm]), 0);
+  for (const z of zs) {
+    for (const x of xs) add(x, 0, z);
+    for (const y of ys) add(0, y, z);
+  }
+
+  return [...points.values()].sort((a, b) => {
+    if (Math.abs(a.z - b.z) > EPS) return a.z - b.z;
+    if (Math.abs(a.y - b.y) > EPS) return a.y - b.y;
+    return a.x - b.x;
+  });
+}
+
+function hasSupport(placement, placed) {
+  if (placement.z <= EPS) return true;
+  const target = { x: placement.x, y: placement.y, lengthCm: placement.lengthCm, widthCm: placement.widthCm };
+  const supports = placed
+    .filter((box) => !box.nonStack && Math.abs(box.z + box.heightCm - placement.z) < EPS)
+    .map((box) => overlapRect(target, { x: box.x, y: box.y, lengthCm: box.lengthCm, widthCm: box.widthCm }))
+    .filter(Boolean);
+  if (!supports.length) return false;
+  return unionArea(supports) >= placement.lengthCm * placement.widthCm * SUPPORT_RATIO;
+}
+
+function hasAnyBoxAbove(unit, placed) {
+  const top = unit.z + unit.heightCm;
+  return placed.some((box) =>
+    Math.abs(box.z - top) < EPS
+    && overlapRect(
+      { x: unit.x, y: unit.y, lengthCm: unit.lengthCm, widthCm: unit.widthCm },
+      { x: box.x, y: box.y, lengthCm: box.lengthCm, widthCm: box.widthCm }
+    )
+  );
+}
+
+function makePackedBox(placed, unplaced, strategy, stats) {
+  return {
+    placed,
+    unplaced,
+    strategyId: strategy.id,
+    strategyName: strategy.name,
+    strategySummary: {
+      placedCount: placed.length,
+      unplacedCount: unplaced.length,
+      occupiedVolumeM3: round(sumOccupiedVolumeM3(placed)),
+      maxTopCm: round(maxTop(placed)),
+      refillPlacedCount: Number(stats.repairedCount || 0),
+      refillPasses: Number(stats.localSearchPasses || 0),
+      layerCount: Number(stats.layerCount || countLayers(placed))
+    }
+  };
+}
+
+function chooseRemovalSet(placed, unplaced, size, pass) {
+  const unplacedCargoIds = new Set(unplaced.map((unit) => unit.cargoId));
+  const ordered = [...placed].sort((a, b) => {
+    const aRelated = unplacedCargoIds.has(a.cargoId) ? 0 : 1;
+    const bRelated = unplacedCargoIds.has(b.cargoId) ? 0 : 1;
+    if (aRelated !== bRelated) return aRelated - bRelated;
+    if (pass % 2 === 0) return (b.z + b.heightCm) - (a.z + a.heightCm);
+    return a.x - b.x || a.y - b.y || b.z - a.z;
+  });
+  return new Set(ordered.slice(0, size).map((unit) => unit.unitKey));
+}
+
+function orderUnits(units, strategyId) {
+  return [...units].sort((a, b) => {
+    if ((strategyId === "support" || strategyId === "nonstack-last") && a.nonStack !== b.nonStack) return a.nonStack ? 1 : -1;
+    if (strategyId === "small-vertical") {
+      const smallDiff = smallItemRank(a) - smallItemRank(b);
+      if (smallDiff) return smallDiff;
+    }
+    if (strategyId === "height") {
+      const heightDiff = tallestOrientation(b) - tallestOrientation(a);
+      if (Math.abs(heightDiff) > EPS) return heightDiff;
+    }
+    const areaDiff = maxFootprint(b) - maxFootprint(a);
+    if (Math.abs(areaDiff) > EPS) return areaDiff;
+    const volumeDiff = unitVolumeCm3(b) - unitVolumeCm3(a);
+    if (Math.abs(volumeDiff) > EPS) return volumeDiff;
+    if (a.cargoIndex !== b.cargoIndex) return a.cargoIndex - b.cargoIndex;
+    return a.itemIndex - b.itemIndex;
+  });
+}
+
+function comparePackAttempt(container) {
+  return (a, b) => {
+    if (a.placed.length !== b.placed.length) return b.placed.length - a.placed.length;
+    const occupiedDiff = sumOccupiedVolumeM3(b.placed) - sumOccupiedVolumeM3(a.placed);
+    if (Math.abs(occupiedDiff) > EPS) return occupiedDiff;
+    const supportDiff = supportSurfaceScore(b.placed, container) - supportSurfaceScore(a.placed, container);
+    if (Math.abs(supportDiff) > EPS) return supportDiff;
+    const topDiff = maxTop(a.placed) - maxTop(b.placed);
+    if (Math.abs(topDiff) > EPS) return topDiff;
+    return a.unplaced.length - b.unplaced.length;
+  };
+}
+
+function placementScore(placement, unit, container, strategy) {
+  const top = placement.z + placement.heightCm;
+  const front = placement.y + placement.widthCm;
+  const right = placement.x + placement.lengthCm;
+  const area = placement.lengthCm * placement.widthCm;
+  const supportBonus = unit.nonStack ? 0 : area * Math.max(0, 1 - top / Math.max(1, container.heightCm));
+  const verticalPenalty = strategy.blueVertical && shouldPreferVertical(unit) ? -placement.heightCm * 100 : 0;
+  return top * 1_000_000 + front * 1_000 + right - supportBonus + verticalPenalty;
+}
+
+function supportSurfaceScore(placed, container) {
+  return placed
+    .filter((unit) => !unit.nonStack)
+    .reduce((score, unit) => {
+      const top = unit.z + unit.heightCm;
+      const normalizedHeight = container.heightCm > 0 ? 1 - top / container.heightCm : 0;
+      return score + unit.lengthCm * unit.widthCm * Math.max(0, normalizedHeight);
+    }, 0);
+}
+
+function applyPlacement(unit, placement) {
+  return {
+    ...stripPlacement(unit),
+    x: placement.x,
+    y: placement.y,
+    z: placement.z,
+    lengthCm: placement.lengthCm,
+    widthCm: placement.widthCm,
+    heightCm: placement.heightCm,
+    lengthAxis: placement.lengthAxis,
+    widthAxis: placement.widthAxis,
+    heightAxis: placement.heightAxis
+  };
+}
+
+function stripPlacement(unit) {
+  const copy = { ...unit, x: 0, y: 0, z: 0 };
+  copy.lengthCm = Number(copy.baseLengthCm) + Number(copy.gapCm || 0);
+  copy.widthCm = Number(copy.baseWidthCm) + Number(copy.gapCm || 0);
+  copy.heightCm = Number(copy.baseHeightCm) + Number(copy.verticalGapCm || 0);
+  copy.lengthAxis = "长";
+  copy.widthAxis = "宽";
+  copy.heightAxis = "高";
+  copy.orientations = generateOrientations(copy);
+  return copy;
+}
+
+function cloneAttempt(attempt) {
+  return makePackedBox(
+    attempt.placed.map(copyUnit),
+    attempt.unplaced.map(copyUnit),
+    { id: attempt.strategyId, name: attempt.strategyName },
+    attempt.strategySummary || {}
+  );
+}
+
+function fitsContainerDims(container, dims) {
+  return dims.lengthCm <= container.lengthCm + EPS
+    && dims.widthCm <= container.widthCm + EPS
+    && dims.heightCm <= container.heightCm + EPS
+    && Number(dims.x || 0) >= -EPS
+    && Number(dims.y || 0) >= -EPS
+    && Number(dims.z || 0) >= -EPS
+    && Number(dims.x || 0) + dims.lengthCm <= container.lengthCm + EPS
+    && Number(dims.y || 0) + dims.widthCm <= container.widthCm + EPS
+    && Number(dims.z || 0) + dims.heightCm <= container.heightCm + EPS;
+}
+
+function intersects(a, b) {
+  return a.x < b.x + b.lengthCm - EPS && a.x + a.lengthCm > b.x + EPS
+    && a.y < b.y + b.widthCm - EPS && a.y + a.widthCm > b.y + EPS
+    && a.z < b.z + b.heightCm - EPS && a.z + a.heightCm > b.z + EPS;
+}
+
+function overlapRect(a, b) {
+  const x1 = Math.max(a.x, b.x);
+  const y1 = Math.max(a.y, b.y);
+  const x2 = Math.min(a.x + a.lengthCm, b.x + b.lengthCm);
+  const y2 = Math.min(a.y + a.widthCm, b.y + b.widthCm);
+  if (x2 <= x1 + EPS || y2 <= y1 + EPS) return null;
+  return { x: x1, y: y1, lengthCm: x2 - x1, widthCm: y2 - y1 };
+}
+
+function unionArea(rects) {
+  const xs = uniqueSorted(rects.flatMap((rect) => [rect.x, rect.x + rect.lengthCm]), Number.NaN)
+    .filter((value) => !Number.isNaN(value));
+  let area = 0;
+  for (let i = 0; i < xs.length - 1; i += 1) {
+    const x1 = xs[i];
+    const x2 = xs[i + 1];
+    const width = x2 - x1;
+    if (width <= EPS) continue;
+    const spans = rects
+      .filter((rect) => rect.x < x2 - EPS && rect.x + rect.lengthCm > x1 + EPS)
+      .map((rect) => [rect.y, rect.y + rect.widthCm])
+      .sort((a, b) => a[0] - b[0]);
+    let covered = 0;
+    let start = null;
+    let end = 0;
+    for (const span of spans) {
+      if (start === null) {
+        start = span[0];
+        end = span[1];
+      } else if (span[0] <= end + EPS) {
+        end = Math.max(end, span[1]);
+      } else {
+        covered += end - start;
+        start = span[0];
+        end = span[1];
+      }
+    }
+    if (start !== null) covered += end - start;
+    area += width * covered;
+  }
+  return area;
+}
+
+function countLayers(placed) {
+  return uniqueSorted(placed.map((unit) => unit.z), Number.NaN).filter((value) => !Number.isNaN(value)).length;
+}
+
+function maxFootprint(unit) {
+  return Math.max(...generateOrientations(unit).map((dims) => dims.lengthCm * dims.widthCm));
+}
+
+function tallestOrientation(unit) {
+  return Math.max(...generateOrientations(unit).map((dims) => dims.heightCm));
+}
+
+function smallItemRank(unit) {
+  const isBlue = String(unit.color || "").toLowerCase() === "#3b82f6" || /蓝|blue/i.test(String(unit.name || ""));
+  const volume = unitVolumeCm3(unit);
+  return (isBlue ? 0 : 1000000000) + volume;
+}
+
+function shouldPreferVertical(unit) {
+  const isBlue = String(unit.color || "").toLowerCase() === "#3b82f6" || /蓝|blue/i.test(String(unit.name || ""));
+  const longest = Math.max(unit.lengthCm, unit.widthCm, unit.heightCm);
+  const shortest = Math.min(unit.lengthCm, unit.widthCm, unit.heightCm);
+  return isBlue || longest / Math.max(1, shortest) >= 1.8 || unitVolumeCm3(unit) < 120000;
+}
+
+function unitVolumeCm3(unit) {
+  return Number(unit.lengthCm || 0) * Number(unit.widthCm || 0) * Number(unit.heightCm || 0);
+}
+
+function sumOccupiedVolumeM3(units) {
+  return units.reduce((sum, unit) => sum + occupiedVolumeM3(unit), 0);
+}
+
+function maxTop(units) {
+  return units.length ? Math.max(...units.map((unit) => Number(unit.z || 0) + Number(unit.heightCm || 0))) : 0;
 }
 
 function totals(cargos) {
@@ -714,17 +720,18 @@ function buildTrace(container, units, total, multi, metrics) {
   return {
     worker: "frontend/src/workers/packingWorker.js",
     mode: "Browser WebWorker 本机计算",
+    solver: "LAFF + Extreme Point + Local Search",
     pipeline: [
       "主线程把货物、箱型、计划可用率、货物间隙复制给 Web Worker",
-      "Worker 将每类货物按数量展开为单件；全局间隙计入长宽方向，类型额外间隙计入长宽和必要高度余量",
-      "每个箱型独立试算；每个货舱会尝试多种摆放顺序，而不是只按体积排序",
-      "每件货物枚举允许的旋转方向，再扫描候选坐标，满足边界、不相交、支撑面后落位",
-      "快速选出最优候选方案后，对未摆货物做深度回填，优先把不可重压货物放到可承重顶面",
-      "同一货舱选择已摆数量更多、占用体积更高、可承重支撑面更好的方案",
-      "如果前序箱型已经单箱成功，后续箱型会先检查同一套 x/y/z 坐标是否完全落入新箱体边界，能复用就直接复用坐标",
+      "Worker 将每类货物按数量展开为单件，保留前端展示需要的 DTO 字段",
+      "每个箱型独立运行多轮 LAFF 搜索，分别尝试大底面积、高度、承重优先、不可重压最后和蓝色/小件竖放策略",
+      "每个 LAFF 层内使用 Extreme Point 候选点回填底部、顶部和侧边空隙",
+      "候选落位必须满足边界、不相交、底面支撑和不可重压货物不承载上层货物",
+      "首轮失败时执行局部搜索，移出一小组已摆货物与剩余货物重排，而不是立刻开启第二箱",
+      "同一箱型选择已摆数量更多、占用体积更高、承重支撑面更好的方案",
       "所有箱型按箱数更少、首箱占用更高、箱型体积更小排序推荐"
     ],
-    strategies: ORDER_STRATEGIES.map((strategy) => strategy.name),
+    strategies: SEARCH_STRATEGIES.map((strategy) => strategy.name),
     selectedStrategy: firstBox.strategyName || "",
     supportRatioPercent: round(SUPPORT_RATIO * 100),
     parameters: {
@@ -734,17 +741,11 @@ function buildTrace(container, units, total, multi, metrics) {
       cargoTypeCounts: countBy(units, "type")
     },
     formulas: [
-      "单件原始体积(m³) = 长 × 宽 × 高 ÷ 1,000,000",
+      "单件原始体积(m3) = 长 x 宽 x 高 / 1,000,000",
       "计入间隙长/宽(cm) = 原始长/宽 + 全局货物间隙 + 类型额外间隙",
-      "计入高度(cm) = 原始高度 + 类型额外高度余量；全局水平间隙不再层层累加到高度",
-      "单件占用体积(m³) = 计入长 × 计入宽 × 计入高 ÷ 1,000,000",
-      "箱体体积(m³) = 箱长 × 箱宽 × 箱高 ÷ 1,000,000",
-      "计划可用体积(m³) = 箱体体积 × 计划可用率",
-      "首箱空间占用率 = 首箱已摆放占用体积 ÷ 计划可用体积 × 100%",
-      "重量箱数 = ceil(总重量 ÷ 箱型载重)",
-      "推荐箱数 = max(几何装箱箱数, 重量箱数)",
-      "上层支撑条件 = 下方可承重重叠面积 ÷ 当前底面积 ≥ 98.5%",
-      "单箱坐标复用 = 已验证摆放的 x/y/z + 尺寸全部落入新箱体边界，且总重量不超过新箱型载重"
+      "计入高度(cm) = 原始高度 + 类型额外高度余量",
+      "上层支撑条件 = 下方可承重重叠面积 / 当前底面积 >= 98.5%",
+      "不可重压货物可以放在可承重货物上方，但不能作为上层货物的支撑面"
     ],
     current: {
       containerName: container.name,
@@ -777,14 +778,6 @@ function buildTrace(container, units, total, multi, metrics) {
       maxTopCm: round(maxTop(box.placed))
     }))
   };
-}
-
-function countBy(items, key) {
-  return items.reduce((acc, item) => {
-    const value = item[key] || "unknown";
-    acc[value] = (acc[value] || 0) + 1;
-    return acc;
-  }, {});
 }
 
 function toPlacementDto(unit) {
@@ -849,6 +842,14 @@ function uniqueSorted(values, first) {
   return [...set].sort((a, b) => a - b);
 }
 
+function countBy(items, key) {
+  return items.reduce((acc, item) => {
+    const value = item[key] || "unknown";
+    acc[value] = (acc[value] || 0) + 1;
+    return acc;
+  }, {});
+}
+
 function round(value) {
   return Math.round(Number(value || 0) * 100) / 100;
 }
@@ -858,5 +859,5 @@ function round3(value) {
 }
 
 function copyUnit(unit) {
-  return { ...unit };
+  return { ...unit, orientations: unit.orientations ? unit.orientations.map((item) => ({ ...item })) : undefined };
 }
