@@ -25,8 +25,8 @@ function renderReportCanvas(options) {
   const placements = enrichPlacements(options.placements || [], catalog);
   const layers = buildLayers(placements);
   const legendHeight = Math.max(86, 54 + Math.ceil(catalog.length / 4) * 46);
-  const layerCardHeight = 520;
-  const height = 150 + 112 + legendHeight + 590 + layers.length * (layerCardHeight + 24) + 70;
+  const layerCardHeight = 600;
+  const height = 150 + 112 + legendHeight + layers.length * (layerCardHeight + 24) + 70;
   const canvas = document.createElement("canvas");
   canvas.width = PAGE_WIDTH;
   canvas.height = height;
@@ -42,8 +42,6 @@ function renderReportCanvas(options) {
   y += 112;
   drawLegend(ctx, 48, y, PAGE_WIDTH - 96, legendHeight, catalog);
   y += legendHeight + 24;
-  drawOverview(ctx, 48, y, PAGE_WIDTH - 96, 566, container, placements, options);
-  y += 590;
 
   layers.forEach((layer, index) => {
     drawLayerBreakdown(ctx, 48, y, PAGE_WIDTH - 96, layerCardHeight, container, layer, index, layers.length);
@@ -70,10 +68,10 @@ function drawHeader(ctx, options, catalog, layers) {
 
   ctx.fillStyle = "#122033";
   ctx.font = "800 40px Microsoft YaHei, Arial";
-  ctx.fillText("装箱分层剖析图", 132, 68);
+  ctx.fillText("装箱分层剖析报告", 132, 68);
   ctx.fillStyle = "#52657b";
   ctx.font = "400 18px Microsoft YaHei, Arial";
-  ctx.fillText("整体俯视 + 分层俯视 + 分层侧视，XYZ 标注对应箱体长宽高方向", 134, 104);
+  ctx.fillText("按高度剖开货舱：每层提供俯视定位、斜侧立体剖析与色块堆放方式说明", 134, 104);
 
   const rightX = 1240;
   ctx.fillStyle = "#174a7f";
@@ -115,7 +113,7 @@ function drawLegend(ctx, x, y, width, height, catalog) {
   ctx.fillText("货物编号与颜色图例", x + 24, y + 32);
   ctx.fillStyle = "#64748b";
   ctx.font = "400 15px Microsoft YaHei, Arial";
-  ctx.fillText("图中 #编号 对应货物；俯视图标注 X/Y 底面边，侧视图标注 X/Z，高度与底面方向在本层统计中完整列出。", x + 250, y + 32);
+  ctx.fillText("图中 #编号 对应录入货物顺序；每层都会列出底面 X/Y、竖向 Z 与对应堆放规则。", x + 250, y + 32);
 
   const columns = 4;
   const cellWidth = (width - 48) / columns;
@@ -139,47 +137,28 @@ function drawLegend(ctx, x, y, width, height, catalog) {
   });
 }
 
-function drawOverview(ctx, x, y, width, height, container, placements, options) {
-  drawSectionCard(ctx, x, y, width, height, "整体视图", `当前箱型：${container.name} / 第 ${options.boxIndex || 1} 货舱。左侧看 X/Y 铺底关系，右侧看 X/Z 堆叠高度。`);
-  const gap = 24;
-  const plotY = y + 82;
-  const plotHeight = height - 112;
-  const leftWidth = Math.round(width * 0.52);
-  const rightWidth = width - leftWidth - gap - 48;
-  drawTopProjection(ctx, { x: x + 24, y: plotY, width: leftWidth, height: plotHeight }, container, placements, {
-    title: "整体俯视图",
-    note: "X=长，Y=宽；重叠区域按高度由低到高覆盖"
-  });
-  drawSideProjection(ctx, { x: x + 24 + leftWidth + gap, y: plotY, width: rightWidth, height: plotHeight }, container, placements, {
-    title: "整体侧视图：长 × 高",
-    note: "沿 Y 向观察；X=箱体长方向，Z=高度方向"
-  });
-}
-
 function drawLayerBreakdown(ctx, x, y, width, height, container, layer, index, totalLayers) {
   const title = `第 ${index + 1} 层 / 共 ${totalLayers} 层：z=${formatNum(layer.z)} cm`;
-  const subtitle = `高度范围 ${formatNum(layer.z)}-${formatNum(layer.top)} cm；本行将该层像魔方切片一样单独展开。`;
+  const subtitle = `高度范围 ${formatNum(layer.z)}-${formatNum(layer.top)} cm；本层按“魔方切片”单独拉出展示，编号与右侧堆放方式一一对应。`;
   drawSectionCard(ctx, x, y, width, height, title, subtitle);
 
   const gap = 24;
-  const statsWidth = 330;
+  const statsWidth = 376;
   const plotY = y + 82;
   const plotHeight = height - 112;
-  const topWidth = Math.round((width - 48 - gap * 2 - statsWidth) * 0.48);
-  const sideWidth = width - 48 - gap * 2 - statsWidth - topWidth;
+  const topWidth = 560;
+  const isoWidth = width - 48 - gap * 2 - statsWidth - topWidth;
   const topPlot = { x: x + 24, y: plotY, width: topWidth, height: plotHeight };
-  const sidePlot = { x: topPlot.x + topWidth + gap, y: plotY, width: sideWidth, height: plotHeight };
+  const isoPlot = { x: topPlot.x + topWidth + gap, y: plotY, width: isoWidth, height: plotHeight };
   drawTopProjection(ctx, topPlot, container, layer.items, {
-    title: "分层俯视图",
-    note: "仅显示本层货物底面；X=长方向，Y=宽方向"
+    title: "本层俯视图：X × Y",
+    note: "从货舱顶部看本层底面位置；#编号对应录入货物"
   });
-  drawSideProjection(ctx, sidePlot, container, layer.items, {
-    title: "分层侧视图：长 × 高",
-    note: "仅显示本层高度切片；X=长方向，Z=高度方向",
-    normalizeZ: true,
-    layerZ: layer.z
+  drawLayerExplodedIso(ctx, isoPlot, container, layer, {
+    title: "本层剖析图：单层斜侧立体",
+    note: "从 X/Y/Z 三轴观察该层；色块按实际位置绘制并标注编号"
   });
-  drawLayerStats(ctx, sidePlot.x + sideWidth + gap, plotY, statsWidth, plotHeight, layer.items);
+  drawLayerStats(ctx, isoPlot.x + isoWidth + gap, plotY, statsWidth, plotHeight, layer, index);
 }
 
 function drawTopProjection(ctx, plot, container, items, config = {}) {
@@ -254,32 +233,182 @@ function drawSideProjection(ctx, plot, container, items, config = {}) {
   drawSideDimensionLabels(ctx, ox, oy, frameW, frameH, container, viewHeight, config);
 }
 
-function drawLayerStats(ctx, x, y, width, height, items) {
-  drawPlotFrame(ctx, { x, y, width, height }, "本层统计", "底面 X/Y + 高度 Z");
-  const stats = countByCargo(items);
-  let rowY = y + 72;
+function drawLayerExplodedIso(ctx, plot, container, layer, config = {}) {
+  drawPlotFrame(ctx, plot, config.title, config.note);
+  const inner = inset(plot, 52, 76, 42, 54);
+  const items = layer.items || [];
+  const project = createIsoProjector(container, items, layer, inner);
+
+  drawIsoBase(ctx, project, container);
+  drawIsoAxes(ctx, inner);
+
+  [...items]
+    .sort((a, b) => {
+      const az = Number(a.zCm || 0) + Number(a.heightCm || 0);
+      const bz = Number(b.zCm || 0) + Number(b.heightCm || 0);
+      return (Number(a.xCm || 0) + Number(a.yCm || 0) + az)
+        - (Number(b.xCm || 0) + Number(b.yCm || 0) + bz);
+    })
+    .forEach((item) => drawIsoCargo(ctx, project, item, layer));
+}
+
+function createIsoProjector(container, items, layer, inner) {
+  const cos = 0.866;
+  const sin = 0.5;
+  const zScale = 1.12;
+  const raw = (x, y, z) => ({
+    x: (Number(x || 0) - Number(y || 0)) * cos,
+    y: (Number(x || 0) + Number(y || 0)) * sin - Number(z || 0) * zScale
+  });
+  const layerZ = Number(layer.z || 0);
+  const points = [
+    raw(0, 0, 0),
+    raw(container.lengthCm, 0, 0),
+    raw(container.lengthCm, container.widthCm, 0),
+    raw(0, container.widthCm, 0)
+  ];
+
+  items.forEach((item) => {
+    const x = Number(item.xCm || 0);
+    const y = Number(item.yCm || 0);
+    const z = Math.max(0, Number(item.zCm || 0) - layerZ);
+    const l = Number(item.lengthCm || 0);
+    const w = Number(item.widthCm || 0);
+    const h = Number(item.heightCm || 0);
+    [0, l].forEach((dx) => {
+      [0, w].forEach((dy) => {
+        [0, h].forEach((dz) => points.push(raw(x + dx, y + dy, z + dz)));
+      });
+    });
+  });
+
+  const minX = Math.min(...points.map((point) => point.x));
+  const maxX = Math.max(...points.map((point) => point.x));
+  const minY = Math.min(...points.map((point) => point.y));
+  const maxY = Math.max(...points.map((point) => point.y));
+  const scale = Math.min(inner.width / Math.max(1, maxX - minX), inner.height / Math.max(1, maxY - minY)) * 0.92;
+  const offsetX = inner.x + inner.width / 2 - ((minX + maxX) * scale) / 2;
+  const offsetY = inner.y + inner.height / 2 - ((minY + maxY) * scale) / 2 + 10;
+
+  return (x, y, z) => {
+    const point = raw(x, y, z);
+    return { x: offsetX + point.x * scale, y: offsetY + point.y * scale };
+  };
+}
+
+function drawIsoBase(ctx, project, container) {
+  const corners = [
+    project(0, 0, 0),
+    project(container.lengthCm, 0, 0),
+    project(container.lengthCm, container.widthCm, 0),
+    project(0, container.widthCm, 0)
+  ];
+  ctx.fillStyle = "rgba(232, 246, 251, 0.86)";
+  fillPolygon(ctx, corners);
+  ctx.strokeStyle = "#2f7cc4";
+  ctx.lineWidth = 1.7;
+  strokePolygon(ctx, corners);
+
+  ctx.strokeStyle = "rgba(47, 124, 196, 0.22)";
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 10; i += 1) {
+    const x = (container.lengthCm * i) / 10;
+    const y = (container.widthCm * i) / 10;
+    drawLine(ctx, project(x, 0, 0), project(x, container.widthCm, 0));
+    drawLine(ctx, project(0, y, 0), project(container.lengthCm, y, 0));
+  }
+}
+
+function drawIsoAxes(ctx, inner) {
+  const x = inner.x + 14;
+  const y = inner.y + inner.height - 26;
+  ctx.font = "800 13px Microsoft YaHei, Arial";
+  ctx.strokeStyle = "#2f7cc4";
+  ctx.lineWidth = 2;
+  drawLine(ctx, { x, y }, { x: x + 70, y });
+  drawLine(ctx, { x, y }, { x: x - 34, y: y - 24 });
+  drawLine(ctx, { x, y }, { x, y: y - 56 });
+  ctx.fillStyle = "#174a7f";
+  ctx.fillText("X 长", x + 76, y + 4);
+  ctx.fillText("Y 宽", x - 56, y - 26);
+  ctx.fillText("Z 高", x + 8, y - 58);
+}
+
+function drawIsoCargo(ctx, project, item, layer) {
+  const x = Number(item.xCm || 0);
+  const y = Number(item.yCm || 0);
+  const z = Math.max(0, Number(item.zCm || 0) - Number(layer.z || 0));
+  const l = Number(item.lengthCm || 0);
+  const w = Number(item.widthCm || 0);
+  const h = Number(item.heightCm || 0);
+  const p000 = project(x, y, z);
+  const p100 = project(x + l, y, z);
+  const p010 = project(x, y + w, z);
+  const p110 = project(x + l, y + w, z);
+  const p001 = project(x, y, z + h);
+  const p101 = project(x + l, y, z + h);
+  const p011 = project(x, y + w, z + h);
+  const p111 = project(x + l, y + w, z + h);
+
+  ctx.fillStyle = hexToRgba(item.color, 0.56);
+  fillPolygon(ctx, [p010, p110, p111, p011]);
+  ctx.fillStyle = hexToRgba(item.color, 0.72);
+  fillPolygon(ctx, [p100, p110, p111, p101]);
+  ctx.fillStyle = hexToRgba(item.color, 0.86);
+  fillPolygon(ctx, [p001, p101, p111, p011]);
+
+  ctx.strokeStyle = hexToRgba("#0f172a", 0.42);
+  ctx.lineWidth = 1.25;
+  strokePolygon(ctx, [p010, p110, p111, p011]);
+  strokePolygon(ctx, [p100, p110, p111, p101]);
+  strokePolygon(ctx, [p001, p101, p111, p011]);
+
+  const topCenter = averagePoint([p001, p101, p111, p011]);
+  drawIsoCargoBadge(ctx, item, topCenter);
+}
+
+function drawIsoCargoBadge(ctx, item, point) {
+  const label = `#${item.cargoNo}`;
+  ctx.font = "800 14px Microsoft YaHei, Arial";
+  const width = Math.max(34, ctx.measureText(label).width + 16);
+  const height = 24;
+  ctx.fillStyle = "rgba(255,255,255,0.92)";
+  roundRect(ctx, point.x - width / 2, point.y - height / 2, width, height, 8);
+  ctx.fill();
+  ctx.strokeStyle = hexToRgba(item.color, 0.7);
+  ctx.lineWidth = 1.1;
+  ctx.stroke();
+  ctx.fillStyle = "#132033";
+  centerText(ctx, label, point.x, point.y + 5);
+}
+
+function drawLayerStats(ctx, x, y, width, height, layer, index) {
+  drawPlotFrame(ctx, { x, y, width, height }, "本层标注与堆放方式", `第 ${index + 1} 层：色块编号、底面方向与承重规则`);
+  const stats = countByCargo(layer.items);
+  let rowY = y + 76;
   stats.forEach((item) => {
-    if (rowY > y + height - 46) return;
+    if (rowY > y + height - 74) return;
     ctx.fillStyle = item.color;
-    roundRect(ctx, x + 18, rowY - 20, 28, 28, 7);
+    roundRect(ctx, x + 18, rowY - 22, 34, 30, 8);
     ctx.fill();
     ctx.fillStyle = "#ffffff";
-    ctx.font = "800 12px Microsoft YaHei, Arial";
-    centerText(ctx, `#${item.cargoNo}`, x + 32, rowY - 2);
+    ctx.font = "800 13px Microsoft YaHei, Arial";
+    centerText(ctx, `#${item.cargoNo}`, x + 35, rowY - 3);
+
     ctx.fillStyle = "#132033";
-    ctx.font = "800 15px Microsoft YaHei, Arial";
-    ctx.fillText(item.name, x + 58, rowY - 7);
+    ctx.font = "800 16px Microsoft YaHei, Arial";
+    ctx.fillText(`${item.name}`, x + 62, rowY - 8);
     ctx.fillStyle = "#52657b";
     ctx.font = "400 13px Microsoft YaHei, Arial";
-    ctx.fillText(`${item.count} 件`, x + 58, rowY + 14);
-    const details = item.orientationDetails.slice(0, 2);
-    details.forEach((detail, detailIndex) => {
-      wrapText(ctx, detail, x + 18, rowY + 38 + detailIndex * 34, width - 36, 16, 2);
-    });
-    if (item.orientationDetails.length > 2) {
-      ctx.fillText(`另有 ${item.orientationDetails.length - 2} 种方向`, x + 18, rowY + 38 + details.length * 34);
-    }
-    rowY += 128;
+    ctx.fillText(`${item.count} 件`, x + width - 74, rowY - 8);
+
+    ctx.font = "700 13px Microsoft YaHei, Arial";
+    ctx.fillStyle = "#1f3148";
+    wrapText(ctx, item.orientationDetails[0] || "-", x + 18, rowY + 22, width - 36, 17, 2);
+    ctx.fillStyle = item.nonStack ? "#9a3412" : "#166534";
+    wrapText(ctx, item.stackMethods[0] || "-", x + 18, rowY + 62, width - 36, 17, 2);
+
+    rowY += 118;
   });
 }
 
@@ -476,15 +605,31 @@ function countByCargo(items) {
   items.forEach((item) => {
     const key = item.cargoNo;
     if (!map.has(key)) {
-      map.set(key, { cargoNo: item.cargoNo, name: item.name, color: item.color, count: 0, bottomFaces: new Set(), orientationDetails: new Set() });
+      map.set(key, {
+        cargoNo: item.cargoNo,
+        name: item.name,
+        color: item.color,
+        count: 0,
+        nonStack: Boolean(item.nonStack),
+        bottomFaces: new Set(),
+        orientationDetails: new Set(),
+        stackMethods: new Set()
+      });
     }
     const current = map.get(key);
     current.count += 1;
+    current.nonStack = current.nonStack || Boolean(item.nonStack);
     current.bottomFaces.add(item.bottomFace || "长×宽");
     current.orientationDetails.add(orientationDetail(item));
+    current.stackMethods.add(stackMethod(item));
   });
   return [...map.values()]
-    .map((item) => ({ ...item, bottomFaces: [...item.bottomFaces], orientationDetails: [...item.orientationDetails] }))
+    .map((item) => ({
+      ...item,
+      bottomFaces: [...item.bottomFaces],
+      orientationDetails: [...item.orientationDetails],
+      stackMethods: [...item.stackMethods]
+    }))
     .sort((a, b) => a.cargoNo - b.cargoNo);
 }
 
@@ -494,6 +639,12 @@ function orientationDetail(item) {
     `底面Y=${item.yAxis || "宽"}${formatNum(item.yAxisBaseCm, 0)}cm`,
     `高度Z=${item.zAxis || item.heightAxis || "高"}${formatNum(item.zAxisBaseCm, 0)}cm`
   ].join(" / ");
+}
+
+function stackMethod(item) {
+  if (item.nonStack) return "堆放方式：不可重压；可放在箱底或可承重货物顶面，本件不作为上层支撑。";
+  if (Number(item.zCm || 0) <= 0.1) return "堆放方式：箱底铺放；可承重，可作为上层货物支撑面。";
+  return "堆放方式：上层堆放；下方可承重重叠面积需达到 98.5%，本件可继续承重。";
 }
 
 function wrapText(ctx, text, x, y, maxWidth, lineHeight, maxLines = 2) {
@@ -647,6 +798,38 @@ function centerText(ctx, text, x, y) {
   ctx.textAlign = "center";
   ctx.fillText(text, x, y);
   ctx.textAlign = "left";
+}
+
+function drawLine(ctx, from, to) {
+  ctx.beginPath();
+  ctx.moveTo(from.x, from.y);
+  ctx.lineTo(to.x, to.y);
+  ctx.stroke();
+}
+
+function fillPolygon(ctx, points) {
+  if (!points.length) return;
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  points.slice(1).forEach((point) => ctx.lineTo(point.x, point.y));
+  ctx.closePath();
+  ctx.fill();
+}
+
+function strokePolygon(ctx, points) {
+  if (!points.length) return;
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  points.slice(1).forEach((point) => ctx.lineTo(point.x, point.y));
+  ctx.closePath();
+  ctx.stroke();
+}
+
+function averagePoint(points) {
+  return {
+    x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
+    y: points.reduce((sum, point) => sum + point.y, 0) / points.length
+  };
 }
 
 function hexToRgb(hex) {
