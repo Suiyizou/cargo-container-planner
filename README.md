@@ -1,24 +1,37 @@
 # 货代装箱体积规划系统
 
-这是一个前后端分离的 B/S 架构装箱计算系统。
+这是一个以 Windows 客户端打包为优先目标的装箱计算系统。
 
-- 前端：Vue 3 + Vite + Three.js
-- 后端：Spring Boot 3
-- 存储：MySQL 保存计算任务记录，Redis 缓存重复计算结果
-- 部署：Docker Compose，公网只需要开放前端 Nginx 的 80 端口
+- UI：Vue 3 + Vite
+- 3D：Three.js
+- 计算：WebWorker 本机计算
+- 桌面打包：Electron
+- 存储：localStorage 本地保存
+- 服务器：只用于静态页面或安装包分发，不再需要 Java 后端、MySQL、Redis
+
+## 为什么这样设计
+
+装箱计算属于 CPU 密集型任务。几十个 B 端用户同时使用时，如果都压到 2 核 2G 服务器上，体验会不稳定。
+
+现在的方案把计算迁移到用户本机：
+
+- 浏览器版用用户电脑的 WebWorker 计算。
+- 桌面版用同一套 Vue 页面和 WebWorker 计算。
+- 服务器只发页面或安装包，压力很小。
+- 不需要用户登录模块，也不需要公司服务器维护数据库。
 
 ## 当前能力
 
 - 录入货物长、宽、高、数量、单重、摆放规则和颜色。
-- 按箱型分别调用后端装箱算法计算，生成推荐箱型排序。
+- 按箱型本机计算，生成推荐箱型排序。
 - 支持 20GP、20HQ、40GP、40HQ、45HQ、冷藏柜等默认箱型，也支持添加自定义箱型。
-- 主视图使用 Three.js 展示当前货舱 3D 摆放结果，可拖动查看，禁用滚轮缩放以避免影响页面滚动。
+- 主视图使用 Three.js 展示当前货舱 3D 摆放结果，可拖动、缩放查看。
+- 图例可点击隐藏/显示某类货物，方便观察内部堆放。
 - 三视图使用 Canvas 展示俯视、正视、侧视，并标注箱体长宽高。
-- 当一个箱型需要多个货舱时，可切换第 1 箱、第 2 箱等视图，并带有等待动画。
-- 鼠标悬停到 3D 货物上会显示货物名称、尺寸、位置和重量。
+- 当一个箱型需要多个货舱时，可切换第 1 箱、第 2 箱等视图，并带等待动画。
 - 提供 CSV 导入、导出、示例数据、清空货物和算法说明页面。
 
-## 本地前端开发
+## 本地开发
 
 ```bash
 cd frontend
@@ -26,31 +39,55 @@ npm install
 npm run dev
 ```
 
-默认访问：
+访问：
 
 ```text
 http://127.0.0.1:5177
 ```
 
-本地开发时，Vite 会把 `/api` 代理到 `http://127.0.0.1:8080`。
-
-## 后端开发
+## 构建网页版本
 
 ```bash
-cd backend
-mvn spring-boot:run
+cd frontend
+npm run build
 ```
 
-健康检查：
+输出目录：
 
 ```text
-http://127.0.0.1:8080/api/health
+frontend/dist/
 ```
 
-## Docker 部署
+## 打包 Windows 客户端
 
 ```bash
-cp .env.example .env
+cd frontend
+npm run desktop:build
+```
+
+如果 Electron 下载较慢，可以在 PowerShell 中使用镜像后再执行：
+
+```powershell
+$env:ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/'
+$env:ELECTRON_BUILDER_BINARIES_MIRROR='https://npmmirror.com/mirrors/electron-builder-binaries/'
+npm run desktop:build
+```
+
+输出目录：
+
+```text
+frontend/release/
+```
+
+也可以先本地预览桌面客户端：
+
+```bash
+npm run desktop:preview
+```
+
+## Docker 静态部署
+
+```bash
 docker compose up -d --build
 ```
 
@@ -60,7 +97,7 @@ docker compose up -d --build
 http://服务器IP/
 ```
 
-Compose 中只有 `frontend` 暴露 `80:80`；后端、MySQL、Redis 默认不暴露公网端口，由 Docker 内部网络通信。
+Docker 只运行 Nginx 静态前端容器。没有后端、MySQL、Redis。
 
 ## 算法说明
 

@@ -104,7 +104,7 @@
               <p>箱型选择</p>
               <h2>推荐箱型对比</h2>
             </div>
-            <span class="status-pill" :class="{ warn: apiStatus !== '后端已连接' }">{{ apiStatus }}</span>
+            <span class="status-pill" :class="{ warn: loading }">{{ apiStatus }}</span>
           </div>
           <div class="container-grid">
             <button
@@ -172,8 +172,9 @@ import CargoModal from "./components/CargoModal.vue";
 import ContainerModal from "./components/ContainerModal.vue";
 import ContainerScene from "./components/ContainerScene.vue";
 import ProjectionCanvas from "./components/ProjectionCanvas.vue";
-import { createPackingJob, fetchDefaultContainers, fetchPackingJob } from "./services/api";
-import { fmt, shortType, uid, volumeM3 } from "./utils/format";
+import { calculatePacking } from "./services/packingClient";
+import { cloneDefaultContainers } from "./services/localData";
+import { fmt, shortType, uid } from "./utils/format";
 
 const STORAGE_KEY = "cargo-planner-vue-state";
 const colors = ["#2b9a83", "#4f8ed1", "#8b62c8", "#ef7c2a", "#d25f74", "#72a447"];
@@ -194,7 +195,7 @@ const containerModalOpen = ref(false);
 const editingCargo = ref(null);
 const menuOpen = ref(false);
 const toast = ref("");
-const apiStatus = ref("正在连接后端");
+const apiStatus = ref("本机计算");
 
 let timer = 0;
 let calcSeq = 0;
@@ -215,7 +216,7 @@ const selectedPlacements = computed(() =>
 
 onMounted(async () => {
   restoreState();
-  containers.value = await fetchDefaultContainers();
+  if (!containers.value.length) containers.value = cloneDefaultContainers();
   if (!selectedContainerId.value && containers.value[0]) selectedContainerId.value = containers.value[0].id;
   if (!cargos.value.length) loadSample(false);
   recalculate();
@@ -256,35 +257,23 @@ async function recalculate() {
   loading.value = true;
   apiStatus.value = "正在计算";
   try {
-    const job = await createPackingJob({
+    const nextResult = await calculatePacking({
       cargos: cargos.value,
       containers: containers.value,
       utilizationPercent: utilizationPercent.value,
       globalGapCm: globalGapCm.value
     });
-    const finished = await pollJob(job.id, seq);
     if (seq !== calcSeq) return;
-    result.value = normalizeResult(finished.result);
-    apiStatus.value = "后端已连接";
+    result.value = normalizeResult(nextResult);
+    apiStatus.value = "本机计算";
     selectedContainerId.value = result.value.bestContainerId || result.value.evaluations[0]?.container.id || selectedContainerId.value;
     selectedBoxIndex.value = 1;
   } catch (error) {
-    apiStatus.value = "后端连接异常";
-    showToast("计算接口暂不可用，请检查后端容器。");
+    apiStatus.value = "计算异常";
+    showToast(error.message || "本机计算失败，请检查货物参数。");
   } finally {
     if (seq === calcSeq) loading.value = false;
   }
-}
-
-async function pollJob(id, seq) {
-  for (let i = 0; i < 80; i += 1) {
-    if (seq !== calcSeq) throw new Error("stale job");
-    const job = await fetchPackingJob(id);
-    if (job.status === "finished") return job;
-    if (job.status === "failed") throw new Error(job.message || "计算失败");
-    await new Promise((resolve) => window.setTimeout(resolve, 350));
-  }
-  throw new Error("计算超时");
 }
 
 function normalizeResult(nextResult) {
@@ -343,8 +332,8 @@ function saveContainer(container) {
   containerModalOpen.value = false;
 }
 
-async function resetContainers() {
-  containers.value = await fetchDefaultContainers();
+function resetContainers() {
+  containers.value = cloneDefaultContainers();
   selectedContainerId.value = containers.value[0]?.id || "";
   showToast("已恢复默认箱型。");
 }

@@ -1,44 +1,56 @@
 # Deployment
 
-## Architecture
+当前项目以客户端软件为主，服务器只承担静态页面或安装包分发职责。
 
-- `frontend`: Nginx serves the Vue production build and proxies `/api/*` to `backend:8080`.
-- `backend`: Spring Boot API service for packing jobs and calculation results.
-- `mysql`: Stores job requests and results.
-- `redis`: Caches repeated calculation results.
-
-Only the frontend container publishes a host port. In normal server deployment, opening TCP port `80` is enough.
-
-## Server Commands
+## Web 静态部署
 
 ```bash
-git pull
-cp -n .env.example .env
 docker compose up -d --build
-docker compose ps
 ```
 
-Open:
+只有 `frontend` 容器，监听 80 端口。没有 Java 后端、MySQL 或 Redis。
+
+访问：
 
 ```text
 http://your-server-ip/
 ```
 
-## Useful Checks
+装箱计算在用户浏览器的 WebWorker 中完成，不消耗服务器 CPU。
+
+## Windows 客户端打包
+
+在 Windows 开发机执行：
 
 ```bash
-docker compose logs --tail=80 frontend
-docker compose logs --tail=120 backend
-curl http://127.0.0.1/api/health
+cd frontend
+npm install
+npm run desktop:build
 ```
 
-From outside the server, use:
+国内网络可先设置镜像：
+
+```powershell
+$env:ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/'
+$env:ELECTRON_BUILDER_BINARIES_MIRROR='https://npmmirror.com/mirrors/electron-builder-binaries/'
+npm run desktop:build
+```
+
+安装包输出目录：
 
 ```text
-http://your-server-ip/api/health
+frontend/release/
 ```
 
-## Notes
+预览桌面客户端：
 
-- Do not expose `8080`, `3306`, or `6379` to the public network unless there is a specific operations reason.
-- If a browser keeps an old page, press `Ctrl+F5`; the Vue asset filenames are hashed, and Nginx serves `index.html` with `no-cache`.
+```bash
+npm run desktop:preview
+```
+
+## 运行模式
+
+- 网页版：Vue + WebWorker + Three.js。
+- 桌面版：Electron + 同一套 Vue + WebWorker + Three.js。
+- 数据：保存在本机浏览器/客户端 localStorage。
+- 服务器：不参与计算，不需要数据库。

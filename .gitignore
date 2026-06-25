@@ -1,10 +1,12 @@
 node_modules/
 frontend/node_modules/
 frontend/dist/
+frontend/release/
 backend/target/
 *.log
 *.err.log
 .env
+*.exe
 .idea/
 .vscode/
 .DS_Store

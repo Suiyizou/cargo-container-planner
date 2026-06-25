@@ -1,12 +1,17 @@
 {
   "name": "cargo-container-planner-frontend",
   "version": "0.2.0",
+  "description": "货代装箱体积规划系统客户端",
+  "author": "Suiyizou",
   "private": true,
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5177",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 4173"
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "desktop:preview": "npm run build && electron .",
+    "desktop:build": "npm run build && electron-builder --win nsis --x64"
   },
   "dependencies": {
     "@vitejs/plugin-vue": "^5.2.4",
@@ -14,5 +19,34 @@
     "vue": "^3.5.17",
     "three": "^0.180.0"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.cargo.container.planner",
+    "productName": "货代装箱体积规划系统",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "artifactName": "${productName}-${version}-setup.${ext}",
+      "signAndEditExecutable": false,
+      "verifyUpdateCodeSignature": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "货代装箱体积规划系统"
+    }
+  }
 }
