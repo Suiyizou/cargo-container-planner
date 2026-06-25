@@ -362,6 +362,9 @@ function compareEvaluation(a, b) {
 }
 
 function toPlacementDto(unit) {
+  const xAxisBaseCm = axisBaseCm(unit, unit.lengthAxis);
+  const yAxisBaseCm = axisBaseCm(unit, unit.widthAxis);
+  const zAxisBaseCm = axisBaseCm(unit, unit.heightAxis);
   return {
     unitKey: unit.unitKey,
     cargoId: unit.cargoId,
@@ -374,15 +377,29 @@ function toPlacementDto(unit) {
     lengthCm: round(unit.lengthCm),
     widthCm: round(unit.widthCm),
     heightCm: round(unit.heightCm),
+    xAxis: unit.lengthAxis || "长",
+    yAxis: unit.widthAxis || "宽",
+    zAxis: unit.heightAxis || "高",
+    xAxisBaseCm: round(xAxisBaseCm),
+    yAxisBaseCm: round(yAxisBaseCm),
+    zAxisBaseCm: round(zAxisBaseCm),
     bottomFace: `${unit.lengthAxis || "长"}×${unit.widthAxis || "宽"}`,
     heightAxis: unit.heightAxis || "高",
-    orientationLabel: `底面 ${unit.lengthAxis || "长"}×${unit.widthAxis || "宽"} / 高度 ${unit.heightAxis || "高"}`,
+    bottomFaceDetail: `X向=${unit.lengthAxis || "长"}${round(xAxisBaseCm)}cm / Y向=${unit.widthAxis || "宽"}${round(yAxisBaseCm)}cm`,
+    orientationLabel: `底面 X向${unit.lengthAxis || "长"}${round(xAxisBaseCm)}cm × Y向${unit.widthAxis || "宽"}${round(yAxisBaseCm)}cm / 高度Z向${unit.heightAxis || "高"}${round(zAxisBaseCm)}cm`,
     xCm: round(unit.x),
     yCm: round(unit.y),
     zCm: round(unit.z),
     weightKg: round(unit.weightKg),
     nonStack: unit.nonStack
   };
+}
+
+function axisBaseCm(unit, axis) {
+  if (axis === "长") return unit.baseLengthCm;
+  if (axis === "宽") return unit.baseWidthCm;
+  if (axis === "高") return unit.baseHeightCm;
+  return 0;
 }
 
 function volumeM3(container) {

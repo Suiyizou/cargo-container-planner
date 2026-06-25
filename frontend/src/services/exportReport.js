@@ -115,7 +115,7 @@ function drawLegend(ctx, x, y, width, height, catalog) {
   ctx.fillText("货物编号与颜色图例", x + 24, y + 32);
   ctx.fillStyle = "#64748b";
   ctx.font = "400 15px Microsoft YaHei, Arial";
-  ctx.fillText("图中 #编号 对应货物；块内“底:长×宽”等表示当前旋转后的底面方向。", x + 250, y + 32);
+  ctx.fillText("图中 #编号 对应货物；X向/Y向表示货物原始哪条边落在箱体长/宽方向。", x + 250, y + 32);
 
   const columns = 4;
   const cellWidth = (width - 48) / columns;
@@ -162,7 +162,7 @@ function drawLayerBreakdown(ctx, x, y, width, height, container, layer, index, t
   drawSectionCard(ctx, x, y, width, height, title, subtitle);
 
   const gap = 24;
-  const statsWidth = 250;
+  const statsWidth = 330;
   const plotY = y + 82;
   const plotHeight = height - 112;
   const topWidth = Math.round((width - 48 - gap * 2 - statsWidth) * 0.48);
@@ -237,7 +237,7 @@ function drawIsoProjection(ctx, plot, container, items, config = {}) {
 }
 
 function drawLayerStats(ctx, x, y, width, height, items) {
-  drawPlotFrame(ctx, { x, y, width, height }, "本层统计", "件数、货物类型与底面方向");
+  drawPlotFrame(ctx, { x, y, width, height }, "本层统计", "X向=箱体长方向，Y向=箱体宽方向");
   const stats = countByCargo(items);
   let rowY = y + 72;
   stats.forEach((item) => {
@@ -254,8 +254,14 @@ function drawLayerStats(ctx, x, y, width, height, items) {
     ctx.fillStyle = "#52657b";
     ctx.font = "400 13px Microsoft YaHei, Arial";
     ctx.fillText(`${item.count} 件`, x + 58, rowY + 14);
-    ctx.fillText(`底面: ${item.bottomFaces.join("、")}`, x + 18, rowY + 38);
-    rowY += 74;
+    const details = item.orientationDetails.slice(0, 2);
+    details.forEach((detail, detailIndex) => {
+      wrapText(ctx, detail, x + 18, rowY + 38 + detailIndex * 18, width - 36, 16, 1);
+    });
+    if (item.orientationDetails.length > 2) {
+      ctx.fillText(`另有 ${item.orientationDetails.length - 2} 种方向`, x + 18, rowY + 38 + details.length * 18);
+    }
+    rowY += 98;
   });
 }
 
@@ -352,17 +358,21 @@ function drawCargoLabel(ctx, item, x, y, width, height, options = {}) {
   ctx.fillStyle = "#132033";
   centerText(ctx, label, x + width / 2, py + pillHeight / 2 + size * 0.36);
 
-  if (!options.compact && width > 82 && height > 54) {
-    const bottomLabel = `底:${item.bottomFace || "长×宽"}`;
-    ctx.font = "700 12px Microsoft YaHei, Arial";
-    const textY = py + pillHeight + 16;
-    if (textY < y + height - 5) {
-      const bottomWidth = Math.min(ctx.measureText(bottomLabel).width + 12, width - 8);
-      ctx.fillStyle = "rgba(255,255,255,0.78)";
-      roundRect(ctx, x + width / 2 - bottomWidth / 2, textY - 13, bottomWidth, 18, 7);
+  if (!options.compact && width > 92 && height > 60) {
+    const lines = [
+      `X:${item.xAxis || "长"}${formatNum(item.xAxisBaseCm, 0)}`,
+      `Y:${item.yAxis || "宽"}${formatNum(item.yAxisBaseCm, 0)}`
+    ];
+    ctx.font = "700 11px Microsoft YaHei, Arial";
+    const textY = py + pillHeight + 14;
+    if (textY + 16 < y + height - 5) {
+      const labelWidth = Math.min(Math.max(...lines.map((line) => ctx.measureText(line).width)) + 12, width - 8);
+      ctx.fillStyle = "rgba(255,255,255,0.8)";
+      roundRect(ctx, x + width / 2 - labelWidth / 2, textY - 12, labelWidth, 34, 7);
       ctx.fill();
       ctx.fillStyle = "#1f3148";
-      centerText(ctx, bottomLabel, x + width / 2, textY);
+      centerText(ctx, lines[0], x + width / 2, textY);
+      centerText(ctx, lines[1], x + width / 2, textY + 15);
     }
   }
 }
@@ -488,15 +498,42 @@ function countByCargo(items) {
   items.forEach((item) => {
     const key = item.cargoNo;
     if (!map.has(key)) {
-      map.set(key, { cargoNo: item.cargoNo, name: item.name, color: item.color, count: 0, bottomFaces: new Set() });
+      map.set(key, { cargoNo: item.cargoNo, name: item.name, color: item.color, count: 0, bottomFaces: new Set(), orientationDetails: new Set() });
     }
     const current = map.get(key);
     current.count += 1;
     current.bottomFaces.add(item.bottomFace || "长×宽");
+    current.orientationDetails.add(orientationDetail(item));
   });
   return [...map.values()]
-    .map((item) => ({ ...item, bottomFaces: [...item.bottomFaces] }))
+    .map((item) => ({ ...item, bottomFaces: [...item.bottomFaces], orientationDetails: [...item.orientationDetails] }))
     .sort((a, b) => a.cargoNo - b.cargoNo);
+}
+
+function orientationDetail(item) {
+  return [
+    `X向=${item.xAxis || "长"}${formatNum(item.xAxisBaseCm, 0)}cm`,
+    `Y向=${item.yAxis || "宽"}${formatNum(item.yAxisBaseCm, 0)}cm`,
+    `Z向=${item.zAxis || item.heightAxis || "高"}${formatNum(item.zAxisBaseCm, 0)}cm`
+  ].join(" / ");
+}
+
+function wrapText(ctx, text, x, y, maxWidth, lineHeight, maxLines = 2) {
+  const chars = String(text || "").split("");
+  let line = "";
+  let lines = 0;
+  for (const char of chars) {
+    const testLine = line + char;
+    if (ctx.measureText(testLine).width > maxWidth && line) {
+      ctx.fillText(lines === maxLines - 1 ? `${line}...` : line, x, y + lines * lineHeight);
+      lines += 1;
+      line = char;
+      if (lines >= maxLines) return;
+    } else {
+      line = testLine;
+    }
+  }
+  if (line && lines < maxLines) ctx.fillText(line, x, y + lines * lineHeight);
 }
 
 async function createPdfFromCanvas(sourceCanvas) {
