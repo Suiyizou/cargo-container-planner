@@ -220,8 +220,9 @@ function packSingle(container, units) {
   for (const strategy of ORDER_STRATEGIES) {
     const attempt = packSingleWithOrder(container, orderUnits(units, strategy.id), strategy);
     if (!attempt.unplaced.length) return attempt;
-    if (shouldRefillAttempt(attempt, units.length)) {
-      refillAttempt(container, attempt);
+    const shouldDeepRefill = shouldRefillAttempt(attempt, units.length);
+    if (shouldDeepRefill || shouldTopRefillAttempt(attempt)) {
+      refillAttempt(container, attempt, { deep: shouldDeepRefill });
       if (!attempt.unplaced.length) return attempt;
     }
     attempts.push(attempt);
@@ -229,14 +230,19 @@ function packSingle(container, units) {
   const ranked = attempts.sort(comparePackAttempt(container));
   ranked
     .slice(0, REFILL_FINALIST_COUNT)
-    .filter((attempt) => shouldRefillAttempt(attempt, units.length))
-    .forEach((attempt) => refillAttempt(container, attempt));
+    .filter((attempt) => shouldRefillAttempt(attempt, units.length) || shouldTopRefillAttempt(attempt))
+    .forEach((attempt) => refillAttempt(container, attempt, { deep: shouldRefillAttempt(attempt, units.length) }));
   return ranked.sort(comparePackAttempt(container))[0] || { placed: [], unplaced: units, strategyId: "none", strategyName: "无可行摆放" };
 }
 
 function shouldRefillAttempt(attempt, totalCount) {
   const maxUnplaced = Math.max(8, Math.ceil(totalCount * REFILL_MAX_REMAINING_RATIO));
   return attempt.unplaced.length <= maxUnplaced;
+}
+
+function shouldTopRefillAttempt(attempt) {
+  return attempt.unplaced.some((unit) => unit.nonStack)
+    && attempt.placed.some((unit) => !unit.nonStack);
 }
 
 function packSingleWithOrder(container, units, strategy) {
@@ -268,19 +274,100 @@ function packSingleWithOrder(container, units, strategy) {
   };
 }
 
-function refillAttempt(container, attempt) {
+function refillAttempt(container, attempt, options = {}) {
   if (!attempt.unplaced.length) return attempt;
-  const refill = refillUnplaced(container, attempt.placed, attempt.unplaced);
+  const previousRefillPlaced = Number(attempt.strategySummary?.refillPlacedCount || 0);
+  const previousRefillPasses = Number(attempt.strategySummary?.refillPasses || 0);
+  const topRefill = refillOnSingleSupports(container, attempt.placed, attempt.unplaced);
+  const refill = options.deep === false
+    ? { placedCount: 0, passes: 0 }
+    : refillUnplaced(container, attempt.placed, attempt.unplaced);
   attempt.strategySummary = {
     ...attempt.strategySummary,
     placedCount: attempt.placed.length,
     unplacedCount: attempt.unplaced.length,
     occupiedVolumeM3: round(attempt.placed.reduce((sum, unit) => sum + occupiedVolumeM3(unit), 0)),
     maxTopCm: round(maxTop(attempt.placed)),
-    refillPlacedCount: refill.placedCount,
-    refillPasses: refill.passes
+    refillPlacedCount: previousRefillPlaced + topRefill.placedCount + refill.placedCount,
+    refillPasses: previousRefillPasses + topRefill.passes + refill.passes
   };
   return attempt;
+}
+
+function refillOnSingleSupports(container, placed, unplaced) {
+  let placedCount = 0;
+  let passes = 0;
+  while (unplaced.length && passes < 3) {
+    passes += 1;
+    let changed = false;
+    const retryUnits = orderRefillUnits(unplaced);
+    for (const unit of retryUnits) {
+      const index = unplaced.findIndex((item) => item.unitKey === unit.unitKey);
+      if (index < 0) continue;
+      const placement = findSingleSupportPlacement(unit, placed, container);
+      if (!placement) continue;
+      placed.push(applyPlacement(unit, placement));
+      unplaced.splice(index, 1);
+      placedCount += 1;
+      changed = true;
+    }
+    if (!changed) break;
+  }
+  return { placedCount, passes };
+}
+
+function findSingleSupportPlacement(unit, placed, container) {
+  let best = null;
+  const supports = placed
+    .filter((box) => !box.nonStack)
+    .sort((a, b) => {
+      const topDiff = (a.z + a.heightCm) - (b.z + b.heightCm);
+      if (Math.abs(topDiff) > 0.0001) return topDiff;
+      const areaDiff = (b.lengthCm * b.widthCm) - (a.lengthCm * a.widthCm);
+      if (Math.abs(areaDiff) > 0.0001) return areaDiff;
+      return a.x - b.x || a.y - b.y;
+    });
+
+  for (const dims of orientations(unit)) {
+    if (dims.lengthCm > container.lengthCm || dims.widthCm > container.widthCm || dims.heightCm > container.heightCm) continue;
+    for (const support of supports) {
+      const z = support.z + support.heightCm;
+      if (z + dims.heightCm > container.heightCm + 0.0001) continue;
+      if (dims.lengthCm > support.lengthCm + 0.0001 || dims.widthCm > support.widthCm + 0.0001) continue;
+      for (const position of supportTopPositions(support, dims, z)) {
+        if (!fitsAt(position, dims, placed, container)) continue;
+        if (!hasSupport(position, dims, placed)) continue;
+        const score = placementScore(position, dims, container);
+        if (!best || score < best.score) best = { ...position, ...dims, score };
+      }
+    }
+  }
+  return best;
+}
+
+function supportTopPositions(support, dims, z) {
+  const points = new Map();
+  const add = (x, y) => {
+    if (x < support.x - 0.0001 || y < support.y - 0.0001) return;
+    if (x + dims.lengthCm > support.x + support.lengthCm + 0.0001) return;
+    if (y + dims.widthCm > support.y + support.widthCm + 0.0001) return;
+    const point = { x: round3(x), y: round3(y), z: round3(z) };
+    points.set(`${point.x}/${point.y}/${point.z}`, point);
+  };
+  add(support.x, support.y);
+  add(support.x + support.lengthCm - dims.lengthCm, support.y);
+  add(support.x, support.y + support.widthCm - dims.widthCm);
+  add(support.x + support.lengthCm - dims.lengthCm, support.y + support.widthCm - dims.widthCm);
+  add(support.x + (support.lengthCm - dims.lengthCm) / 2, support.y + (support.widthCm - dims.widthCm) / 2);
+
+  const xStep = Math.max(1, dims.lengthCm);
+  const yStep = Math.max(1, dims.widthCm);
+  for (let x = support.x; x + dims.lengthCm <= support.x + support.lengthCm + 0.0001; x += xStep) {
+    for (let y = support.y; y + dims.widthCm <= support.y + support.widthCm + 0.0001; y += yStep) {
+      add(x, y);
+    }
+  }
+  return [...points.values()];
 }
 
 function refillUnplaced(container, placed, unplaced) {
