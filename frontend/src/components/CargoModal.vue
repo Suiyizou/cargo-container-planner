@@ -13,6 +13,10 @@
           名称
           <input v-model.trim="model.name" required placeholder="例如：纸箱 A" />
         </label>
+        <label class="span-2">
+          型号/规格
+          <input v-model.trim="model.model" placeholder="可选，例如：100 / 200 / A款" />
+        </label>
         <label>
           长 cm
           <input v-model.number="model.lengthCm" required type="number" min="1" step="0.1" />
@@ -89,6 +93,7 @@ function defaultCargo() {
   return {
     id: "",
     name: "",
+    model: "",
     lengthCm: 60,
     widthCm: 40,
     heightCm: 35,

@@ -1,0 +1,142 @@
+<template>
+  <section class="home-page">
+    <div class="home-hero">
+      <div>
+        <p>Workspace</p>
+        <h2>你好，{{ profile.displayName || "操作员" }}，今天要做些什么呢？</h2>
+        <span>常用任务和个人设置都放在这里，后续登录账号后可以同步到员工自己的工作区。</span>
+      </div>
+      <div class="home-clock">
+        <strong>{{ todayText }}</strong>
+        <small>货代装箱体积规划系统</small>
+      </div>
+    </div>
+
+    <div class="home-quick-grid">
+      <RouterLink class="home-action-card primary" to="/planner">
+        <span>开始装箱计算</span>
+        <strong>录入货物、选择箱型并查看三维摆放</strong>
+      </RouterLink>
+      <RouterLink class="home-action-card" to="/excel">
+        <span>导入 Excel</span>
+        <strong>手动校验或创建 Agent 清洗任务</strong>
+      </RouterLink>
+      <RouterLink class="home-action-card" to="/algorithm">
+        <span>查看算法说明</span>
+        <strong>理解 LAFF、极点和局部搜索流程</strong>
+      </RouterLink>
+      <RouterLink class="home-action-card" to="/admin">
+        <span>管理后台</span>
+        <strong>员工账号、设备登录和运行监控</strong>
+      </RouterLink>
+    </div>
+
+    <div class="home-grid">
+      <article class="home-card">
+        <strong>个人工作偏好</strong>
+        <div class="home-form-grid">
+          <label>
+            <span>显示名称</span>
+            <input v-model.trim="profile.displayName" placeholder="例如：张三" />
+          </label>
+          <label>
+            <span>默认可用率</span>
+            <input v-model.number="profile.utilizationPercent" min="75" max="98" type="number" />
+          </label>
+          <label>
+            <span>默认货物间隙 cm</span>
+            <input v-model.number="profile.globalGapCm" min="0" max="8" type="number" />
+          </label>
+          <label>
+            <span>默认首页</span>
+            <select v-model="profile.startPage">
+              <option value="/home">工作台</option>
+              <option value="/planner">装箱计算</option>
+              <option value="/excel">Excel 导入</option>
+            </select>
+          </label>
+        </div>
+        <button class="primary" type="button" @click="saveProfile">保存偏好</button>
+        <p v-if="message" class="home-message">{{ message }}</p>
+      </article>
+
+      <article class="home-card">
+        <strong>当前工作概览</strong>
+        <div class="home-stat-list">
+          <div>
+            <span>当前货物类型</span>
+            <b>{{ cargoCount }} 类</b>
+          </div>
+          <div>
+            <span>计划可用率</span>
+            <b>{{ utilizationPercent }}%</b>
+          </div>
+          <div>
+            <span>货物间隙</span>
+            <b>{{ globalGapCm }} cm</b>
+          </div>
+        </div>
+      </article>
+    </div>
+  </section>
+</template>
+
+<script setup>
+import { computed, reactive, ref } from "vue";
+
+const STORAGE_KEY = "cargo-planner-user-profile";
+const props = defineProps({
+  cargoCount: { type: Number, default: 0 },
+  utilizationPercent: { type: Number, default: 90 },
+  globalGapCm: { type: Number, default: 1 }
+});
+const emit = defineEmits(["save-settings"]);
+
+const profile = reactive(loadProfile());
+const message = ref("");
+const todayText = computed(() =>
+  new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "long"
+  }).format(new Date())
+);
+
+function loadProfile() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+    return {
+      displayName: saved.displayName || "",
+      utilizationPercent: saved.utilizationPercent ?? props.utilizationPercent,
+      globalGapCm: saved.globalGapCm ?? props.globalGapCm,
+      startPage: saved.startPage || "/home"
+    };
+  } catch {
+    return {
+      displayName: "",
+      utilizationPercent: props.utilizationPercent,
+      globalGapCm: props.globalGapCm,
+      startPage: "/home"
+    };
+  }
+}
+
+function saveProfile() {
+  profile.utilizationPercent = clamp(profile.utilizationPercent, 75, 98);
+  profile.globalGapCm = clamp(profile.globalGapCm, 0, 8);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
+  emit("save-settings", {
+    displayName: profile.displayName,
+    utilizationPercent: profile.utilizationPercent,
+    globalGapCm: profile.globalGapCm
+  });
+  message.value = "偏好已保存";
+  window.clearTimeout(saveProfile.timer);
+  saveProfile.timer = window.setTimeout(() => (message.value = ""), 1800);
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, Number(value || min)));
+}
+</script>

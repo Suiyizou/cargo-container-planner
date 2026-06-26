@@ -2,6 +2,7 @@ import * as XLSX from "xlsx";
 
 const STANDARD_FIELDS = [
   { key: "name", label: "货物名称", required: true },
+  { key: "model", label: "型号/规格", required: false },
   { key: "lengthCm", label: "长度 cm", required: true },
   { key: "widthCm", label: "宽度 cm", required: true },
   { key: "heightCm", label: "高度 cm", required: true },
@@ -17,6 +18,7 @@ const STANDARD_FIELDS = [
 
 const FIELD_ALIASES = {
   name: ["name", "cargo", "cargoName", "goods", "goodsName", "product", "货物", "货物名称", "货名", "名称", "品名", "产品名称", "箱名", "物品名称"],
+  model: ["model", "specModel", "variant", "型号", "规格型号", "产品型号", "货物型号", "型号规格"],
   lengthCm: ["lengthCm", "length", "l", "长", "长度", "外长", "长cm", "长度cm", "长厘米", "长mm", "长度mm", "长毫米", "长m", "长度m"],
   widthCm: ["widthCm", "width", "w", "宽", "宽度", "外宽", "宽cm", "宽度cm", "宽厘米", "宽mm", "宽度mm", "宽毫米", "宽m", "宽度m"],
   heightCm: ["heightCm", "height", "h", "高", "高度", "外高", "高cm", "高度cm", "高厘米", "高mm", "高度mm", "高毫米", "高m", "高度m"],
@@ -40,7 +42,7 @@ const TYPE_ALIASES = [
 export const importFields = STANDARD_FIELDS;
 
 export function downloadTemplateWorkbook(rows) {
-  const headers = ["name", "lengthCm", "widthCm", "heightCm", "quantity", "weightKg", "type", "color", "remark"];
+  const headers = ["name", "model", "lengthCm", "widthCm", "heightCm", "quantity", "weightKg", "type", "color", "remark"];
   const worksheet = XLSX.utils.json_to_sheet(rows, { header: headers });
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "cargo-template");
@@ -160,6 +162,7 @@ function parseCargoRow(raw, mapping, context) {
     totalWeightKg != null && quantity ? totalWeightKg / quantity : null
   );
   const name = cleanCell(valueFor(raw, mapping.name) || valueFor(raw, mapping.id));
+  const model = cleanCell(valueFor(raw, mapping.model));
   const remark = cleanCell(valueFor(raw, mapping.remark));
   const type = normalizeType(valueFor(raw, mapping.type), remark);
   const color = normalizeColor(valueFor(raw, mapping.color));
@@ -174,7 +177,7 @@ function parseCargoRow(raw, mapping, context) {
   if (dimensionText && !dimensions) notes.push("合并尺寸未识别，已尝试使用独立长宽高字段");
   if (totalWeightKg != null && !valueFor(raw, mapping.weightKg)) notes.push("已用总重量 / 数量换算单件重量");
 
-  const cargo = parsedCargo({ name, lengthCm, widthCm, heightCm, quantity, weightKg, type, color, sku, remark });
+  const cargo = parsedCargo({ name, model, lengthCm, widthCm, heightCm, quantity, weightKg, type, color, sku, remark });
 
   return {
     rowNumber: context.rowNumber,
@@ -192,6 +195,7 @@ export function aggregateCargos(cargos) {
     const key = [
       cargo.sku || cargo.name,
       cargo.name,
+      cargo.model,
       cargo.lengthCm,
       cargo.widthCm,
       cargo.heightCm,
@@ -203,7 +207,26 @@ export function aggregateCargos(cargos) {
     if (existing) existing.quantity += cargo.quantity;
     else map.set(key, { ...cargo });
   });
-  return [...map.values()];
+  return assignCargoModels([...map.values()]);
+}
+
+export function assignCargoModels(cargos) {
+  const byName = new Map();
+  cargos.forEach((cargo) => {
+    const name = cleanCell(cargo.name);
+    if (!name) return;
+    if (!byName.has(name)) byName.set(name, []);
+    byName.get(name).push(cargo);
+  });
+
+  return cargos.map((cargo) => {
+    const siblings = byName.get(cleanCell(cargo.name)) || [];
+    const dimensionKeys = new Set(siblings.map(dimensionKey));
+    if (dimensionKeys.size <= 1 || cleanCell(cargo.model)) return { ...cargo };
+    const orderedKeys = [...dimensionKeys].sort(compareDimensionKey);
+    const modelIndex = Math.max(0, orderedKeys.indexOf(dimensionKey(cargo)));
+    return { ...cargo, model: `型号 ${modelLabel(modelIndex)}` };
+  });
 }
 
 export function validateCargo(cargo) {
@@ -221,6 +244,7 @@ function buildRowSuggestion(raw, cargo, errors, rowNumber) {
   const fallbackDimensions = inferDimensionsFromRow(raw);
   const suggested = {
     name: cargo.name || inferNameFromRow(raw) || `第 ${rowNumber} 行货物`,
+    model: cargo.model || "",
     lengthCm: cargo.lengthCm || fallbackDimensions?.[0] || "",
     widthCm: cargo.widthCm || fallbackDimensions?.[1] || "",
     heightCm: cargo.heightCm || fallbackDimensions?.[2] || "",
@@ -264,6 +288,7 @@ function inferNameFromRow(raw) {
 
 function parsedCargo({
   name,
+  model,
   lengthCm,
   widthCm,
   heightCm,
@@ -276,6 +301,7 @@ function parsedCargo({
 }) {
   return {
       name,
+      model,
       lengthCm: round2(lengthCm),
       widthCm: round2(widthCm),
       heightCm: round2(heightCm),
@@ -399,6 +425,32 @@ function normalizeColor(value) {
   const text = cleanCell(value);
   if (/^#[0-9a-f]{6}$/i.test(text)) return text;
   return "";
+}
+
+function dimensionKey(cargo) {
+  return [
+    round2(cargo.lengthCm),
+    round2(cargo.widthCm),
+    round2(cargo.heightCm),
+    round2(cargo.weightKg),
+    cargo.type || "normal"
+  ].join("|");
+}
+
+function compareDimensionKey(a, b) {
+  const aParts = a.split("|");
+  const bParts = b.split("|");
+  for (let i = 0; i < 4; i += 1) {
+    const diff = Number(aParts[i] || 0) - Number(bParts[i] || 0);
+    if (diff) return diff;
+  }
+  return String(aParts[4] || "").localeCompare(String(bParts[4] || ""));
+}
+
+function modelLabel(index) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  if (index < alphabet.length) return alphabet[index];
+  return `${alphabet[index % alphabet.length]}${Math.floor(index / alphabet.length) + 1}`;
 }
 
 function round2(value) {

@@ -40,10 +40,11 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class ExcelCleaningService {
   private static final List<String> OUTPUT_HEADERS = List.of(
-      "name", "lengthCm", "widthCm", "heightCm", "quantity", "weightKg", "type", "color", "sku", "remark"
+      "name", "model", "lengthCm", "widthCm", "heightCm", "quantity", "weightKg", "type", "color", "sku", "remark"
   );
   private static final List<FieldDef> STANDARD_FIELDS = List.of(
       new FieldDef("name", true),
+      new FieldDef("model", false),
       new FieldDef("lengthCm", true),
       new FieldDef("widthCm", true),
       new FieldDef("heightCm", true),
@@ -58,6 +59,7 @@ public class ExcelCleaningService {
   );
   private static final Map<String, List<String>> FIELD_ALIASES = Map.ofEntries(
       Map.entry("name", List.of("name", "cargo", "cargoName", "goods", "goodsName", "product", "货物", "货物名称", "货名", "名称", "品名", "产品名称", "箱名", "物品名称")),
+      Map.entry("model", List.of("model", "specModel", "variant", "型号", "规格型号", "产品型号", "货物型号", "型号规格")),
       Map.entry("lengthCm", List.of("lengthCm", "length", "l", "长", "长度", "外长", "长cm", "长度cm", "长厘米", "长mm", "长度mm", "长毫米", "长m", "长度m")),
       Map.entry("widthCm", List.of("widthCm", "width", "w", "宽", "宽度", "外宽", "宽cm", "宽度cm", "宽厘米", "宽mm", "宽度mm", "宽毫米", "宽m", "宽度m")),
       Map.entry("heightCm", List.of("heightCm", "height", "h", "高", "高度", "外高", "高cm", "高度cm", "高厘米", "高mm", "高度mm", "高毫米", "高m", "高度m")),
@@ -362,6 +364,7 @@ public class ExcelCleaningService {
         totalWeightKg != null && quantity != null && quantity > 0 ? totalWeightKg / quantity : null
     );
     String name = cleanCell(firstNonBlank(valueFor(raw, mapping.get("name")), valueFor(raw, mapping.get("id"))));
+    String model = cleanCell(valueFor(raw, mapping.get("model")));
     String remark = cleanCell(valueFor(raw, mapping.get("remark")));
     String type = normalizeType(valueFor(raw, mapping.get("type")), remark);
     String color = normalizeColor(valueFor(raw, mapping.get("color")));
@@ -376,12 +379,13 @@ public class ExcelCleaningService {
     if (!dimensionText.isBlank() && dimensions == null) notes.add("合并尺寸未识别，已尝试使用独立长宽高字段");
     if (totalWeightKg != null && valueFor(raw, mapping.get("weightKg")).isBlank()) notes.add("已用总重量 / 数量换算单件重量");
 
-    Map<String, Object> cargo = cargoMap(name, lengthCm, widthCm, heightCm, quantity, weightKg, type, color, sku, remark);
+    Map<String, Object> cargo = cargoMap(name, model, lengthCm, widthCm, heightCm, quantity, weightKg, type, color, sku, remark);
     return new ParsedRow(sheetName, rowNumber, raw, cargo, errors, notes, buildSuggestion(raw, cargo, errors, rowNumber));
   }
 
   private Map<String, Object> cargoMap(
       String name,
+      String model,
       Double lengthCm,
       Double widthCm,
       Double heightCm,
@@ -394,6 +398,7 @@ public class ExcelCleaningService {
   ) {
     Map<String, Object> cargo = new LinkedHashMap<>();
     cargo.put("name", name);
+    cargo.put("model", model);
     cargo.put("lengthCm", round2(lengthCm));
     cargo.put("widthCm", round2(widthCm));
     cargo.put("heightCm", round2(heightCm));
@@ -416,6 +421,7 @@ public class ExcelCleaningService {
     String cargoRemark = String.valueOf(cargo.getOrDefault("remark", ""));
     Map<String, Object> suggested = new LinkedHashMap<>();
     suggested.put("name", firstNonBlank(String.valueOf(cargo.getOrDefault("name", "")), inferNameFromRow(raw), "第 " + rowNumber + " 行货物"));
+    suggested.put("model", String.valueOf(cargo.getOrDefault("model", "")));
     suggested.put("lengthCm", positiveOrFallback(cargo.get("lengthCm"), dimensionsValue(fallbackDimensions, 0)));
     suggested.put("widthCm", positiveOrFallback(cargo.get("widthCm"), dimensionsValue(fallbackDimensions, 1)));
     suggested.put("heightCm", positiveOrFallback(cargo.get("heightCm"), dimensionsValue(fallbackDimensions, 2)));
@@ -458,6 +464,7 @@ public class ExcelCleaningService {
       String key = List.of(
           String.valueOf(cargo.getOrDefault("sku", "")),
           String.valueOf(cargo.getOrDefault("name", "")),
+          String.valueOf(cargo.getOrDefault("model", "")),
           String.valueOf(cargo.getOrDefault("lengthCm", "")),
           String.valueOf(cargo.getOrDefault("widthCm", "")),
           String.valueOf(cargo.getOrDefault("heightCm", "")),
@@ -472,7 +479,29 @@ public class ExcelCleaningService {
         existing.put("quantity", numberValue(existing.get("quantity")) + numberValue(cargo.get("quantity")));
       }
     }
-    return new ArrayList<>(aggregate.values());
+    return assignCargoModels(new ArrayList<>(aggregate.values()));
+  }
+
+  private List<Map<String, Object>> assignCargoModels(List<Map<String, Object>> cargos) {
+    Map<String, List<Map<String, Object>>> byName = new LinkedHashMap<>();
+    for (Map<String, Object> cargo : cargos) {
+      String name = cleanCell(cargo.get("name"));
+      if (name.isBlank()) continue;
+      byName.computeIfAbsent(name, (ignored) -> new ArrayList<>()).add(cargo);
+    }
+
+    List<Map<String, Object>> result = new ArrayList<>();
+    for (Map<String, Object> cargo : cargos) {
+      Map<String, Object> next = new LinkedHashMap<>(cargo);
+      List<Map<String, Object>> siblings = byName.getOrDefault(cleanCell(cargo.get("name")), List.of());
+      List<String> dimensionKeys = siblings.stream().map(this::dimensionKey).distinct().sorted(this::compareDimensionKey).toList();
+      if (dimensionKeys.size() > 1 && cleanCell(cargo.get("model")).isBlank()) {
+        int index = Math.max(0, dimensionKeys.indexOf(dimensionKey(cargo)));
+        next.put("model", "型号 " + modelLabel(index));
+      }
+      result.add(next);
+    }
+    return result;
   }
 
   private List<String> validateCargo(Map<String, Object> cargo) {
@@ -651,6 +680,34 @@ public class ExcelCleaningService {
   private String normalizeColor(String value) {
     String text = cleanCell(value);
     return text.matches("^#[0-9a-fA-F]{6}$") ? text : "";
+  }
+
+  private String dimensionKey(Map<String, Object> cargo) {
+    return List.of(
+        String.valueOf(round2(numberValue(cargo.get("lengthCm")))),
+        String.valueOf(round2(numberValue(cargo.get("widthCm")))),
+        String.valueOf(round2(numberValue(cargo.get("heightCm")))),
+        String.valueOf(round2(numberValue(cargo.get("weightKg")))),
+        String.valueOf(cargo.getOrDefault("type", "normal"))
+    ).stream().reduce((left, right) -> left + "|" + right).orElse("");
+  }
+
+  private int compareDimensionKey(String a, String b) {
+    String[] aParts = a.split("\\|");
+    String[] bParts = b.split("\\|");
+    for (int i = 0; i < 4; i++) {
+      double diff = numberValue(i < aParts.length ? aParts[i] : "0") - numberValue(i < bParts.length ? bParts[i] : "0");
+      if (Math.abs(diff) > 0.0001) return diff > 0 ? 1 : -1;
+    }
+    String aType = aParts.length > 4 ? aParts[4] : "";
+    String bType = bParts.length > 4 ? bParts[4] : "";
+    return aType.compareTo(bType);
+  }
+
+  private String modelLabel(int index) {
+    String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    if (index < alphabet.length()) return String.valueOf(alphabet.charAt(index));
+    return alphabet.charAt(index % alphabet.length()) + String.valueOf(index / alphabet.length() + 1);
   }
 
   private String cleanCell(Object value) {

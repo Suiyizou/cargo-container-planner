@@ -1,4 +1,5 @@
 import { calculateMassBalance } from "../utils/massBalance";
+import { cargoLabel } from "../utils/format";
 
 const REPORT_COLORS = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3", "#ca8a04", "#475569"];
 const PAGE_WIDTH = 1800;
@@ -293,7 +294,7 @@ function drawLegend(ctx, x, y, width, height, catalog) {
     centerText(ctx, `#${cargo.no}`, cellX + 17, cellY + 18);
     ctx.fillStyle = "#132033";
     ctx.font = "800 16px Microsoft YaHei, Arial";
-    ctx.fillText(`#${cargo.no} ${cargo.name}`, cellX + 46, cellY + 10);
+    ctx.fillText(`#${cargo.no} ${cargoLabel(cargo)}`, cellX + 46, cellY + 10);
     ctx.fillStyle = "#52657b";
     ctx.font = "400 13px Microsoft YaHei, Arial";
     ctx.fillText(`${cargo.lengthCm} × ${cargo.widthCm} × ${cargo.heightCm} cm / ${cargo.quantity || 0} 件`, cellX + 46, cellY + 30);
@@ -729,6 +730,7 @@ function buildCargoCatalog(cargos, placements) {
   });
   return cargos.map((cargo, index) => ({
     ...cargo,
+    displayName: cargoLabel(cargo),
     no: index + 1,
     color: cargo.color || placementColors.get(cargo.id) || REPORT_COLORS[index % REPORT_COLORS.length]
   }));
@@ -737,8 +739,9 @@ function buildCargoCatalog(cargos, placements) {
 function enrichPlacements(placements, catalog) {
   const byId = new Map(catalog.map((cargo) => [cargo.id, cargo]));
   const byName = new Map(catalog.map((cargo) => [cargo.name, cargo]));
+  const byDisplayName = new Map(catalog.map((cargo) => [cargo.displayName, cargo]));
   return placements.map((item, index) => {
-    const cargo = byId.get(item.cargoId) || byName.get(item.name);
+    const cargo = byId.get(item.cargoId) || byDisplayName.get(item.name) || byName.get(item.name);
     return {
       ...item,
       cargoNo: cargo?.no || index + 1,

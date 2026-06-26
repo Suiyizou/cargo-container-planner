@@ -8,25 +8,51 @@
           <h1>货代装箱体积规划系统</h1>
         </div>
       </div>
-      <nav class="top-actions">
-        <button :class="{ active: activePage === 'planner' }" type="button" @click="activePage = 'planner'">装箱计算</button>
-        <button :class="{ active: activePage === 'algorithm' }" type="button" @click="activePage = 'algorithm'">算法说明</button>
-        <button :class="{ active: activePage === 'excel-template' }" type="button" @click="activePage = 'excel-template'">Excel 样板</button>
-        <button type="button" @click="openContainerModal">添加箱型</button>
-        <div class="menu">
-          <button type="button" @click="menuOpen = !menuOpen">数据操作</button>
-          <div v-if="menuOpen" class="menu-panel">
-            <button type="button" @click="loadSample">套用示例</button>
-            <button type="button" @click="clearCargos">清空货物</button>
-            <button type="button" @click="exportCsv">导出 CSV</button>
-            <label>导入 CSV<input type="file" accept=".csv,text/csv" @change="importCsv" /></label>
-            <button type="button" @click="resetContainers">恢复默认箱型</button>
-          </div>
-        </div>
-      </nav>
+      <div class="top-user">
+        <span>{{ pageTitle }}</span>
+        <strong>{{ userDisplayName }}</strong>
+      </div>
     </header>
 
-    <main v-if="activePage === 'planner'" class="layout">
+    <div class="app-body">
+      <aside class="app-sidebar">
+        <div class="side-user-card">
+          <span>当前工作区</span>
+          <strong>{{ userDisplayName }}</strong>
+          <small>{{ cargos.length }} 类货物 · {{ containers.length }} 个箱型</small>
+        </div>
+
+        <nav class="side-nav">
+          <RouterLink to="/home" :class="{ active: activePage === 'home' }">工作台首页</RouterLink>
+          <RouterLink to="/planner" :class="{ active: activePage === 'planner' }">装箱计算</RouterLink>
+          <RouterLink to="/excel" :class="{ active: activePage === 'excel-template' }">Excel 导入</RouterLink>
+          <RouterLink to="/algorithm" :class="{ active: activePage === 'algorithm' }">算法说明</RouterLink>
+          <RouterLink to="/admin" :class="{ active: activePage === 'admin' }">管理后台</RouterLink>
+        </nav>
+
+        <div class="side-toolbox">
+          <strong>常用工具</strong>
+          <button type="button" @click="openContainerModal">添加箱型</button>
+          <button type="button" @click="loadSample">套用示例</button>
+          <button type="button" @click="exportCsv">导出 CSV</button>
+          <label>导入 CSV<input type="file" accept=".csv,text/csv" @change="importCsv" /></label>
+          <button type="button" @click="resetContainers">恢复默认箱型</button>
+          <button class="danger ghost" type="button" @click="clearCargos">清空货物</button>
+        </div>
+      </aside>
+
+      <section class="workspace">
+
+    <Transition name="page-switch" mode="out-in">
+    <HomePage
+      v-if="activePage === 'home'"
+      key="home"
+      :cargo-count="cargos.length"
+      :utilization-percent="utilizationPercent"
+      :global-gap-cm="globalGapCm"
+      @save-settings="applyUserSettings"
+    />
+    <main v-else-if="activePage === 'planner'" key="planner" class="layout">
       <aside class="sidebar">
         <section class="control-card">
           <div class="step-title">
@@ -58,7 +84,7 @@
               <button class="cargo-row" type="button" @click="openCargoModal(cargo)">
                 <i :style="{ background: cargo.color || systemColorFor(index) }"></i>
                 <span>
-                  <strong>{{ cargo.name }}</strong>
+                  <strong>{{ cargoDisplayName(cargo) }}</strong>
                   <small>{{ cargo.lengthCm }} × {{ cargo.widthCm }} × {{ cargo.heightCm }} cm / {{ cargo.quantity }} 件</small>
                 </span>
               </button>
@@ -164,10 +190,14 @@
 
     <AlgorithmPage
       v-else-if="activePage === 'algorithm'"
+      key="algorithm"
       :evaluation="selectedEvaluation"
     />
-    <ExcelTemplatePage v-else-if="activePage === 'excel-template'" @import-cargos="importExcelCargos" />
-    <AdminDashboard v-else-if="activePage === 'admin'" />
+    <ExcelTemplatePage v-else-if="activePage === 'excel-template'" key="excel-template" @import-cargos="importExcelCargos" />
+    <AdminDashboard v-else-if="activePage === 'admin'" key="admin" />
+    </Transition>
+      </section>
+    </div>
 
     <CargoModal v-if="cargoModalOpen" :cargo="editingCargo" @close="closeCargoModal" @save="saveCargo" />
     <ContainerModal v-if="containerModalOpen" @close="containerModalOpen = false" @save="saveContainer" />
@@ -177,22 +207,44 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import AdminDashboard from "./components/AdminDashboard.vue";
 import AlgorithmPage from "./components/AlgorithmPage.vue";
 import ExcelTemplatePage from "./components/ExcelTemplatePage.vue";
+import HomePage from "./components/HomePage.vue";
 import CargoModal from "./components/CargoModal.vue";
 import ContainerModal from "./components/ContainerModal.vue";
 import ContainerScene from "./components/ContainerScene.vue";
 import ProjectionCanvas from "./components/ProjectionCanvas.vue";
 import { exportPackingReport } from "./services/exportReport";
+import { assignCargoModels } from "./services/excelImport";
 import { calculatePacking } from "./services/packingClient";
 import { cloneDefaultContainers } from "./services/localData";
-import { fmt, shortType, uid } from "./utils/format";
+import { cargoLabel, fmt, shortType, uid } from "./utils/format";
 
 const STORAGE_KEY = "cargo-planner-vue-state";
 const colors = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3", "#ca8a04", "#475569"];
 
-const activePage = ref(window.location.hash === "#admin" ? "admin" : "planner");
+const route = useRoute();
+const router = useRouter();
+const profileVersion = ref(0);
+const activePage = computed(() => route.name || "planner");
+const pageTitle = computed(() => ({
+  home: "工作台首页",
+  planner: "装箱计算",
+  algorithm: "算法说明",
+  "excel-template": "Excel 导入",
+  admin: "管理后台"
+}[activePage.value] || "工作台"));
+const userDisplayName = computed(() => {
+  profileVersion.value;
+  try {
+    const profile = JSON.parse(localStorage.getItem("cargo-planner-user-profile") || "{}");
+    return profile.displayName || "操作员";
+  } catch {
+    return "操作员";
+  }
+});
 const cargos = ref([]);
 const containers = ref([]);
 const result = ref(null);
@@ -207,7 +259,6 @@ const showMassBalance = ref(true);
 const cargoModalOpen = ref(false);
 const containerModalOpen = ref(false);
 const editingCargo = ref(null);
-const menuOpen = ref(false);
 const exportingReport = ref(false);
 const toast = ref("");
 const apiStatus = ref("本机计算");
@@ -231,6 +282,7 @@ const selectedPlacements = computed(() =>
 
 onMounted(async () => {
   restoreState();
+  cargos.value = normalizeCargoModels(cargos.value);
   if (!containers.value.length) containers.value = cloneDefaultContainers();
   if (!selectedContainerId.value && containers.value[0]) selectedContainerId.value = containers.value[0].id;
   if (!cargos.value.length) loadSample(false);
@@ -333,6 +385,7 @@ function saveCargo(cargo) {
   const index = cargos.value.findIndex((item) => item.id === cargo.id);
   if (index >= 0) cargos.value.splice(index, 1, cargo);
   else cargos.value.push(cargo);
+  cargos.value = normalizeCargoModels(cargos.value);
   closeCargoModal();
 }
 
@@ -359,6 +412,14 @@ function resetContainers() {
   showToast("已恢复默认箱型。");
 }
 
+function applyUserSettings(settings) {
+  utilizationPercent.value = Number(settings.utilizationPercent || utilizationPercent.value);
+  globalGapCm.value = Number(settings.globalGapCm ?? globalGapCm.value);
+  profileVersion.value += 1;
+  persistState();
+  showToast("个人偏好已应用。");
+}
+
 function loadSample(notify = true) {
   cargos.value = [
     { id: uid("cargo"), name: "蝶阀木箱 A", lengthCm: 110, widthCm: 45, heightCm: 82, quantity: 8, weightKg: 180, type: "pallet", color: systemColorFor(0) },
@@ -375,7 +436,7 @@ function clearCargos() {
 }
 
 function exportCsv() {
-  const header = ["name", "lengthCm", "widthCm", "heightCm", "quantity", "weightKg", "type", "color"];
+  const header = ["name", "model", "lengthCm", "widthCm", "heightCm", "quantity", "weightKg", "type", "color"];
   const rows = cargos.value.map((cargo) => header.map((key) => cargo[key]).join(","));
   const blob = new Blob([[header.join(","), ...rows].join("\n")], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -426,6 +487,7 @@ function importCsv(event) {
       return {
         id: uid("cargo"),
         name: item.name || `货物 ${index + 1}`,
+        model: item.model || "",
         lengthCm: Number(item.lengthCm || 1),
         widthCm: Number(item.widthCm || 1),
         heightCm: Number(item.heightCm || 1),
@@ -435,6 +497,7 @@ function importCsv(event) {
         color: item.color || ""
       };
     });
+    cargos.value = normalizeCargoModels(cargos.value);
     showToast("CSV 已导入。");
   };
   reader.readAsText(file, "utf-8");
@@ -450,15 +513,23 @@ function containerIcon(name) {
 
 function importExcelCargos({ cargos: importedCargos, mode, skippedRows = 0 }) {
   if (!importedCargos?.length) return;
-  cargos.value = mode === "append" ? [...cargos.value, ...importedCargos] : importedCargos;
+  cargos.value = normalizeCargoModels(mode === "append" ? [...cargos.value, ...importedCargos] : importedCargos);
   result.value = null;
   selectedBoxIndex.value = 1;
-  activePage.value = "planner";
+  router.push("/planner");
   showToast(`${mode === "append" ? "已追加" : "已导入"} ${importedCargos.length} 类货物${skippedRows ? `，跳过 ${skippedRows} 行异常数据` : ""}`);
 }
 
 function systemColorFor(index) {
   return colors[index % colors.length];
+}
+
+function cargoDisplayName(cargo) {
+  return cargoLabel(cargo);
+}
+
+function normalizeCargoModels(items) {
+  return assignCargoModels(items);
 }
 
 function showToast(message) {

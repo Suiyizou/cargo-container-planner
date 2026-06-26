@@ -198,7 +198,9 @@ function buildUnits(cargos, globalGapCm) {
         cargoId,
         cargoIndex,
         itemIndex: i,
-        name: cargo.name,
+        name: cargoDisplayName(cargo),
+        baseName: cargo.name,
+        model: cargo.model || "",
         color: cargo.color || COLORS[cargoIndex % COLORS.length],
         type: cargo.type || "normal",
         baseLengthCm: Number(cargo.lengthCm),
@@ -707,6 +709,12 @@ function totals(cargos) {
   }, { totalRawVolumeM3: 0, totalWeightKg: 0 });
 }
 
+function cargoDisplayName(cargo) {
+  const name = String(cargo.name || "").trim() || "未命名货物";
+  const model = String(cargo.model || "").trim();
+  return model ? `${name} ${model}` : name;
+}
+
 function compareEvaluation(a, b) {
   if (a.fatalOversize !== b.fatalOversize) return a.fatalOversize ? 1 : -1;
   if (a.boxes !== b.boxes) return a.boxes - b.boxes;
@@ -788,6 +796,8 @@ function toPlacementDto(unit) {
     unitKey: unit.unitKey,
     cargoId: unit.cargoId,
     name: unit.name,
+    baseName: unit.baseName || unit.name,
+    model: unit.model || "",
     color: unit.color,
     type: unit.type,
     baseLengthCm: round(unit.baseLengthCm),
