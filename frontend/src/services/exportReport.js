@@ -1,3 +1,5 @@
+import { calculateMassBalance } from "../utils/massBalance";
+
 const REPORT_COLORS = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3", "#ca8a04", "#475569"];
 const PAGE_WIDTH = 1800;
 const CARD_RADIUS = 18;
@@ -24,9 +26,11 @@ function renderReportCanvas(options) {
   const catalog = buildCargoCatalog(options.cargos || [], options.placements || []);
   const placements = enrichPlacements(options.placements || [], catalog);
   const layers = buildLayers(placements);
+  const massBalance = options.showMassBalance === false ? null : calculateMassBalance(container, placements);
   const legendHeight = Math.max(86, 54 + Math.ceil(catalog.length / 4) * 46);
+  const balanceHeight = massBalance?.valid ? 360 : 0;
   const layerCardHeight = 600;
-  const height = 150 + 112 + legendHeight + layers.length * (layerCardHeight + 24) + 70;
+  const height = 150 + 112 + balanceHeight + (balanceHeight ? 24 : 0) + legendHeight + layers.length * (layerCardHeight + 24) + 70;
   const canvas = document.createElement("canvas");
   canvas.width = PAGE_WIDTH;
   canvas.height = height;
@@ -40,6 +44,10 @@ function renderReportCanvas(options) {
   y += 150;
   drawSummary(ctx, 48, y, PAGE_WIDTH - 96, 88, options, placements, layers);
   y += 112;
+  if (massBalance?.valid) {
+    drawMassBalance(ctx, 48, y, PAGE_WIDTH - 96, balanceHeight, container, placements, massBalance);
+    y += balanceHeight + 24;
+  }
   drawLegend(ctx, 48, y, PAGE_WIDTH - 96, legendHeight, catalog);
   y += legendHeight + 24;
 
@@ -104,6 +112,161 @@ function drawSummary(ctx, x, y, width, height, options, placements, layers) {
     ctx.font = "800 23px Microsoft YaHei, Arial";
     ctx.fillText(item[1], cx, y + 62);
   });
+}
+
+function drawMassBalance(ctx, x, y, width, height, container, placements, balance) {
+  drawCard(ctx, x, y, width, height);
+  ctx.fillStyle = "#132033";
+  ctx.font = "800 27px Microsoft YaHei, Arial";
+  ctx.fillText("质量重心与偏载", x + 24, y + 38);
+  ctx.fillStyle = "#64748b";
+  ctx.font = "400 15px Microsoft YaHei, Arial";
+  ctx.fillText("按每件货物重量和货物中心计算整舱重心；红点为重心，十字为箱体几何中心，四区显示质量占比。", x + 24, y + 66);
+
+  const plot = { x: x + 24, y: y + 92, width: 690, height: height - 120 };
+  drawBalanceTopMap(ctx, plot, container, placements, balance);
+
+  const metricsX = plot.x + plot.width + 34;
+  const metricWidth = width - (metricsX - x) - 24;
+  const metrics = [
+    { label: "总重", value: formatWeight(balance.totalWeightKg) },
+    { label: "重心坐标", value: `X ${formatNum(balance.center.xCm)} / Y ${formatNum(balance.center.yCm)} / Z ${formatNum(balance.center.zCm)} cm` },
+    { label: "X 偏移", value: `${formatSigned(balance.offset.xCm)} cm (${formatSigned(balance.offset.xPercent)}%)` },
+    { label: "Y 偏移", value: `${formatSigned(balance.offset.yCm)} cm (${formatSigned(balance.offset.yPercent)}%)` },
+    { label: "水平偏载", value: `${formatNum(balance.offset.horizontalCm)} cm / ${formatNum(balance.offset.horizontalPercent)}%`, danger: true }
+  ];
+
+  metrics.forEach((item, index) => {
+    const cellX = metricsX + (index % 2) * (metricWidth / 2);
+    const cellY = y + 98 + Math.floor(index / 2) * 58;
+    ctx.fillStyle = "#64748b";
+    ctx.font = "400 14px Microsoft YaHei, Arial";
+    ctx.fillText(item.label, cellX, cellY);
+    ctx.fillStyle = item.danger ? "#be123c" : "#132033";
+    ctx.font = "800 21px Microsoft YaHei, Arial";
+    ctx.fillText(item.value, cellX, cellY + 28);
+  });
+
+  drawSplitBar(ctx, metricsX, y + 270, metricWidth, 24, balance.loads.leftPercent, "#2a9d8f", "#3b82f6", `左 ${formatNum(balance.loads.leftPercent)}%`, `右 ${formatNum(balance.loads.rightPercent)}%`);
+  drawSplitBar(ctx, metricsX, y + 314, metricWidth, 24, balance.loads.frontPercent, "#f59e0b", "#8b5cf6", `前 ${formatNum(balance.loads.frontPercent)}%`, `后 ${formatNum(balance.loads.rearPercent)}%`);
+}
+
+function drawBalanceTopMap(ctx, plot, container, placements, balance) {
+  ctx.fillStyle = "#f8fbff";
+  roundRect(ctx, plot.x, plot.y, plot.width, plot.height, 12);
+  ctx.fill();
+  ctx.strokeStyle = "#d3deea";
+  ctx.lineWidth = 1.3;
+  ctx.stroke();
+
+  ctx.fillStyle = "#132033";
+  ctx.font = "800 17px Microsoft YaHei, Arial";
+  ctx.fillText("货舱俯视质量图", plot.x + 18, plot.y + 28);
+  ctx.fillStyle = "#64748b";
+  ctx.font = "400 13px Microsoft YaHei, Arial";
+  ctx.fillText("货物按实际俯视位置铺放，四区按箱体中心线划分。", plot.x + 150, plot.y + 28);
+
+  const inner = inset(plot, 36, 48, 36, 36);
+  const scale = Math.min(inner.width / container.lengthCm, inner.height / container.widthCm);
+  const w = container.lengthCm * scale;
+  const h = container.widthCm * scale;
+  const ox = inner.x + (inner.width - w) / 2;
+  const oy = inner.y + (inner.height - h) / 2;
+
+  drawBalanceZones(ctx, ox, oy, w, h, balance);
+  drawGrid(ctx, ox, oy, w, h);
+  placements.forEach((item) => {
+    const rx = ox + Number(item.xCm || 0) * scale;
+    const ry = oy + Number(item.yCm || 0) * scale;
+    const rw = Math.max(2, Number(item.lengthCm || 0) * scale);
+    const rh = Math.max(2, Number(item.widthCm || 0) * scale);
+    ctx.fillStyle = hexToRgba(item.color || "#4e8fd0", 0.42);
+    ctx.fillRect(rx, ry, rw, rh);
+    ctx.strokeStyle = hexToRgba("#0f172a", 0.32);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(rx, ry, rw, rh);
+  });
+
+  const gx = ox + container.lengthCm * scale / 2;
+  const gy = oy + container.widthCm * scale / 2;
+  const cx = ox + balance.center.xCm * scale;
+  const cy = oy + balance.center.yCm * scale;
+
+  ctx.strokeStyle = "rgba(15, 23, 42, 0.44)";
+  ctx.lineWidth = 2;
+  drawLine(ctx, { x: gx - 24, y: gy }, { x: gx + 24, y: gy });
+  drawLine(ctx, { x: gx, y: gy - 24 }, { x: gx, y: gy + 24 });
+  ctx.setLineDash([8, 6]);
+  drawLine(ctx, { x: gx, y: oy }, { x: gx, y: oy + h });
+  drawLine(ctx, { x: ox, y: gy }, { x: ox + w, y: gy });
+  ctx.setLineDash([]);
+
+  ctx.strokeStyle = "rgba(225, 29, 72, 0.58)";
+  ctx.lineWidth = 3;
+  drawLine(ctx, { x: gx, y: gy }, { x: cx, y: cy });
+
+  ctx.fillStyle = "#e11d48";
+  ctx.beginPath();
+  ctx.arc(cx, cy, 13, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(225, 29, 72, 0.24)";
+  ctx.lineWidth = 10;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 21, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = "#1f6fbe";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(ox, oy, w, h);
+  ctx.fillStyle = "#2d5f93";
+  ctx.font = "700 13px Microsoft YaHei, Arial";
+  centerText(ctx, `X ${container.lengthCm} cm`, ox + w / 2, oy - 8);
+  ctx.save();
+  ctx.translate(ox - 12, oy + h / 2);
+  ctx.rotate(-Math.PI / 2);
+  centerText(ctx, `Y ${container.widthCm} cm`, 0, 0);
+  ctx.restore();
+}
+
+function drawBalanceZones(ctx, ox, oy, width, height, balance) {
+  const zones = [
+    { label: "前左", kg: balance.loads.frontLeftKg, percent: balance.loads.frontLeftPercent, x: ox, y: oy, color: "rgba(56, 189, 248, 0.13)" },
+    { label: "前右", kg: balance.loads.frontRightKg, percent: balance.loads.frontRightPercent, x: ox + width / 2, y: oy, color: "rgba(245, 158, 11, 0.13)" },
+    { label: "后左", kg: balance.loads.rearLeftKg, percent: balance.loads.rearLeftPercent, x: ox, y: oy + height / 2, color: "rgba(245, 158, 11, 0.1)" },
+    { label: "后右", kg: balance.loads.rearRightKg, percent: balance.loads.rearRightPercent, x: ox + width / 2, y: oy + height / 2, color: "rgba(139, 92, 246, 0.12)" }
+  ];
+  zones.forEach((zone) => {
+    ctx.fillStyle = zone.color;
+    ctx.fillRect(zone.x, zone.y, width / 2, height / 2);
+    ctx.fillStyle = "#475569";
+    ctx.font = "700 12px Microsoft YaHei, Arial";
+    ctx.fillText(`${zone.label} ${formatWeight(zone.kg)} / ${formatNum(zone.percent)}%`, zone.x + 8, zone.y + 18);
+  });
+}
+
+function drawSplitBar(ctx, x, y, width, height, percent, leftColor, rightColor, leftLabel, rightLabel) {
+  const leftWidth = Math.max(0, Math.min(100, percent)) / 100 * width;
+  ctx.fillStyle = "#e2e8f0";
+  roundRect(ctx, x, y, width, height, 8);
+  ctx.fill();
+  ctx.save();
+  ctx.beginPath();
+  roundRect(ctx, x, y, width, height, 8);
+  ctx.clip();
+  ctx.fillStyle = leftColor;
+  ctx.fillRect(x, y, leftWidth, height);
+  ctx.fillStyle = rightColor;
+  ctx.fillRect(x + leftWidth, y, width - leftWidth, height);
+  ctx.restore();
+  ctx.strokeStyle = "#cbd5e1";
+  ctx.lineWidth = 1;
+  roundRect(ctx, x, y, width, height, 8);
+  ctx.stroke();
+  ctx.fillStyle = "#132033";
+  ctx.font = "800 13px Microsoft YaHei, Arial";
+  ctx.fillText(leftLabel, x, y - 8);
+  const rightTextWidth = ctx.measureText(rightLabel).width;
+  ctx.fillText(rightLabel, x + width - rightTextWidth, y - 8);
 }
 
 function drawLegend(ctx, x, y, width, height, catalog) {
@@ -849,6 +1012,21 @@ function formatNum(value, digits = 1) {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits
   });
+}
+
+function formatSigned(value, digits = 1) {
+  const number = Number(value || 0);
+  const text = Math.abs(number).toLocaleString("zh-CN", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits
+  });
+  return `${number >= 0 ? "+" : "-"}${text}`;
+}
+
+function formatWeight(value) {
+  const weight = Number(value || 0);
+  if (weight >= 1000) return `${formatNum(weight / 1000, 2)} t`;
+  return `${formatNum(weight, 0)} kg`;
 }
 
 function roundLayer(value) {

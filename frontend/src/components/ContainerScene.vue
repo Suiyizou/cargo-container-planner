@@ -12,6 +12,46 @@
       <span>长 {{ container.lengthCm }} cm · 宽 {{ container.widthCm }} cm · 高 {{ container.heightCm }} cm</span>
       <span>载重 {{ (container.payloadKg / 1000).toFixed(2) }} t</span>
     </div>
+    <div class="balance-card" v-if="showMassBalance && massBalance.valid">
+      <strong>质量重心</strong>
+      <span>总重 {{ formatWeight(massBalance.totalWeightKg) }}</span>
+      <span>X {{ formatSigned(massBalance.offset.xCm) }} cm / Y {{ formatSigned(massBalance.offset.yCm) }} cm</span>
+      <span>水平偏载 {{ massBalance.offset.horizontalPercent.toFixed(1) }}%</span>
+    </div>
+    <div class="balance-map-card" v-if="showMassBalance && massBalance.valid && balanceMap">
+      <div class="balance-map-head">
+        <strong>质量分布俯视图</strong>
+        <span>红点为重心</span>
+      </div>
+      <svg class="balance-map" :viewBox="balanceMap.viewBox" role="img" aria-label="货舱质量分布俯视图">
+        <rect :x="0" :y="0" :width="balanceMap.width" :height="balanceMap.height" class="map-shell" />
+        <rect :x="0" :y="0" :width="balanceMap.width / 2" :height="balanceMap.height / 2" class="map-zone front-left" />
+        <rect :x="balanceMap.width / 2" :y="0" :width="balanceMap.width / 2" :height="balanceMap.height / 2" class="map-zone front-right" />
+        <rect :x="0" :y="balanceMap.height / 2" :width="balanceMap.width / 2" :height="balanceMap.height / 2" class="map-zone rear-left" />
+        <rect :x="balanceMap.width / 2" :y="balanceMap.height / 2" :width="balanceMap.width / 2" :height="balanceMap.height / 2" class="map-zone rear-right" />
+        <line :x1="balanceMap.width / 2" y1="0" :x2="balanceMap.width / 2" :y2="balanceMap.height" class="map-center-line" />
+        <line x1="0" :y1="balanceMap.height / 2" :x2="balanceMap.width" :y2="balanceMap.height / 2" class="map-center-line" />
+        <rect
+          v-for="item in balanceMap.items"
+          :key="item.key"
+          :x="item.x"
+          :y="item.y"
+          :width="item.width"
+          :height="item.height"
+          :fill="item.color"
+          class="map-cargo"
+        />
+        <line :x1="balanceMap.geo.x" :y1="balanceMap.geo.y" :x2="balanceMap.center.x" :y2="balanceMap.center.y" class="map-offset-line" />
+        <path :d="`M ${balanceMap.geo.x - 14} ${balanceMap.geo.y} L ${balanceMap.geo.x + 14} ${balanceMap.geo.y} M ${balanceMap.geo.x} ${balanceMap.geo.y - 14} L ${balanceMap.geo.x} ${balanceMap.geo.y + 14}`" class="map-geo" />
+        <circle :cx="balanceMap.center.x" :cy="balanceMap.center.y" r="18" class="map-center-halo" />
+        <circle :cx="balanceMap.center.x" :cy="balanceMap.center.y" r="8" class="map-center-dot" />
+      </svg>
+      <div class="balance-quadrants">
+        <span v-for="zone in balanceZones" :key="zone.name">
+          <b>{{ zone.name }}</b>{{ formatWeight(zone.kg) }} · {{ zone.percent.toFixed(1) }}%
+        </span>
+      </div>
+    </div>
     <div class="legend interactive" v-if="legend.length">
       <button
         v-for="item in legend"
@@ -26,6 +66,7 @@
       </button>
       <button v-if="hiddenNames.length" class="legend-reset" type="button" @click="showAll">全部显示</button>
       <span v-if="showRemaining"><i class="remain"></i>剩余空间</span>
+      <span v-if="showMassBalance && massBalance.valid"><i class="balance"></i>质量重心</span>
     </div>
     <div v-if="tooltip.visible" class="scene-tooltip" :style="{ left: `${tooltip.x}px`, top: `${tooltip.y}px` }">
       <strong>{{ tooltip.item.name }}</strong>
@@ -42,11 +83,13 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { calculateMassBalance } from "../utils/massBalance";
 
 const props = defineProps({
   container: { type: Object, default: null },
   placements: { type: Array, default: () => [] },
   showRemaining: { type: Boolean, default: true },
+  showMassBalance: { type: Boolean, default: true },
   busy: { type: Boolean, default: false }
 });
 
@@ -61,6 +104,17 @@ const legend = computed(() => {
   return [...map.entries()].map(([name, color]) => ({ name, color }));
 });
 const visiblePlacements = computed(() => props.placements.filter((item) => !isHidden(item.name)));
+const massBalance = computed(() => calculateMassBalance(props.container, props.placements));
+const balanceZones = computed(() => {
+  const loads = massBalance.value.loads;
+  return [
+    { name: "前左", kg: loads.frontLeftKg, percent: loads.frontLeftPercent },
+    { name: "前右", kg: loads.frontRightKg, percent: loads.frontRightPercent },
+    { name: "后左", kg: loads.rearLeftKg, percent: loads.rearLeftPercent },
+    { name: "后右", kg: loads.rearRightKg, percent: loads.rearRightPercent }
+  ];
+});
+const balanceMap = computed(() => buildBalanceMap(props.container, props.placements, massBalance.value));
 
 let scene;
 let camera;
@@ -88,7 +142,7 @@ onBeforeUnmount(() => {
 });
 
 watch(
-  () => [props.container, props.showRemaining, visiblePlacements.value],
+  () => [props.container, props.showRemaining, props.showMassBalance, visiblePlacements.value, props.placements],
   () => drawScene(),
   { deep: true }
 );
@@ -174,15 +228,7 @@ function drawScene() {
   edges.position.copy(shell.position);
   rootGroup.add(edges);
 
-  if (props.showRemaining) {
-    const remainGeometry = new THREE.BoxGeometry(c.lengthCm, 1, c.widthCm);
-    const remain = new THREE.Mesh(
-      remainGeometry,
-      new THREE.MeshBasicMaterial({ color: "#8bc36d", transparent: true, opacity: 0.14, depthWrite: false })
-    );
-    remain.position.set(0, 0.5, 0);
-    rootGroup.add(remain);
-  }
+  if (props.showRemaining) addRemainingSpaces(c);
 
   visiblePlacements.value.forEach((item, index) => {
     const cargoUnit = createCargoUnit(item, index);
@@ -196,7 +242,79 @@ function drawScene() {
   });
 
   addAxisFloor(c);
+  if (props.showMassBalance && massBalance.value.valid) addMassBalanceMarker(c, massBalance.value);
   resetCamera();
+}
+
+function addRemainingSpaces(c) {
+  const spaces = buildRemainingSpaces(c, props.placements);
+  const material = new THREE.MeshBasicMaterial({
+    color: "#8bc36d",
+    transparent: true,
+    opacity: 0.12,
+    depthWrite: false
+  });
+  const edgeMaterial = new THREE.LineBasicMaterial({ color: "#4d8f34", transparent: true, opacity: 0.28 });
+
+  spaces.forEach((space) => {
+    const geometry = new THREE.BoxGeometry(space.lengthCm, space.heightCm, space.widthCm);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(
+      space.xCm + space.lengthCm / 2 - c.lengthCm / 2,
+      space.zCm + space.heightCm / 2,
+      space.yCm + space.widthCm / 2 - c.widthCm / 2
+    );
+    rootGroup.add(mesh);
+
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), edgeMaterial);
+    edges.position.copy(mesh.position);
+    rootGroup.add(edges);
+  });
+}
+
+function addMassBalanceMarker(c, balance) {
+  const point = new THREE.Vector3(
+    balance.center.xCm - c.lengthCm / 2,
+    balance.center.zCm,
+    balance.center.yCm - c.widthCm / 2
+  );
+  const geometric = new THREE.Vector3(0, balance.center.zCm, 0);
+  const radius = Math.max(4, Math.max(c.lengthCm, c.widthCm, c.heightCm) * 0.015);
+
+  const marker = new THREE.Mesh(
+    new THREE.SphereGeometry(radius * 1.55, 32, 20),
+    new THREE.MeshBasicMaterial({
+      color: "#e11d48",
+      depthTest: false,
+      depthWrite: false
+    })
+  );
+  marker.position.copy(point);
+  marker.renderOrder = 80;
+  rootGroup.add(marker);
+
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(radius * 3, Math.max(0.8, radius * 0.18), 8, 48),
+    new THREE.MeshBasicMaterial({ color: "#e11d48", transparent: true, opacity: 0.86, depthTest: false, depthWrite: false })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(point.x, 0.9, point.z);
+  ring.renderOrder = 81;
+  rootGroup.add(ring);
+
+  addLine(point, new THREE.Vector3(point.x, 0.8, point.z), "#e11d48", 0.7);
+  addLine(point, geometric, "#e11d48", 0.46);
+  addLine(new THREE.Vector3(0, 0.9, 0), new THREE.Vector3(point.x, 0.9, point.z), "#e11d48", 0.38);
+}
+
+function addLine(from, to, color, opacity) {
+  const geometry = new THREE.BufferGeometry().setFromPoints([from, to]);
+  const line = new THREE.Line(
+    geometry,
+    new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthTest: false, depthWrite: false })
+  );
+  line.renderOrder = 79;
+  rootGroup.add(line);
 }
 
 function toggleLegend(name) {
@@ -298,6 +416,103 @@ function addAxisFloor(c) {
   grid.scale.x = c.lengthCm / Math.max(c.lengthCm, c.widthCm);
   grid.scale.z = c.widthCm / Math.max(c.lengthCm, c.widthCm);
   rootGroup.add(grid);
+}
+
+function buildRemainingSpaces(container, placements) {
+  const c = {
+    lengthCm: Number(container.lengthCm || 0),
+    widthCm: Number(container.widthCm || 0),
+    heightCm: Number(container.heightCm || 0)
+  };
+  const xs = uniqueAxis([0, c.lengthCm, ...placements.flatMap((item) => [item.xCm, Number(item.xCm || 0) + Number(item.lengthCm || 0)])], c.lengthCm);
+  const ys = uniqueAxis([0, c.widthCm, ...placements.flatMap((item) => [item.yCm, Number(item.yCm || 0) + Number(item.widthCm || 0)])], c.widthCm);
+  const spaces = [];
+  const minHeight = Math.max(4, c.heightCm * 0.02);
+
+  for (let yi = 0; yi < ys.length - 1; yi += 1) {
+    const y1 = ys[yi];
+    const y2 = ys[yi + 1];
+    let run = null;
+    for (let xi = 0; xi < xs.length - 1; xi += 1) {
+      const x1 = xs[xi];
+      const x2 = xs[xi + 1];
+      const top = occupiedTopAtCell(x1, x2, y1, y2, placements);
+      const height = c.heightCm - top;
+      const cell = height > minHeight
+        ? { xCm: x1, yCm: y1, zCm: top, lengthCm: x2 - x1, widthCm: y2 - y1, heightCm: height }
+        : null;
+
+      if (cell && run && Math.abs(run.zCm - cell.zCm) < 0.1 && Math.abs(run.heightCm - cell.heightCm) < 0.1) {
+        run.lengthCm += cell.lengthCm;
+      } else {
+        if (run) spaces.push(run);
+        run = cell;
+      }
+    }
+    if (run) spaces.push(run);
+  }
+
+  const minVolume = c.lengthCm * c.widthCm * c.heightCm * 0.0008;
+  return spaces
+    .filter((space) => space.lengthCm * space.widthCm * space.heightCm >= minVolume)
+    .sort((a, b) => (b.lengthCm * b.widthCm * b.heightCm) - (a.lengthCm * a.widthCm * a.heightCm))
+    .slice(0, 160);
+}
+
+function buildBalanceMap(container, placements, balance) {
+  if (!container || !balance?.valid) return null;
+  const width = 1000;
+  const height = Math.max(260, Math.round(width * Number(container.widthCm || 1) / Math.max(1, Number(container.lengthCm || 1))));
+  const length = Math.max(1, Number(container.lengthCm || 1));
+  const mapWidth = Math.max(1, Number(container.widthCm || 1));
+  return {
+    width,
+    height,
+    viewBox: `0 0 ${width} ${height}`,
+    geo: { x: width / 2, y: height / 2 },
+    center: {
+      x: balance.center.xCm / length * width,
+      y: balance.center.yCm / mapWidth * height
+    },
+    items: placements.map((item, index) => ({
+      key: item.unitKey || `${item.name}-${index}`,
+      x: Number(item.xCm || 0) / length * width,
+      y: Number(item.yCm || 0) / mapWidth * height,
+      width: Math.max(2, Number(item.lengthCm || 0) / length * width),
+      height: Math.max(2, Number(item.widthCm || 0) / mapWidth * height),
+      color: item.color || "#4e8fd0"
+    }))
+  };
+}
+
+function occupiedTopAtCell(x1, x2, y1, y2, placements) {
+  return placements.reduce((top, item) => {
+    const ix1 = Number(item.xCm || 0);
+    const ix2 = ix1 + Number(item.lengthCm || 0);
+    const iy1 = Number(item.yCm || 0);
+    const iy2 = iy1 + Number(item.widthCm || 0);
+    const overlaps = ix1 < x2 - 0.001 && ix2 > x1 + 0.001 && iy1 < y2 - 0.001 && iy2 > y1 + 0.001;
+    if (!overlaps) return top;
+    return Math.max(top, Number(item.zCm || 0) + Number(item.heightCm || 0));
+  }, 0);
+}
+
+function uniqueAxis(values, max) {
+  return [...new Set(values
+    .map((value) => Math.min(max, Math.max(0, Math.round(Number(value || 0) * 10) / 10)))
+    .filter((value) => Number.isFinite(value)))]
+    .sort((a, b) => a - b)
+    .filter((value, index, all) => index === 0 || value - all[index - 1] > 0.1);
+}
+
+function formatSigned(value) {
+  const rounded = Math.round(Number(value || 0) * 10) / 10;
+  return rounded > 0 ? `+${rounded}` : `${rounded}`;
+}
+
+function formatWeight(value) {
+  if (value >= 1000) return `${(value / 1000).toFixed(2)} t`;
+  return `${Math.round(value)} kg`;
 }
 
 function resetCamera() {

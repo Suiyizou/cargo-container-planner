@@ -132,6 +132,7 @@
             </div>
             <div class="view-actions">
               <label><input v-model="showRemaining" type="checkbox" /> 显示剩余空间</label>
+              <label><input v-model="showMassBalance" type="checkbox" /> 显示重心偏载</label>
               <button type="button" :disabled="exportingReport || loading || !selectedPlacements.length" @click="exportCurrentReport('png')">导出图片</button>
               <button type="button" :disabled="exportingReport || loading || !selectedPlacements.length" @click="exportCurrentReport('pdf')">导出 PDF</button>
               <button type="button" @click="recalculate">重新计算</button>
@@ -142,6 +143,7 @@
               :container="selectedContainer"
               :placements="selectedPlacements"
               :show-remaining="showRemaining"
+              :show-mass-balance="showMassBalance"
               :busy="loading"
             />
             <div v-if="loading || switchingBox" class="loading-mask">
@@ -196,6 +198,7 @@ const globalGapCm = ref(1);
 const loading = ref(false);
 const switchingBox = ref(false);
 const showRemaining = ref(true);
+const showMassBalance = ref(true);
 const cargoModalOpen = ref(false);
 const containerModalOpen = ref(false);
 const editingCargo = ref(null);
@@ -235,6 +238,8 @@ watch([cargos, containers, utilizationPercent, globalGapCm], () => {
   timer = window.setTimeout(recalculate, 400);
 }, { deep: true });
 
+watch([showRemaining, showMassBalance], persistState);
+
 function restoreState() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
@@ -242,6 +247,8 @@ function restoreState() {
     containers.value = saved.containers || [];
     utilizationPercent.value = saved.utilizationPercent || 90;
     globalGapCm.value = saved.globalGapCm ?? 1;
+    showRemaining.value = saved.showRemaining ?? true;
+    showMassBalance.value = saved.showMassBalance ?? true;
     selectedContainerId.value = saved.selectedContainerId || "";
   } catch {
     localStorage.removeItem(STORAGE_KEY);
@@ -254,6 +261,8 @@ function persistState() {
     containers: containers.value,
     utilizationPercent: utilizationPercent.value,
     globalGapCm: globalGapCm.value,
+    showRemaining: showRemaining.value,
+    showMassBalance: showMassBalance.value,
     selectedContainerId: selectedContainerId.value
   }));
 }
@@ -388,7 +397,8 @@ async function exportCurrentReport(format) {
       cargos: cargos.value,
       boxIndex: selectedBoxIndex.value,
       utilizationPercent: utilizationPercent.value,
-      globalGapCm: globalGapCm.value
+      globalGapCm: globalGapCm.value,
+      showMassBalance: showMassBalance.value
     });
     showToast(format === "pdf" ? "PDF 已导出。" : "图片已导出。");
   } catch (error) {
