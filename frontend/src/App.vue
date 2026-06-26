@@ -1,5 +1,6 @@
 <template>
-  <div class="app-shell">
+  <AdminDashboard v-if="activePage === 'admin'" key="admin" />
+  <div v-else class="app-shell">
     <header class="topbar">
       <div class="brand">
         <span class="brand-mark">CP</span>
@@ -274,7 +275,6 @@
       :evaluation="selectedEvaluation"
     />
     <ExcelTemplatePage v-else-if="activePage === 'smart-import'" key="smart-import" @import-cargos="importExcelCargos" />
-    <AdminDashboard v-else-if="activePage === 'admin'" key="admin" />
     </Transition>
       </section>
     </div>

@@ -1,80 +1,175 @@
 <template>
-  <section class="algorithm-page admin-page">
-    <div class="page-title">
+  <section v-if="!currentUser" class="admin-login-shell">
+    <div class="admin-login-brand">
+      <RouterLink class="admin-back-link" to="/home">返回前台</RouterLink>
+      <span class="brand-mark">CP</span>
       <p>Admin Console</p>
-      <h2>后台管理系统</h2>
+      <h1>企业后台管理系统</h1>
+      <strong>管理员登录后可管理员工账号、在线设备、系统运行与审计记录。</strong>
+      <div class="admin-login-points">
+        <span>员工账号管理</span>
+        <span>设备登录限制</span>
+        <span>运行监控面板</span>
+      </div>
     </div>
 
-    <div v-if="!currentUser" class="admin-login-panel">
-      <form class="admin-card login-card" @submit.prevent="handleLogin">
-        <strong>总管理员登录</strong>
-        <label>
-          <span>账号</span>
-          <input v-model.trim="loginForm.username" autocomplete="username" />
-        </label>
-        <label>
-          <span>密码</span>
-          <input v-model="loginForm.password" autocomplete="current-password" type="password" />
-        </label>
-        <button class="primary wide" type="submit" :disabled="loading">
-          {{ loading ? "登录中..." : "登录后台" }}
-        </button>
-        <p v-if="message" class="admin-message error">{{ message }}</p>
-      </form>
-    </div>
+    <form class="admin-login-card" @submit.prevent="handleLogin">
+      <div class="admin-login-title">
+        <span>总管理员登录</span>
+        <strong>后台入口</strong>
+      </div>
+      <label>
+        <span>账号</span>
+        <input v-model.trim="loginForm.username" autocomplete="username" />
+      </label>
+      <label>
+        <span>密码</span>
+        <input v-model="loginForm.password" autocomplete="current-password" type="password" />
+      </label>
+      <button class="primary wide" type="submit" :disabled="loading">
+        {{ loading ? "登录中..." : "登录后台" }}
+      </button>
+      <p v-if="message" class="admin-message error">{{ message }}</p>
+    </form>
+  </section>
 
-    <template v-else>
-      <div class="admin-toolbar">
+  <section v-else class="admin-console-shell">
+    <aside class="admin-console-sidebar">
+      <RouterLink class="admin-console-brand" to="/home">
+        <span class="brand-mark">CP</span>
         <div>
-          <span>当前管理员</span>
-          <strong>{{ currentUser.displayName }} / {{ currentUser.username }}</strong>
+          <p>Browser / Server</p>
+          <strong>后台管理</strong>
         </div>
-        <div class="admin-actions">
-          <button type="button" :disabled="loading" @click="loadDashboard">刷新</button>
+      </RouterLink>
+
+      <div class="admin-profile-card">
+        <span>当前管理员</span>
+        <strong>{{ displayAdminName }}</strong>
+        <small>{{ currentUser.username }} · {{ roleText(currentUser.role) }}</small>
+      </div>
+
+      <nav class="admin-console-nav">
+        <button
+          v-for="item in adminPages"
+          :key="item.key"
+          type="button"
+          :class="{ active: activeAdminPage === item.key }"
+          @click="activeAdminPage = item.key"
+        >
+          <span>{{ item.no }}</span>
+          <b>{{ item.label }}</b>
+          <small>{{ item.description }}</small>
+        </button>
+      </nav>
+    </aside>
+
+    <main class="admin-console-main">
+      <header class="admin-console-topbar">
+        <div>
+          <p>{{ activePageMeta.eyebrow }}</p>
+          <h1>{{ activePageMeta.title }}</h1>
+          <span>{{ activePageMeta.subtitle }}</span>
+        </div>
+        <div class="admin-top-actions">
+          <button type="button" :disabled="loading" @click="loadDashboard">
+            {{ loading ? "刷新中..." : "刷新数据" }}
+          </button>
           <button type="button" @click="handleLogout">退出登录</button>
         </div>
-      </div>
+      </header>
 
       <p v-if="message" class="admin-message" :class="{ error: hasError }">{{ message }}</p>
 
-      <div class="admin-metrics">
-        <div>
-          <span>员工账号</span>
-          <strong>{{ monitoring?.userCount ?? "-" }}</strong>
+      <section v-if="activeAdminPage === 'overview'" class="admin-page-pane">
+        <div class="admin-metrics">
+          <div>
+            <span>员工账号</span>
+            <strong>{{ monitoring?.userCount ?? "-" }}</strong>
+            <small>管理员 {{ monitoring?.adminCount ?? 0 }} 个</small>
+          </div>
+          <div>
+            <span>在线设备</span>
+            <strong>{{ monitoring?.onlineDeviceCount ?? "-" }}</strong>
+            <small>上限 {{ monitoring?.deviceLimit ?? 5 }} 台/账号</small>
+          </div>
+          <div>
+            <span>今日登录</span>
+            <strong>{{ monitoring?.loginSuccessToday ?? "-" }}</strong>
+            <small>成功会话</small>
+          </div>
+          <div>
+            <span>登录异常</span>
+            <strong>{{ monitoring?.loginFailToday ?? "-" }}</strong>
+            <small>失败/限流</small>
+          </div>
+          <div>
+            <span>接口请求</span>
+            <strong>{{ monitoring?.runtime?.totalRequests ?? 0 }}</strong>
+            <small>失败 {{ monitoring?.runtime?.failedRequests ?? 0 }}</small>
+          </div>
         </div>
-        <div>
-          <span>在线设备</span>
-          <strong>{{ monitoring?.onlineDeviceCount ?? "-" }}</strong>
-        </div>
-        <div>
-          <span>今日登录</span>
-          <strong>{{ monitoring?.loginSuccessToday ?? "-" }}</strong>
-        </div>
-        <div>
-          <span>登录失败/限流</span>
-          <strong>{{ monitoring?.loginFailToday ?? "-" }}</strong>
-        </div>
-        <div>
-          <span>账号设备上限</span>
-          <strong>{{ monitoring?.deviceLimit ?? 5 }}</strong>
-        </div>
-      </div>
 
-      <div class="admin-grid">
-        <article class="admin-card">
-          <strong>新增员工</strong>
-          <div class="admin-form-grid">
+        <div class="admin-dashboard-grid">
+          <article class="admin-panel">
+            <div class="admin-panel-head">
+              <div>
+                <p>Runtime</p>
+                <h2>运行监控</h2>
+              </div>
+              <span class="admin-health-pill" :class="{ warn: Number(monitoring?.runtime?.failedRequests || 0) > 0 }">
+                {{ Number(monitoring?.runtime?.failedRequests || 0) > 0 ? "有异常" : "运行正常" }}
+              </span>
+            </div>
+            <div class="admin-runtime-list">
+              <span><b>服务时间</b>{{ formatDate(monitoring?.serverTime) }}</span>
+              <span><b>启动时间</b>{{ formatDate(monitoring?.runtime?.startedAt) }}</span>
+              <span><b>堆内存</b>{{ monitoring?.runtime?.heapUsedMb ?? 0 }} / {{ monitoring?.runtime?.heapMaxMb ?? 0 }} MB</span>
+              <span><b>内存占用</b>{{ heapPercent }}%</span>
+            </div>
+          </article>
+
+          <article class="admin-panel">
+            <div class="admin-panel-head">
+              <div>
+                <p>Recent Events</p>
+                <h2>最近登录事件</h2>
+              </div>
+              <button type="button" @click="activeAdminPage = 'audit'">查看审计</button>
+            </div>
+            <ul class="admin-activity-list">
+              <li v-for="event in recentEvents" :key="event.id">
+                <span :class="eventClass(event.eventType)">{{ eventTypeText(event.eventType) }}</span>
+                <b>{{ event.username || "-" }}</b>
+                <small>{{ event.ipAddress || "-" }}</small>
+                <em>{{ formatDate(event.createdAt) }}</em>
+              </li>
+              <li v-if="!recentEvents.length" class="admin-empty-row">暂无登录事件</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section v-else-if="activeAdminPage === 'employees'" class="admin-page-pane">
+        <article class="admin-panel">
+          <div class="admin-panel-head">
+            <div>
+              <p>Employee Account</p>
+              <h2>新增员工账号</h2>
+            </div>
+          </div>
+          <form class="admin-form-grid" @submit.prevent="handleCreateEmployee">
             <label>
               <span>账号</span>
-              <input v-model.trim="employeeForm.username" />
+              <input v-model.trim="employeeForm.username" placeholder="例如 zhangsan" />
             </label>
             <label>
               <span>姓名</span>
-              <input v-model.trim="employeeForm.displayName" />
+              <input v-model.trim="employeeForm.displayName" placeholder="例如 张三" />
             </label>
             <label>
               <span>初始密码</span>
-              <input v-model="employeeForm.password" type="password" />
+              <input v-model="employeeForm.password" type="password" placeholder="至少 8 位" />
             </label>
             <label>
               <span>角色</span>
@@ -83,122 +178,228 @@
                 <option value="ADMIN">管理员</option>
               </select>
             </label>
+            <div class="admin-form-actions">
+              <button class="primary" type="submit" :disabled="loading">创建员工</button>
+            </div>
+          </form>
+        </article>
+
+        <article class="admin-panel">
+          <div class="admin-panel-head">
+            <div>
+              <p>Account List</p>
+              <h2>员工管理</h2>
+            </div>
+            <span>{{ employees.length }} 个账号</span>
           </div>
-          <button class="primary" type="button" :disabled="loading" @click="handleCreateEmployee">创建员工</button>
-        </article>
-
-        <article class="admin-card">
-          <strong>运行监控</strong>
-          <div class="admin-runtime">
-            <span>服务时间：{{ formatDate(monitoring?.serverTime) }}</span>
-            <span>启动时间：{{ formatDate(monitoring?.runtime?.startedAt) }}</span>
-            <span>请求总数：{{ monitoring?.runtime?.totalRequests ?? 0 }}</span>
-            <span>异常请求：{{ monitoring?.runtime?.failedRequests ?? 0 }}</span>
-            <span>堆内存：{{ monitoring?.runtime?.heapUsedMb ?? 0 }} / {{ monitoring?.runtime?.heapMaxMb ?? 0 }} MB</span>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>账号</th>
+                  <th>姓名</th>
+                  <th>角色</th>
+                  <th>状态</th>
+                  <th>最近登录</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="user in normalizedEmployees" :key="user.id">
+                  <td>{{ user.username }}</td>
+                  <td>{{ user.displayName }}</td>
+                  <td>{{ roleText(user.role) }}</td>
+                  <td>
+                    <span class="admin-status" :class="{ off: user.status !== 'ACTIVE' }">
+                      {{ statusText(user.status) }}
+                    </span>
+                  </td>
+                  <td>{{ formatDate(user.lastLoginAt) }}</td>
+                  <td>
+                    <button type="button" @click="toggleEmployee(user)">
+                      {{ user.status === "ACTIVE" ? "禁用" : "启用" }}
+                    </button>
+                  </td>
+                </tr>
+                <tr v-if="!employees.length">
+                  <td colspan="6">暂无员工账号</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </article>
-      </div>
+      </section>
 
-      <article class="admin-card">
-        <div class="admin-card-head">
-          <strong>员工管理</strong>
-          <span>{{ employees.length }} 个账号</span>
+      <section v-else-if="activeAdminPage === 'devices'" class="admin-page-pane">
+        <div class="admin-metrics compact">
+          <div>
+            <span>当前在线</span>
+            <strong>{{ onlineDevices.length }}</strong>
+            <small>可手动踢下线</small>
+          </div>
+          <div>
+            <span>设备记录</span>
+            <strong>{{ devices.length }}</strong>
+            <small>最近 200 条</small>
+          </div>
+          <div>
+            <span>设备上限</span>
+            <strong>{{ monitoring?.deviceLimit ?? 5 }}</strong>
+            <small>每个账号</small>
+          </div>
         </div>
-        <div class="admin-table-wrap">
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th>账号</th>
-                <th>姓名</th>
-                <th>角色</th>
-                <th>状态</th>
-                <th>最近登录</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="user in employees" :key="user.id">
-                <td>{{ user.username }}</td>
-                <td>{{ user.displayName }}</td>
-                <td>{{ roleText(user.role) }}</td>
-                <td><span class="admin-status" :class="{ off: user.status !== 'ACTIVE' }">{{ statusText(user.status) }}</span></td>
-                <td>{{ formatDate(user.lastLoginAt) }}</td>
-                <td>
-                  <button type="button" @click="toggleEmployee(user)">
-                    {{ user.status === "ACTIVE" ? "禁用" : "启用" }}
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </article>
 
-      <article class="admin-card">
-        <div class="admin-card-head">
-          <strong>在线设备与登录 IP</strong>
-          <span>{{ onlineDevices.length }} 台在线</span>
-        </div>
-        <div class="admin-table-wrap">
-          <table class="admin-table devices">
-            <thead>
-              <tr>
-                <th>用户</th>
-                <th>设备</th>
-                <th>IP</th>
-                <th>MAC</th>
-                <th>最近活跃</th>
-                <th>状态</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="device in devices" :key="device.id">
-                <td>{{ device.displayName }} / {{ device.username }}</td>
-                <td>
-                  <b>{{ device.deviceName || "Web 设备" }}</b>
-                  <small>{{ device.deviceId }}</small>
-                </td>
-                <td>{{ device.ipAddress || "-" }}</td>
-                <td>{{ device.macAddress || "Web 端不可读取" }}</td>
-                <td>{{ formatDate(device.lastSeenAt) }}</td>
-                <td><span class="admin-status" :class="{ off: !device.online }">{{ device.online ? "在线" : "离线" }}</span></td>
-                <td>
-                  <button type="button" :disabled="!device.online" @click="handleKickDevice(device)">踢下线</button>
-                </td>
-              </tr>
-              <tr v-if="!devices.length">
-                <td colspan="7">暂无登录设备</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </article>
-
-      <div class="admin-grid">
-        <article class="admin-card">
-          <strong>最近登录事件</strong>
-          <ul class="admin-event-list">
-            <li v-for="event in monitoring?.recentEvents || []" :key="event.id">
-              <span>{{ event.eventType }}</span>
-              <b>{{ event.username || "-" }}</b>
-              <em>{{ event.ipAddress || "-" }}</em>
-              <small>{{ formatDate(event.createdAt) }}</small>
-            </li>
-          </ul>
+        <article class="admin-panel">
+          <div class="admin-panel-head">
+            <div>
+              <p>Login Devices</p>
+              <h2>在线设备与登录 IP</h2>
+            </div>
+          </div>
+          <div class="admin-table-wrap">
+            <table class="admin-table devices">
+              <thead>
+                <tr>
+                  <th>用户</th>
+                  <th>设备</th>
+                  <th>IP</th>
+                  <th>MAC</th>
+                  <th>登录时间</th>
+                  <th>最近活跃</th>
+                  <th>状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="device in normalizedDevices" :key="device.id">
+                  <td>{{ device.displayName }} / {{ device.username }}</td>
+                  <td>
+                    <b>{{ device.deviceName || "Web 设备" }}</b>
+                    <small>{{ device.deviceId }}</small>
+                  </td>
+                  <td>{{ device.ipAddress || "-" }}</td>
+                  <td>{{ device.macAddress || "Web 端不可读取" }}</td>
+                  <td>{{ formatDate(device.loggedInAt) }}</td>
+                  <td>{{ formatDate(device.lastSeenAt) }}</td>
+                  <td>
+                    <span class="admin-status" :class="{ off: !device.online }">
+                      {{ device.online ? "在线" : "离线" }}
+                    </span>
+                  </td>
+                  <td>
+                    <button type="button" :disabled="!device.online" @click="handleKickDevice(device)">踢下线</button>
+                  </td>
+                </tr>
+                <tr v-if="!devices.length">
+                  <td colspan="8">暂无登录设备</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </article>
+      </section>
 
-        <article class="admin-card">
-          <strong>热门接口</strong>
-          <ul class="admin-event-list">
-            <li v-for="endpoint in monitoring?.runtime?.topEndpoints || []" :key="endpoint.endpoint">
-              <span>{{ endpoint.hits }}</span>
-              <b>{{ endpoint.endpoint }}</b>
-            </li>
-          </ul>
+      <section v-else-if="activeAdminPage === 'system'" class="admin-page-pane">
+        <div class="admin-dashboard-grid">
+          <article class="admin-panel">
+            <div class="admin-panel-head">
+              <div>
+                <p>Security Policy</p>
+                <h2>账号与设备策略</h2>
+              </div>
+            </div>
+            <div class="admin-setting-list">
+              <span><b>单账号设备上限</b>{{ monitoring?.deviceLimit ?? 5 }} 台</span>
+              <span><b>登录凭证</b>X-Auth-Token 会话令牌</span>
+              <span><b>MAC 地址</b>浏览器无法直接读取，后续桌面客户端可补齐</span>
+              <span><b>超限处理</b>达到上限后拒绝新设备登录</span>
+            </div>
+          </article>
+
+          <article class="admin-panel">
+            <div class="admin-panel-head">
+              <div>
+                <p>Service Status</p>
+                <h2>服务状态</h2>
+              </div>
+            </div>
+            <div class="admin-setting-list">
+              <span><b>后端接口</b>/api/auth 与 /api/admin</span>
+              <span><b>服务时间</b>{{ formatDate(monitoring?.serverTime) }}</span>
+              <span><b>请求总数</b>{{ monitoring?.runtime?.totalRequests ?? 0 }}</span>
+              <span><b>异常请求</b>{{ monitoring?.runtime?.failedRequests ?? 0 }}</span>
+            </div>
+          </article>
+        </div>
+
+        <article class="admin-panel">
+          <div class="admin-panel-head">
+            <div>
+              <p>Operations</p>
+              <h2>系统管理预留</h2>
+            </div>
+          </div>
+          <div class="admin-operation-grid">
+            <button type="button" disabled>修改设备上限</button>
+            <button type="button" disabled>数据备份</button>
+            <button type="button" disabled>清理离线会话</button>
+            <button type="button" disabled>系统公告</button>
+          </div>
+          <p class="admin-hint">这些操作入口先保留在后台面板里，后续接数据库配置和权限审计时再打开。</p>
         </article>
-      </div>
-    </template>
+      </section>
+
+      <section v-else class="admin-page-pane">
+        <div class="admin-dashboard-grid">
+          <article class="admin-panel">
+            <div class="admin-panel-head">
+              <div>
+                <p>Audit Trail</p>
+                <h2>登录审计</h2>
+              </div>
+            </div>
+            <ul class="admin-activity-list audit">
+              <li v-for="event in recentEvents" :key="event.id">
+                <span :class="eventClass(event.eventType)">{{ eventTypeText(event.eventType) }}</span>
+                <b>{{ event.username || "-" }}</b>
+                <small>{{ event.ipAddress || "-" }}</small>
+                <em>{{ event.message || "-" }}</em>
+                <strong>{{ formatDate(event.createdAt) }}</strong>
+              </li>
+              <li v-if="!recentEvents.length" class="admin-empty-row">暂无审计记录</li>
+            </ul>
+          </article>
+
+          <article class="admin-panel">
+            <div class="admin-panel-head">
+              <div>
+                <p>Hot Endpoints</p>
+                <h2>接口访问排行</h2>
+              </div>
+            </div>
+            <div class="admin-table-wrap">
+              <table class="admin-table endpoints">
+                <thead>
+                  <tr>
+                    <th>接口</th>
+                    <th>请求数</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="endpoint in topEndpoints" :key="endpoint.endpoint">
+                    <td>{{ endpoint.endpoint }}</td>
+                    <td>{{ endpoint.hits }}</td>
+                  </tr>
+                  <tr v-if="!topEndpoints.length">
+                    <td colspan="2">暂无接口统计</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
   </section>
 </template>
 
@@ -218,6 +419,14 @@ import {
   updateEmployee
 } from "../services/adminApi";
 
+const adminPages = [
+  { key: "overview", no: "01", label: "后台概览", description: "指标与运行监控", eyebrow: "Admin Console", title: "后台总览", subtitle: "查看账号、设备、接口运行的关键状态。" },
+  { key: "employees", no: "02", label: "员工管理", description: "账号与角色", eyebrow: "Employee Management", title: "员工管理", subtitle: "创建员工账号，调整角色与启用状态。" },
+  { key: "devices", no: "03", label: "设备登录", description: "IP 与在线设备", eyebrow: "Device Sessions", title: "设备与登录", subtitle: "查看当前登录设备、IP、会话状态并执行下线。" },
+  { key: "system", no: "04", label: "系统管理", description: "策略与服务状态", eyebrow: "System Settings", title: "系统管理", subtitle: "集中放置账号策略、服务状态和后续运维入口。" },
+  { key: "audit", no: "05", label: "审计日志", description: "登录与接口记录", eyebrow: "Audit Log", title: "审计日志", subtitle: "追踪登录事件和接口访问热度。" }
+];
+
 const loading = ref(false);
 const message = ref("");
 const hasError = ref(false);
@@ -225,14 +434,29 @@ const currentUser = ref(null);
 const employees = ref([]);
 const devices = ref([]);
 const monitoring = ref(null);
+const activeAdminPage = ref("overview");
 const loginForm = reactive({ username: "admin", password: "" });
 const employeeForm = reactive({ username: "", displayName: "", password: "", role: "EMPLOYEE" });
 
-const onlineDevices = computed(() => devices.value.filter((device) => device.online));
+const activePageMeta = computed(() =>
+  adminPages.find((item) => item.key === activeAdminPage.value) || adminPages[0]
+);
+const displayAdminName = computed(() => repairMojibake(currentUser.value?.displayName || "管理员"));
+const normalizedEmployees = computed(() => employees.value.map(normalizeDisplayName));
+const normalizedDevices = computed(() => devices.value.map(normalizeDisplayName));
+const onlineDevices = computed(() => normalizedDevices.value.filter((device) => device.online));
+const recentEvents = computed(() => monitoring.value?.recentEvents || []);
+const topEndpoints = computed(() => monitoring.value?.runtime?.topEndpoints || []);
+const heapPercent = computed(() => {
+  const used = Number(monitoring.value?.runtime?.heapUsedMb || 0);
+  const max = Number(monitoring.value?.runtime?.heapMaxMb || 0);
+  if (!max) return 0;
+  return Math.round((used / max) * 100);
+});
 
 onMounted(async () => {
   if (storedAdminToken()) {
-    await loadDashboard();
+    await loadDashboard(false);
   }
 });
 
@@ -244,7 +468,7 @@ async function handleLogin() {
       clearAdminToken();
       throw new Error("当前账号不是管理员");
     }
-    currentUser.value = response.user;
+    currentUser.value = normalizeDisplayName(response.user);
     await loadDashboard(false);
     showMessage("登录成功");
   });
@@ -258,13 +482,14 @@ async function handleLogout() {
     devices.value = [];
     monitoring.value = null;
     loginForm.password = "";
+    activeAdminPage.value = "overview";
     showMessage("已退出登录");
   });
 }
 
 async function loadDashboard(showSuccess = true) {
   await withLoading(async () => {
-    currentUser.value = await fetchAdminMe();
+    currentUser.value = normalizeDisplayName(await fetchAdminMe());
     const [employeeRows, deviceRows, monitoringData] = await Promise.all([
       fetchEmployees(),
       fetchDevices(),
@@ -328,12 +553,62 @@ function showMessage(text) {
   message.value = text;
 }
 
+function normalizeDisplayName(record) {
+  if (!record) return record;
+  return { ...record, displayName: repairMojibake(record.displayName || "未命名") };
+}
+
+function repairMojibake(value) {
+  const text = String(value || "");
+  if (!/[ÃÂæçå€˜™œ]/.test(text)) return text;
+  try {
+    const bytes = [];
+    for (const ch of text) {
+      const code = CP1252_BYTES[ch] ?? ch.charCodeAt(0);
+      if (code > 255) return text;
+      bytes.push(code);
+    }
+    const decoded = new TextDecoder("utf-8", { fatal: false }).decode(new Uint8Array(bytes));
+    return hasMoreChinese(decoded, text) ? decoded : text;
+  } catch {
+    return text;
+  }
+}
+
+function hasMoreChinese(next, prev) {
+  return countChinese(next) > countChinese(prev) && !next.includes("�");
+}
+
+function countChinese(text) {
+  return (String(text).match(/[\u3400-\u9fff]/g) || []).length;
+}
+
 function roleText(role) {
   return role === "ADMIN" ? "管理员" : "员工";
 }
 
 function statusText(status) {
   return status === "ACTIVE" ? "启用" : "禁用";
+}
+
+function eventTypeText(type) {
+  return {
+    LOGIN_SUCCESS: "登录成功",
+    LOGIN_FAIL: "登录失败",
+    LOGOUT: "退出登录",
+    KICK: "踢下线",
+    DEVICE_LIMIT: "设备限流"
+  }[type] || type || "-";
+}
+
+function eventClass(type) {
+  return {
+    LOGIN_SUCCESS: "ok",
+    LOGOUT: "neutral",
+    LOGIN_FAIL: "danger",
+    DEVICE_LIMIT: "warn",
+    KICK: "warn"
+  }[type] || "neutral";
 }
 
 function formatDate(value) {
@@ -345,4 +620,34 @@ function formatDate(value) {
     minute: "2-digit"
   }).format(new Date(value));
 }
+
+const CP1252_BYTES = {
+  "€": 0x80,
+  "‚": 0x82,
+  "ƒ": 0x83,
+  "„": 0x84,
+  "…": 0x85,
+  "†": 0x86,
+  "‡": 0x87,
+  "ˆ": 0x88,
+  "‰": 0x89,
+  "Š": 0x8a,
+  "‹": 0x8b,
+  "Œ": 0x8c,
+  "Ž": 0x8e,
+  "‘": 0x91,
+  "’": 0x92,
+  "“": 0x93,
+  "”": 0x94,
+  "•": 0x95,
+  "–": 0x96,
+  "—": 0x97,
+  "˜": 0x98,
+  "™": 0x99,
+  "š": 0x9a,
+  "›": 0x9b,
+  "œ": 0x9c,
+  "ž": 0x9e,
+  "Ÿ": 0x9f
+};
 </script>
