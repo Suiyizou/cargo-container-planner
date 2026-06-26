@@ -13,12 +13,12 @@
     </div>
 
     <div class="home-quick-grid">
-      <RouterLink class="home-action-card primary" to="/planner">
+      <RouterLink class="home-action-card primary" to="/planner/config">
         <span>开始装箱计算</span>
         <strong>录入货物、选择箱型并查看三维摆放</strong>
       </RouterLink>
-      <RouterLink class="home-action-card" to="/excel">
-        <span>导入 Excel</span>
+      <RouterLink class="home-action-card" to="/smart-import">
+        <span>智能导入</span>
         <strong>手动校验或创建 Agent 清洗任务</strong>
       </RouterLink>
       <RouterLink class="home-action-card" to="/algorithm">
@@ -51,8 +51,8 @@
             <span>默认首页</span>
             <select v-model="profile.startPage">
               <option value="/home">工作台</option>
-              <option value="/planner">装箱计算</option>
-              <option value="/excel">Excel 导入</option>
+              <option value="/planner/config">装箱计算</option>
+              <option value="/smart-import">智能导入</option>
             </select>
           </label>
         </div>

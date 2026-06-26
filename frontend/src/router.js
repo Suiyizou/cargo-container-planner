@@ -13,9 +13,13 @@ export const router = createRouter({
   routes: [
     { path: "/", redirect: "/home" },
     { path: "/home", name: "home", component: PageStub },
-    { path: "/planner", name: "planner", component: PageStub },
+    { path: "/planner", redirect: "/planner/config" },
+    { path: "/planner/config", name: "planner-config", component: PageStub },
+    { path: "/planner/cargos", name: "planner-cargos", component: PageStub },
+    { path: "/planner/results", name: "planner-results", component: PageStub },
     { path: "/algorithm", name: "algorithm", component: PageStub },
-    { path: "/excel", name: "excel-template", component: PageStub },
+    { path: "/excel", redirect: "/smart-import" },
+    { path: "/smart-import", name: "smart-import", component: PageStub },
     { path: "/admin", name: "admin", component: PageStub }
   ]
 });

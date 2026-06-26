@@ -14,8 +14,13 @@
       </div>
     </header>
 
-    <div class="app-body">
+    <div class="app-body" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
       <aside class="app-sidebar">
+        <button class="sidebar-toggle" type="button" @click="sidebarCollapsed = !sidebarCollapsed">
+          <span>{{ sidebarCollapsed ? "展开" : "收起" }}</span>
+          <b>{{ sidebarCollapsed ? "›" : "‹" }}</b>
+        </button>
+
         <div class="side-user-card">
           <span>当前工作区</span>
           <strong>{{ userDisplayName }}</strong>
@@ -23,11 +28,31 @@
         </div>
 
         <nav class="side-nav">
-          <RouterLink to="/home" :class="{ active: activePage === 'home' }">工作台首页</RouterLink>
-          <RouterLink to="/planner" :class="{ active: activePage === 'planner' }">装箱计算</RouterLink>
-          <RouterLink to="/excel" :class="{ active: activePage === 'excel-template' }">Excel 导入</RouterLink>
-          <RouterLink to="/algorithm" :class="{ active: activePage === 'algorithm' }">算法说明</RouterLink>
-          <RouterLink to="/admin" :class="{ active: activePage === 'admin' }">管理后台</RouterLink>
+          <RouterLink to="/home" :class="{ active: activePage === 'home' }">
+            <span class="nav-full">工作台首页</span>
+            <span class="nav-short">首页</span>
+          </RouterLink>
+          <RouterLink to="/planner/config" :class="{ active: activePage === 'planner' }">
+            <span class="nav-full">装箱计算</span>
+            <span class="nav-short">装箱</span>
+          </RouterLink>
+          <div v-if="activePage === 'planner'" class="side-subnav">
+            <RouterLink to="/planner/config" :class="{ active: plannerMode === 'config' }">计算配置</RouterLink>
+            <RouterLink to="/planner/cargos" :class="{ active: plannerMode === 'cargos' }">货物总览</RouterLink>
+            <RouterLink to="/planner/results" :class="{ active: plannerMode === 'results' }">计算结果</RouterLink>
+          </div>
+          <RouterLink to="/smart-import" :class="{ active: activePage === 'smart-import' }">
+            <span class="nav-full">智能导入</span>
+            <span class="nav-short">导入</span>
+          </RouterLink>
+          <RouterLink to="/algorithm" :class="{ active: activePage === 'algorithm' }">
+            <span class="nav-full">算法说明</span>
+            <span class="nav-short">算法</span>
+          </RouterLink>
+          <RouterLink to="/admin" :class="{ active: activePage === 'admin' }">
+            <span class="nav-full">管理后台</span>
+            <span class="nav-short">后台</span>
+          </RouterLink>
         </nav>
 
         <div class="side-toolbox">
@@ -52,58 +77,131 @@
       :global-gap-cm="globalGapCm"
       @save-settings="applyUserSettings"
     />
-    <main v-else-if="activePage === 'planner'" key="planner" class="layout">
-      <aside class="sidebar">
-        <section class="control-card">
-          <div class="step-title">
-            <span>1</span>
-            <strong>计算参数</strong>
+    <main v-else-if="activePage === 'planner'" :key="`planner-${plannerMode}`" class="planner-page">
+      <section v-if="plannerMode === 'config'" class="planner-section">
+        <div class="planner-page-head">
+          <div>
+            <p>Calculation Setup</p>
+            <h2>计算配置</h2>
           </div>
-          <label class="range-row">
-            <span>计划可用率 <b>{{ utilizationPercent }}%</b></span>
-            <input v-model.number="utilizationPercent" type="range" min="75" max="98" />
-          </label>
-          <label class="range-row">
-            <span>货物间隙 <b>{{ globalGapCm }} cm</b></span>
-            <input v-model.number="globalGapCm" type="range" min="0" max="8" />
-          </label>
-        </section>
+          <span class="status-pill" :class="{ warn: loading }">{{ apiStatus }}</span>
+        </div>
 
-        <section class="control-card">
-          <div class="step-title">
-            <span>2</span>
-            <strong>货物录入</strong>
-          </div>
-          <button class="primary wide" type="button" @click="openCargoModal()">录入货物</button>
-          <div class="cargo-list">
-            <div
-              v-for="(cargo, index) in cargos"
-              :key="cargo.id"
-              class="cargo-item"
-            >
-              <button class="cargo-row" type="button" @click="openCargoModal(cargo)">
-                <i :style="{ background: cargo.color || systemColorFor(index) }"></i>
-                <span>
-                  <strong>{{ cargoDisplayName(cargo) }}</strong>
-                  <small>{{ cargo.lengthCm }} × {{ cargo.widthCm }} × {{ cargo.heightCm }} cm / {{ cargo.quantity }} 件</small>
-                </span>
-              </button>
-              <button class="danger ghost" type="button" @click="deleteCargo(cargo.id, cargo.name)">删除</button>
+        <div class="planner-config-grid">
+          <article class="planner-card">
+            <div class="step-title">
+              <span>1</span>
+              <strong>装箱参数</strong>
             </div>
-            <p v-if="!cargos.length" class="empty">还没有录入货物，先添加一类货物开始计算。</p>
-          </div>
-        </section>
+            <label class="range-row">
+              <span>计划可用率 <b>{{ utilizationPercent }}%</b></span>
+              <input v-model.number="utilizationPercent" type="range" min="75" max="98" />
+            </label>
+            <label class="range-row">
+              <span>货物间隙 <b>{{ globalGapCm }} cm</b></span>
+              <input v-model.number="globalGapCm" type="range" min="0" max="8" />
+            </label>
+            <div class="planner-action-row">
+              <button class="primary" type="button" @click="openCargoModal()">手动录入货物</button>
+              <RouterLink class="planner-link-button" to="/planner/cargos">查看货物总览</RouterLink>
+            </div>
+          </article>
 
-        <section class="control-card">
-          <div class="step-title">
-            <span>3</span>
-            <strong>当前结果</strong>
+          <article class="planner-card">
+            <div class="step-title">
+              <span>2</span>
+              <strong>模板货物栏</strong>
+            </div>
+            <p class="planner-muted">这里预留企业长期货物模板入口，后续可以连接数据库，把常用 SKU 一键加入当前计划。</p>
+            <div class="template-placeholder-grid">
+              <button type="button" @click="loadSample">套用示例货物</button>
+              <button type="button" disabled>从数据库选择</button>
+              <button type="button" disabled>保存为模板</button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section v-else-if="plannerMode === 'cargos'" class="planner-section">
+        <div class="planner-page-head">
+          <div>
+            <p>Cargo Overview</p>
+            <h2>货物总览</h2>
           </div>
-          <div class="metric">
-            <span>推荐箱型</span>
-            <strong>{{ selectedEvaluation?.container?.name || "等待计算" }}</strong>
+          <button class="primary" type="button" @click="openCargoModal()">新增货物</button>
+        </div>
+
+        <div class="planner-metrics">
+          <div><span>货物种类</span><strong>{{ cargoTypeCount }}</strong></div>
+          <div><span>总件数</span><strong>{{ cargoTotalQuantity }}</strong></div>
+          <div><span>总质量</span><strong>{{ fmt(cargoTotalWeightKg / 1000, 2) }} t</strong></div>
+          <div><span>总体积</span><strong>{{ fmt(cargoTotalVolumeM3, 2) }} m³</strong></div>
+        </div>
+
+        <section class="panel cargo-overview-panel">
+          <div class="section-head">
+            <div>
+              <p>Current Cargo</p>
+              <h2>当前货物列表</h2>
+            </div>
+            <RouterLink class="planner-link-button" to="/planner/results">查看计算结果</RouterLink>
           </div>
-          <div class="metric-grid">
+          <div v-if="cargos.length" class="cargo-overview-table-wrap">
+            <table class="cargo-overview-table">
+              <thead>
+                <tr>
+                  <th>货物</th>
+                  <th>型号</th>
+                  <th>尺寸 cm</th>
+                  <th>数量</th>
+                  <th>单重</th>
+                  <th>小计体积</th>
+                  <th>类型</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(cargo, index) in cargos" :key="cargo.id">
+                  <td>
+                    <span class="cargo-name-cell">
+                      <i :style="{ background: cargo.color || systemColorFor(index) }"></i>
+                      <b>{{ cargo.name }}</b>
+                    </span>
+                  </td>
+                  <td>{{ cargo.model || "-" }}</td>
+                  <td>{{ cargo.lengthCm }} × {{ cargo.widthCm }} × {{ cargo.heightCm }}</td>
+                  <td>{{ cargo.quantity }} 件</td>
+                  <td>{{ fmt(cargo.weightKg, 2) }} kg</td>
+                  <td>{{ fmt((cargo.lengthCm * cargo.widthCm * cargo.heightCm * cargo.quantity) / 1000000, 3) }} m³</td>
+                  <td>{{ cargoTypeText(cargo.type) }}</td>
+                  <td>
+                    <div class="table-actions">
+                      <button type="button" @click="openCargoModal(cargo)">详情/编辑</button>
+                      <button class="danger ghost" type="button" @click="deleteCargo(cargo.id, cargo.name)">删除</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="empty">还没有录入货物，可以先手动新增，或去智能导入页面导入表格。</p>
+        </section>
+      </section>
+
+      <section v-else class="planner-section">
+        <section class="panel result-summary-panel">
+          <div class="section-head">
+            <div>
+              <p>Packing Result</p>
+              <h2>计算结果</h2>
+            </div>
+            <div class="view-actions">
+              <button type="button" @click="recalculate">重新计算</button>
+              <RouterLink class="planner-link-button" to="/planner/config">调整配置</RouterLink>
+            </div>
+          </div>
+          <div class="metric-grid result-summary-grid">
+            <div><span>推荐箱型</span><strong>{{ selectedEvaluation?.container?.name || "等待计算" }}</strong></div>
             <div><span>预计箱数</span><strong>{{ selectedEvaluation?.boxes > 0 ? `${selectedEvaluation.estimatedBoxes ? "约 " : ""}${selectedEvaluation.boxes}` : "-" }}</strong></div>
             <div><span>首箱空间占用</span><strong>{{ fmt(selectedEvaluation?.firstBoxFillPercent, 1) }}%</strong></div>
             <div><span>总体积</span><strong>{{ fmt(selectedEvaluation?.totalRawVolumeM3, 2) }} m³</strong></div>
@@ -122,9 +220,7 @@
             </button>
           </div>
         </section>
-      </aside>
 
-      <section class="content">
         <section class="panel ranking-panel">
           <div class="section-head">
             <div>
@@ -162,7 +258,6 @@
               <label><input v-model="showMassBalance" type="checkbox" /> 显示重心偏载</label>
               <button type="button" :disabled="exportingReport || loading || !selectedPlacements.length" @click="exportCurrentReport('png')">导出图片</button>
               <button type="button" :disabled="exportingReport || loading || !selectedPlacements.length" @click="exportCurrentReport('pdf')">导出 PDF</button>
-              <button type="button" @click="recalculate">重新计算</button>
             </div>
           </div>
           <div class="scene-wrap">
@@ -193,7 +288,7 @@
       key="algorithm"
       :evaluation="selectedEvaluation"
     />
-    <ExcelTemplatePage v-else-if="activePage === 'excel-template'" key="excel-template" @import-cargos="importExcelCargos" />
+    <ExcelTemplatePage v-else-if="activePage === 'smart-import'" key="smart-import" @import-cargos="importExcelCargos" />
     <AdminDashboard v-else-if="activePage === 'admin'" key="admin" />
     </Transition>
       </section>
@@ -228,12 +323,22 @@ const colors = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d"
 const route = useRoute();
 const router = useRouter();
 const profileVersion = ref(0);
-const activePage = computed(() => route.name || "planner");
+const sidebarCollapsed = ref(false);
+const routeName = computed(() => String(route.name || ""));
+const activePage = computed(() => {
+  if (routeName.value.startsWith("planner")) return "planner";
+  return routeName.value || "home";
+});
+const plannerMode = computed(() => {
+  if (routeName.value === "planner-cargos") return "cargos";
+  if (routeName.value === "planner-results") return "results";
+  return "config";
+});
 const pageTitle = computed(() => ({
   home: "工作台首页",
   planner: "装箱计算",
   algorithm: "算法说明",
-  "excel-template": "Excel 导入",
+  "smart-import": "智能导入",
   admin: "管理后台"
 }[activePage.value] || "工作台"));
 const userDisplayName = computed(() => {
@@ -278,6 +383,18 @@ const selectedBox = computed(() => {
 });
 const selectedPlacements = computed(() =>
   (selectedBox.value.placed || []).map((item) => ({ ...item, type: shortType(item.type) }))
+);
+const cargoTypeCount = computed(() => cargos.value.length);
+const cargoTotalQuantity = computed(() =>
+  cargos.value.reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0)
+);
+const cargoTotalWeightKg = computed(() =>
+  cargos.value.reduce((sum, cargo) => sum + Number(cargo.weightKg || 0) * Number(cargo.quantity || 0), 0)
+);
+const cargoTotalVolumeM3 = computed(() =>
+  cargos.value.reduce((sum, cargo) =>
+    sum + Number(cargo.lengthCm || 0) * Number(cargo.widthCm || 0) * Number(cargo.heightCm || 0) * Number(cargo.quantity || 0) / 1000000,
+  0)
 );
 
 onMounted(async () => {
@@ -516,7 +633,7 @@ function importExcelCargos({ cargos: importedCargos, mode, skippedRows = 0 }) {
   cargos.value = normalizeCargoModels(mode === "append" ? [...cargos.value, ...importedCargos] : importedCargos);
   result.value = null;
   selectedBoxIndex.value = 1;
-  router.push("/planner");
+  router.push("/planner/cargos");
   showToast(`${mode === "append" ? "已追加" : "已导入"} ${importedCargos.length} 类货物${skippedRows ? `，跳过 ${skippedRows} 行异常数据` : ""}`);
 }
 
@@ -526,6 +643,15 @@ function systemColorFor(index) {
 
 function cargoDisplayName(cargo) {
   return cargoLabel(cargo);
+}
+
+function cargoTypeText(type) {
+  return {
+    normal: "普通货物",
+    upright: "保持朝上",
+    nonstack: "不可重压",
+    pallet: "托盘/木箱"
+  }[type] || "普通货物";
 }
 
 function normalizeCargoModels(items) {

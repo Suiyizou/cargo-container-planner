@@ -128,6 +128,11 @@ select {
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);
   min-height: calc(100vh - 72px);
+  transition: grid-template-columns 0.18s ease;
+}
+
+.app-body.sidebar-collapsed {
+  grid-template-columns: 76px minmax(0, 1fr);
 }
 
 .app-sidebar {
@@ -142,6 +147,22 @@ select {
   background: #fff;
   box-shadow: 10px 0 24px rgba(20, 34, 52, 0.03);
   overflow: auto;
+}
+
+.sidebar-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 36px;
+  padding: 7px 10px;
+  color: #174777;
+  background: #f4f8fd;
+  border-color: #cfe0f3;
+}
+
+.sidebar-toggle b {
+  font-size: 20px;
+  line-height: 1;
 }
 
 .workspace {
@@ -174,6 +195,10 @@ select {
   gap: 8px;
 }
 
+.nav-short {
+  display: none;
+}
+
 .side-nav a,
 .side-toolbox button,
 .side-toolbox label {
@@ -204,6 +229,29 @@ select {
   box-shadow: 0 10px 20px rgba(31, 111, 190, 0.16);
 }
 
+.side-subnav {
+  display: grid;
+  gap: 6px;
+  margin: -2px 0 4px 12px;
+  padding-left: 10px;
+  border-left: 2px solid #d9e6f5;
+}
+
+.side-subnav a {
+  min-height: 34px;
+  padding: 6px 10px;
+  color: #51677f;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.side-subnav a.active {
+  background: #eaf4ff;
+  border-color: #9dc2eb;
+  color: #174777;
+  box-shadow: none;
+}
+
 .side-toolbox {
   margin-top: 6px;
   padding-top: 14px;
@@ -218,6 +266,199 @@ select {
 
 .side-toolbox input {
   display: none;
+}
+
+.sidebar-collapsed .app-sidebar {
+  gap: 10px;
+  padding: 12px 8px;
+  overflow: hidden;
+}
+
+.sidebar-collapsed .sidebar-toggle {
+  justify-content: center;
+  padding: 6px;
+}
+
+.sidebar-collapsed .sidebar-toggle span,
+.sidebar-collapsed .side-user-card,
+.sidebar-collapsed .side-toolbox,
+.sidebar-collapsed .side-subnav,
+.sidebar-collapsed .nav-full {
+  display: none;
+}
+
+.sidebar-collapsed .nav-short {
+  display: inline;
+}
+
+.sidebar-collapsed .side-nav a {
+  justify-content: center;
+  padding: 9px 6px;
+  font-size: 13px;
+}
+
+.planner-page {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+
+.planner-section {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.planner-page-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding: 18px;
+  border: 1px solid #d3deea;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(20, 34, 52, 0.04);
+}
+
+.planner-page-head p {
+  margin: 0 0 3px;
+  color: #64748b;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.planner-page-head h2 {
+  margin: 0;
+  color: #132033;
+}
+
+.planner-config-grid {
+  display: grid;
+  grid-template-columns: minmax(420px, 0.9fr) minmax(360px, 1.1fr);
+  gap: 14px;
+}
+
+.planner-card {
+  padding: 18px;
+  border: 1px solid #d3deea;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(20, 34, 52, 0.04);
+}
+
+.planner-muted {
+  margin: 8px 0 14px;
+  color: #52657b;
+  line-height: 1.7;
+}
+
+.planner-action-row,
+.template-placeholder-grid,
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.planner-link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid #c5d3e4;
+  border-radius: 6px;
+  background: #fff;
+  color: #174a7f;
+  text-decoration: none;
+  font-weight: 700;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+
+.planner-link-button:hover {
+  border-color: #2c78c4;
+  box-shadow: 0 4px 12px rgba(30, 93, 158, 0.12);
+}
+
+.planner-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.planner-metrics div {
+  padding: 16px;
+  border: 1px solid #d7e1ee;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.planner-metrics span {
+  display: block;
+  color: #657a93;
+  font-size: 13px;
+}
+
+.planner-metrics strong {
+  display: block;
+  margin-top: 8px;
+  color: #132033;
+  font-size: 24px;
+}
+
+.cargo-overview-panel {
+  min-width: 0;
+}
+
+.cargo-overview-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #d7e1ee;
+  background: #fff;
+}
+
+.cargo-overview-table {
+  width: 100%;
+  min-width: 1060px;
+  border-collapse: collapse;
+}
+
+.cargo-overview-table th,
+.cargo-overview-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #e1eaf5;
+  color: #40546b;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.cargo-overview-table th {
+  background: #f4f8fd;
+  color: #174777;
+  font-weight: 800;
+}
+
+.cargo-name-cell {
+  display: inline-grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.cargo-name-cell i {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+}
+
+.result-summary-panel {
+  background: #fff;
+}
+
+.result-summary-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .home-page {
@@ -1451,6 +1692,46 @@ select {
   min-width: 0;
 }
 
+.smart-recognition-card {
+  margin-top: 0;
+}
+
+.recognition-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.smart-recognition-card textarea {
+  width: 100%;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #bad0e8;
+  border-radius: 6px;
+  color: #132033;
+  background: #fbfdff;
+  font: inherit;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.recognition-placeholder {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px dashed #9dc2eb;
+  border-radius: 8px;
+  background: #f4f8fd;
+  color: #40546b;
+}
+
+.recognition-placeholder span {
+  color: #1f6fbe;
+  font-weight: 800;
+}
+
 .excel-manual-card {
   padding: 18px;
   border: 1px solid #d3deea;
@@ -1995,6 +2276,7 @@ select {
   .trace-grid,
   .algorithm-grid,
   .template-grid,
+  .planner-config-grid,
   .excel-entry-grid,
   .excel-workspace-layout,
   .admin-grid {
@@ -2009,6 +2291,11 @@ select {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .planner-metrics,
+  .result-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .admin-form-grid {
     grid-template-columns: 1fr;
   }
@@ -2018,7 +2305,9 @@ select {
   }
 
   .excel-import-hero,
+  .planner-page-head,
   .excel-preview-actions,
+  .recognition-head,
   .agent-workbench-header,
   .agent-task-title,
   .agent-preview-actions {
@@ -2040,6 +2329,11 @@ select {
   }
 
   .admin-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .planner-metrics,
+  .result-summary-grid {
     grid-template-columns: 1fr;
   }
 

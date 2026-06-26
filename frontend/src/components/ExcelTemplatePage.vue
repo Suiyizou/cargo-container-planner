@@ -1,21 +1,25 @@
 <template>
   <section class="algorithm-page excel-template-page">
     <div class="page-title">
-      <p>Excel Import</p>
-      <h2>Excel 导入与样板</h2>
+      <p>Smart Import</p>
+      <h2>智能导入</h2>
     </div>
 
     <div class="excel-workspace-layout">
       <aside class="excel-side-menu">
-        <button type="button" :class="{ active: excelMode === 'manual' }" @click="excelMode = 'manual'">
+        <button type="button" :class="{ active: excelMode === 'manual' }" @click="switchExcelMode('manual')">
           手动导入
           <span>本地识别、校验和建议修改</span>
         </button>
-        <button type="button" :class="{ active: excelMode === 'agent' }" @click="excelMode = 'agent'">
+        <button type="button" :class="{ active: excelMode === 'recognition' }" @click="switchExcelMode('recognition')">
+          智能识别
+          <span>粘贴货物描述，提取标准规格</span>
+        </button>
+        <button type="button" :class="{ active: excelMode === 'agent' }" @click="switchExcelMode('agent')">
           Agent 清洗
           <span>后端任务、清洗 JSON/Excel</span>
         </button>
-        <button type="button" :class="{ active: excelMode === 'reference' }" @click="excelMode = 'reference'">
+        <button type="button" :class="{ active: excelMode === 'reference' }" @click="switchExcelMode('reference')">
           字段样板
           <span>标准字段、规则和示例</span>
         </button>
@@ -61,10 +65,29 @@
         </div>
       </div>
 
+    <div v-else-if="excelMode === 'recognition'" class="algorithm-note smart-recognition-card">
+      <div class="recognition-head">
+        <div>
+          <strong>路径二：智能识别</strong>
+          <p>预留给“复制一段货物信息后自动提取名称、型号、尺寸、数量、重量”的工作流。当前先搭入口，识别逻辑后续再接后端或 Agent。</p>
+        </div>
+        <button type="button" disabled>识别预览</button>
+      </div>
+      <textarea
+        v-model="recognitionText"
+        rows="10"
+        placeholder="例如：纸箱B 60*40*35cm 30件 单重12kg；易碎品C 55×45×30cm 12件 不可重压"
+      ></textarea>
+      <div class="recognition-placeholder">
+        <span>待接入</span>
+        <strong>文本解析、字段置信度、异常建议和一键导入</strong>
+      </div>
+    </div>
+
     <div v-else-if="excelMode === 'agent'" class="algorithm-note agent-workbench">
       <div class="agent-workbench-header">
         <div>
-          <strong>路径二：Agent 清洗工作台</strong>
+          <strong>路径三：Agent 清洗工作台</strong>
           <p>
             上传非标准表格后先建立清洗任务，后端解析并保存任务结果；当前是规则清洗底座，后续可替换为真实 Agent 异步回填。
           </p>
@@ -474,7 +497,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, reactive, ref } from "vue";
 import {
   aggregateCargos,
   buildPreview,
@@ -499,6 +522,7 @@ const selectedSheetName = ref("");
 const activeSheet = ref(null);
 const preview = ref(null);
 const excelMode = ref("manual");
+const recognitionText = ref("");
 const manualCorrections = ref([]);
 const suggestionRow = ref(null);
 const suggestionErrors = ref([]);
@@ -569,10 +593,6 @@ const sampleRows = [
   { id: 3, name: "易碎品 C", model: "", lengthCm: 55, widthCm: 45, heightCm: 30, quantity: 12, weightKg: 18, type: "nonstack", color: "#8b5cf6", remark: "不可重压" }
 ];
 
-onMounted(() => {
-  loadAgentTasks({ silent: true });
-});
-
 async function handleFile(event) {
   const file = event.target.files?.[0];
   event.target.value = "";
@@ -580,6 +600,13 @@ async function handleFile(event) {
   workbook.value = await readWorkbook(file);
   selectedSheetName.value = workbook.value.sheets[0]?.name || "";
   selectSheet();
+}
+
+function switchExcelMode(mode) {
+  excelMode.value = mode;
+  if (mode === "agent" && !agentTask.value && !agentTasks.value.length) {
+    loadAgentTasks({ silent: true });
+  }
 }
 
 function selectSheet() {
