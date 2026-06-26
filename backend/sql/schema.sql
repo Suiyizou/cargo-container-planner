@@ -70,6 +70,27 @@ CREATE TABLE IF NOT EXISTS cp_admin_audit_log (
   CONSTRAINT fk_cp_admin_audit_user FOREIGN KEY (admin_user_id) REFERENCES cp_users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+CREATE TABLE IF NOT EXISTS cp_excel_cleaning_tasks (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  task_no VARCHAR(40) NOT NULL UNIQUE,
+  source_channel ENUM('MANUAL', 'AGENT') NOT NULL DEFAULT 'AGENT',
+  original_file_name VARCHAR(255) NOT NULL,
+  status ENUM('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED') NOT NULL DEFAULT 'PENDING',
+  row_count INT NOT NULL DEFAULT 0,
+  valid_count INT NOT NULL DEFAULT 0,
+  issue_count INT NOT NULL DEFAULT 0,
+  cleaned_count INT NOT NULL DEFAULT 0,
+  cleaned_json LONGTEXT NULL,
+  issues_json LONGTEXT NULL,
+  agent_notes TEXT NULL,
+  error_message TEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  finished_at DATETIME NULL,
+  INDEX idx_cp_excel_cleaning_tasks_status_time (status, created_at),
+  INDEX idx_cp_excel_cleaning_tasks_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
 -- Default super administrator:
 -- username: admin
 -- password: Admin@123456

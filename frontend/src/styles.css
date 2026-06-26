@@ -1113,11 +1113,20 @@ select {
   justify-content: center;
   min-height: 40px;
   padding: 8px 16px;
+  border: 1px solid #bad0e8;
+  background: #fff;
+  color: #174777;
   cursor: pointer;
 }
 
 .file-button input {
   display: none;
+}
+
+.file-button.primary {
+  border-color: #1f6fbe;
+  background: #1f6fbe;
+  color: #fff;
 }
 
 .excel-summary-grid {
@@ -1204,6 +1213,124 @@ select {
 
 .excel-ok {
   color: #047857 !important;
+}
+
+.agent-workbench {
+  margin-top: 16px;
+}
+
+.agent-workbench-header,
+.agent-task-title,
+.agent-preview-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+}
+
+.agent-workbench-header p,
+.agent-note-text {
+  margin: 8px 0 0;
+  color: #40546b;
+}
+
+.agent-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+  color: #40546b;
+}
+
+.agent-result-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #d7e1ee;
+  background: #f8fbff;
+}
+
+.agent-task-title b,
+.agent-task-grid b {
+  color: #132033;
+  font-size: 15px;
+}
+
+.agent-task-title span,
+.agent-task-grid span {
+  display: block;
+  margin-top: 3px;
+  color: #657a93;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.agent-task-title em,
+.agent-task-grid em {
+  font-style: normal;
+  font-weight: 700;
+}
+
+.agent-summary-grid {
+  margin-top: 0;
+}
+
+.agent-preview-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.agent-preview-actions label {
+  display: grid;
+  gap: 5px;
+  min-width: 180px;
+  color: #40546b;
+}
+
+.agent-preview-actions select {
+  min-height: 38px;
+  border: 1px solid #bad0e8;
+  background: #fff;
+  color: #132033;
+  font: inherit;
+}
+
+.agent-issues {
+  margin-top: 0;
+}
+
+.agent-task-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.agent-task-grid button {
+  min-height: 86px;
+  padding: 12px;
+  border: 1px solid #cbd7e6;
+  background: #fff;
+  text-align: left;
+}
+
+.agent-task-grid button.active {
+  border-color: #2f80d1;
+  background: #eef6ff;
+}
+
+.status-success {
+  color: #047857;
+}
+
+.status-running,
+.status-pending {
+  color: #9a5b00;
+}
+
+.status-failed {
+  color: #be123c;
 }
 
 .suggestion-modal {
@@ -1510,7 +1637,10 @@ select {
   }
 
   .excel-import-hero,
-  .excel-preview-actions {
+  .excel-preview-actions,
+  .agent-workbench-header,
+  .agent-task-title,
+  .agent-preview-actions {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -1537,6 +1667,10 @@ select {
   }
 
   .excel-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-task-grid {
     grid-template-columns: 1fr;
   }
 }
