@@ -1,16 +1,6 @@
 export function apiBaseCandidates(configuredBase) {
   if (configuredBase) return [normalizeBase(configuredBase)];
-
-  const candidates = ["/api"];
-  if (typeof window !== "undefined" && window.location?.hostname) {
-    const { protocol, hostname, port } = window.location;
-    for (const backendPort of ["8000", "8080"]) {
-      if (port !== backendPort) {
-        candidates.push(`${protocol}//${hostname}:${backendPort}/api`);
-      }
-    }
-  }
-  return [...new Set(candidates.map(normalizeBase))];
+  return ["/api"];
 }
 
 export async function requestJson(path, options = {}, configuredBase = "") {

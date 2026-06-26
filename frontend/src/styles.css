@@ -475,14 +475,6 @@ select {
   border-radius: 3px;
 }
 
-.result-summary-panel {
-  background: #fff;
-}
-
-.result-summary-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-}
-
 .home-page {
   display: grid;
   gap: 16px;
@@ -2313,8 +2305,7 @@ select {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .planner-metrics,
-  .result-summary-grid {
+  .planner-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -2355,8 +2346,7 @@ select {
     grid-template-columns: 1fr;
   }
 
-  .planner-metrics,
-  .result-summary-grid {
+  .planner-metrics {
     grid-template-columns: 1fr;
   }
 

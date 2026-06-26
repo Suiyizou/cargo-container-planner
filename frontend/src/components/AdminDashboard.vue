@@ -237,6 +237,7 @@ onMounted(async () => {
 });
 
 async function handleLogin() {
+  if (loading.value) return;
   await withLoading(async () => {
     const response = await loginAdmin(loginForm.username, loginForm.password);
     if (response.user.role !== "ADMIN") {

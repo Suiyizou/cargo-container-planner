@@ -191,23 +191,16 @@
       </section>
 
       <section v-else class="planner-section">
-        <section class="panel result-summary-panel">
+        <section class="panel ranking-panel">
           <div class="section-head">
             <div>
-              <p>Packing Result</p>
-              <h2>计算结果</h2>
+              <p>箱型选择</p>
+              <h2>推荐箱型对比</h2>
             </div>
             <div class="view-actions">
+              <span class="status-pill" :class="{ warn: loading }">{{ apiStatus }}</span>
               <button type="button" @click="recalculate">重新计算</button>
-              <RouterLink class="planner-link-button" to="/planner/config">调整配置</RouterLink>
             </div>
-          </div>
-          <div class="metric-grid result-summary-grid">
-            <div><span>推荐箱型</span><strong>{{ selectedEvaluation?.container?.name || "等待计算" }}</strong></div>
-            <div><span>预计箱数</span><strong>{{ selectedEvaluation?.boxes > 0 ? `${selectedEvaluation.estimatedBoxes ? "约 " : ""}${selectedEvaluation.boxes}` : "-" }}</strong></div>
-            <div><span>首箱空间占用</span><strong>{{ fmt(selectedEvaluation?.firstBoxFillPercent, 1) }}%</strong></div>
-            <div><span>总体积</span><strong>{{ fmt(selectedEvaluation?.totalRawVolumeM3, 2) }} m³</strong></div>
-            <div><span>总重量</span><strong>{{ fmt((selectedEvaluation?.totalWeightKg || 0) / 1000, 2) }} t</strong></div>
           </div>
           <div class="box-switch" v-if="selectedEvaluation?.packedBoxes?.length > 1">
             <span>{{ selectedEvaluation?.estimatedBoxes ? "显示已详算货舱" : "显示货舱" }}</span>
@@ -220,16 +213,6 @@
             >
               {{ box.index }}
             </button>
-          </div>
-        </section>
-
-        <section class="panel ranking-panel">
-          <div class="section-head">
-            <div>
-              <p>箱型选择</p>
-              <h2>推荐箱型对比</h2>
-            </div>
-            <span class="status-pill" :class="{ warn: loading }">{{ apiStatus }}</span>
           </div>
           <div class="container-grid">
             <button
