@@ -43,8 +43,8 @@
         />
         <line :x1="balanceMap.geo.x" :y1="balanceMap.geo.y" :x2="balanceMap.center.x" :y2="balanceMap.center.y" class="map-offset-line" />
         <path :d="`M ${balanceMap.geo.x - 14} ${balanceMap.geo.y} L ${balanceMap.geo.x + 14} ${balanceMap.geo.y} M ${balanceMap.geo.x} ${balanceMap.geo.y - 14} L ${balanceMap.geo.x} ${balanceMap.geo.y + 14}`" class="map-geo" />
-        <circle :cx="balanceMap.center.x" :cy="balanceMap.center.y" r="18" class="map-center-halo" />
-        <circle :cx="balanceMap.center.x" :cy="balanceMap.center.y" r="8" class="map-center-dot" />
+        <circle :cx="balanceMap.center.x" :cy="balanceMap.center.y" r="24" class="map-center-halo" />
+        <circle :cx="balanceMap.center.x" :cy="balanceMap.center.y" r="10" class="map-center-dot" />
       </svg>
       <div class="balance-quadrants">
         <span v-for="zone in balanceZones" :key="zone.name">

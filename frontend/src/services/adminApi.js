@@ -81,9 +81,6 @@ async function request(path, options = {}) {
 }
 
 function defaultApiBase() {
-  if (window.location.port === "5177") {
-    return "http://127.0.0.1:8080/api";
-  }
   return "/api";
 }
 

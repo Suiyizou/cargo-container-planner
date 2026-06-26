@@ -1,16 +1,172 @@
 <template>
   <section class="algorithm-page excel-template-page">
     <div class="page-title">
-      <p>Excel Import Template</p>
-      <h2>Excel 样板与字段规范</h2>
+      <p>Excel Import</p>
+      <h2>Excel 导入与样板</h2>
     </div>
 
-    <div class="algorithm-note">
-      <strong>推荐导入原则</strong>
-      <p>
-        Excel 导入先按固定字段做规则解析，字段缺失、单位不清、表头不标准时再进入人工确认或智能清洗。
-        所有尺寸默认使用 cm，重量默认使用 kg，数量必须是正整数。
+    <div class="excel-import-hero">
+      <div>
+        <strong>导入 Excel / CSV</strong>
+        <p>自动识别表头、单位、货物类型和备注规则，导入前先预览并标记异常行。</p>
+      </div>
+      <div class="excel-import-actions">
+        <label class="primary file-button">
+          选择文件
+          <input type="file" accept=".xlsx,.xls,.csv,.tsv,text/csv" @change="handleFile" />
+        </label>
+        <button type="button" @click="downloadTemplate">下载样板</button>
+      </div>
+    </div>
+
+    <div class="excel-summary-grid">
+      <div>
+        <span>当前文件</span>
+        <strong>{{ workbook?.fileName || "尚未选择" }}</strong>
+      </div>
+      <div>
+        <span>有效行</span>
+        <strong>{{ (preview?.validRows.length || 0) + manualCorrections.length }}</strong>
+      </div>
+      <div>
+        <span>异常行</span>
+        <strong>{{ unresolvedInvalidRows.length }}</strong>
+      </div>
+      <div>
+        <span>聚合后货物</span>
+        <strong>{{ approvedAggregated.length }}</strong>
+      </div>
+      <div>
+        <span>导入件数</span>
+        <strong>{{ approvedQuantity }}</strong>
+      </div>
+    </div>
+
+    <div v-if="workbook" class="template-grid">
+      <article class="algorithm-note">
+        <strong>工作表与单位</strong>
+        <div class="excel-control-grid">
+          <label>
+            <span>工作表</span>
+            <select v-model="selectedSheetName" @change="selectSheet">
+              <option v-for="sheet in workbook.sheets" :key="sheet.name" :value="sheet.name">
+                {{ sheet.name }} / {{ sheet.rows.length }} 行
+              </option>
+            </select>
+          </label>
+          <label>
+            <span>尺寸单位</span>
+            <select v-model="options.dimensionUnit" @change="refreshPreview">
+              <option value="auto">自动识别</option>
+              <option value="cm">cm</option>
+              <option value="mm">mm</option>
+              <option value="m">m</option>
+            </select>
+          </label>
+          <label>
+            <span>重量单位</span>
+            <select v-model="options.weightUnit" @change="refreshPreview">
+              <option value="auto">自动识别</option>
+              <option value="kg">kg</option>
+              <option value="g">g</option>
+              <option value="t">t</option>
+            </select>
+          </label>
+          <label>
+            <span>导入方式</span>
+            <select v-model="importMode">
+              <option value="replace">替换当前货物</option>
+              <option value="append">追加到当前货物</option>
+            </select>
+          </label>
+        </div>
+      </article>
+
+      <article class="algorithm-note">
+        <strong>字段自动映射</strong>
+        <div class="mapping-grid">
+          <label v-for="field in visibleMappingFields" :key="field.key">
+            <span>{{ field.label }}<b v-if="field.required">*</b></span>
+            <select v-model="mapping[field.key]" @change="refreshPreview">
+              <option value="">未映射</option>
+              <option v-for="header in activeSheet.headers" :key="header" :value="header">{{ header }}</option>
+            </select>
+          </label>
+        </div>
+      </article>
+    </div>
+
+    <div v-if="preview" class="excel-preview-actions">
+      <p v-if="unresolvedInvalidRows.length" class="excel-warning">
+        有 {{ unresolvedInvalidRows.length }} 行未通过校验，导入时会跳过这些行。
       </p>
+      <p v-else class="excel-ok">全部行已通过校验。</p>
+      <button class="primary" type="button" :disabled="!approvedAggregated.length" @click="importPreview">
+        导入 {{ approvedAggregated.length }} 类 / {{ approvedQuantity }} 件货物
+      </button>
+    </div>
+
+    <div v-if="preview" class="template-grid">
+      <article class="algorithm-note">
+        <strong>有效数据预览</strong>
+        <div class="template-table-wrap">
+          <table class="template-table sample">
+            <thead>
+              <tr>
+                <th>货物</th>
+                <th>尺寸 cm</th>
+                <th>数量</th>
+                <th>单重 kg</th>
+                <th>类型</th>
+                <th>备注</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="cargo in approvedAggregated.slice(0, 12)" :key="cargoKey(cargo)">
+                <td>{{ cargo.name }}</td>
+                <td>{{ cargo.lengthCm }} × {{ cargo.widthCm }} × {{ cargo.heightCm }}</td>
+                <td>{{ cargo.quantity }}</td>
+                <td>{{ cargo.weightKg }}</td>
+                <td>{{ typeText(cargo.type) }}</td>
+                <td>{{ cargo.remark || "-" }}</td>
+              </tr>
+              <tr v-if="approvedAggregated.length > 12">
+                <td colspan="6">还有 {{ approvedAggregated.length - 12 }} 类货物未显示</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="algorithm-note">
+        <strong>异常行</strong>
+        <div class="template-table-wrap">
+          <table class="template-table">
+            <thead>
+              <tr>
+                <th>行号</th>
+                <th>问题</th>
+                <th>原始名称</th>
+                <th>建议</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in unresolvedInvalidRows.slice(0, 12)" :key="row.rowNumber">
+                <td>{{ row.rowNumber }}</td>
+                <td>{{ row.errors.join("；") }}</td>
+                <td>{{ row.cargo.name || "-" }}</td>
+                <td><button type="button" @click="openSuggestion(row)">建议修改</button></td>
+              </tr>
+              <tr v-if="!unresolvedInvalidRows.length">
+                <td colspan="4">暂无异常行</td>
+              </tr>
+              <tr v-if="unresolvedInvalidRows.length > 12">
+                <td colspan="4">还有 {{ unresolvedInvalidRows.length - 12 }} 行异常未显示</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
     </div>
 
     <div class="template-grid">
@@ -39,48 +195,12 @@
       </article>
 
       <article class="algorithm-note">
-        <strong>可选字段</strong>
-        <div class="template-table-wrap">
-          <table class="template-table">
-            <thead>
-              <tr>
-                <th>字段名</th>
-                <th>含义</th>
-                <th>示例</th>
-                <th>默认值</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="field in optionalFields" :key="field.key">
-                <td><code>{{ field.key }}</code></td>
-                <td>{{ field.label }}</td>
-                <td>{{ field.example }}</td>
-                <td>{{ field.defaultValue }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </article>
-    </div>
-
-    <div class="template-grid compact">
-      <article class="algorithm-note">
-        <strong>货物类型 type</strong>
+        <strong>可选字段与规则</strong>
         <ul class="formula-list">
-          <li><code>normal</code>：普通货物，可旋转，可承重。</li>
-          <li><code>upright</code>：保持朝上货物，不允许随意翻转。</li>
-          <li><code>nonstack</code>：不可重压货物，可放在可承重货物上方，但自身不作为上层支撑面。</li>
-          <li><code>pallet</code>：托盘/木箱类，默认保持底面方向，预留额外间隙。</li>
-        </ul>
-      </article>
-
-      <article class="algorithm-note">
-        <strong>字段映射建议</strong>
-        <ul class="formula-list">
-          <li>常见中文表头可映射：货名/品名/SKU -> <code>name</code>，长/长度 -> <code>lengthCm</code>。</li>
-          <li>如果表头写的是 mm、毫米，需要除以 10 转为 cm；如果是 m，需要乘以 100。</li>
-          <li>导入前要显示预览表，标出失败行和不确定字段，不建议静默写入。</li>
-          <li>大量重复 SKU 应先聚合为数量，不要在导入阶段展开成几千行单件。</li>
+          <li><code>type</code>：支持 <code>normal</code>、<code>upright</code>、<code>nonstack</code>、<code>pallet</code>，备注里写“易碎/不可重压/托盘/朝上”也会自动识别。</li>
+          <li><code>dimensionText</code>：允许把尺寸写成 <code>60*40*35</code>、<code>60×40×35 cm</code> 或 “长宽高”。</li>
+          <li><code>totalWeightKg</code>：如果没有单件重量，可以用总重量除以数量自动换算。</li>
+          <li>重复 SKU 或同规格同名称货物会先聚合数量，再写入当前货物列表。</li>
         </ul>
       </article>
     </div>
@@ -104,26 +224,144 @@
     </div>
 
     <div class="algorithm-note">
-      <strong>是否需要 Agent</strong>
+      <strong>Agent 的位置</strong>
       <p>
-        建议需要，但不要让 Agent 直接替代导入逻辑。表格基础解析、类型校验、单位换算应该由确定性代码完成；
-        Agent 更适合处理非标准业务语义，比如多行表头、合并单元格、备注里的“易碎/不可重压/托盘”、客户自定义列名等。
+        当前先用确定性规则完成解析、校验、单位换算和预览。后续 Agent 应该接在“表头低置信度、合并单元格、多层表头、业务备注复杂”的环节，
+        只给出清洗建议，最终导入仍然由用户确认。
       </p>
-      <div class="template-agent-flow">
-        <span>Excel 文件</span>
-        <b>规则解析</b>
-        <b>Agent 辅助识别</b>
-        <b>用户确认</b>
-        <span>标准货物数据</span>
+    </div>
+
+    <div v-if="suggestionRow" class="modal-backdrop">
+      <div class="modal suggestion-modal">
+        <header>
+          <div>
+            <p>第 {{ suggestionRow.rowNumber }} 行</p>
+            <h2>建议修改为标准货物</h2>
+          </div>
+          <button type="button" @click="closeSuggestion">×</button>
+        </header>
+
+        <div class="suggestion-summary">
+          <strong>{{ suggestionSummary }}</strong>
+          <ul>
+            <li v-for="note in suggestionRow.suggestion.notes" :key="note">{{ note }}</li>
+            <li v-if="!suggestionRow.suggestion.notes.length">系统已尽量保留原始行中的可识别字段。</li>
+          </ul>
+        </div>
+
+        <div class="suggestion-form-grid">
+          <label>
+            <span>货物名称</span>
+            <input v-model.trim="suggestionForm.name" />
+          </label>
+          <label>
+            <span>长度 cm</span>
+            <input v-model.number="suggestionForm.lengthCm" type="number" min="0" step="0.01" />
+          </label>
+          <label>
+            <span>宽度 cm</span>
+            <input v-model.number="suggestionForm.widthCm" type="number" min="0" step="0.01" />
+          </label>
+          <label>
+            <span>高度 cm</span>
+            <input v-model.number="suggestionForm.heightCm" type="number" min="0" step="0.01" />
+          </label>
+          <label>
+            <span>数量</span>
+            <input v-model.number="suggestionForm.quantity" type="number" min="1" step="1" />
+          </label>
+          <label>
+            <span>单件重量 kg</span>
+            <input v-model.number="suggestionForm.weightKg" type="number" min="0" step="0.01" />
+          </label>
+          <label>
+            <span>类型</span>
+            <select v-model="suggestionForm.type">
+              <option value="normal">普通货物</option>
+              <option value="upright">保持朝上</option>
+              <option value="nonstack">不可重压</option>
+              <option value="pallet">托盘/木箱</option>
+            </select>
+          </label>
+          <label>
+            <span>备注</span>
+            <input v-model.trim="suggestionForm.remark" />
+          </label>
+        </div>
+
+        <p v-if="suggestionErrors.length" class="excel-warning suggestion-error">
+          还需要修改：{{ suggestionErrors.join("；") }}
+        </p>
+
+        <div class="modal-actions">
+          <button type="button" @click="closeSuggestion">取消</button>
+          <button class="primary" type="button" @click="applySuggestion">应用到导入预览</button>
+        </div>
       </div>
-      <p>
-        换句话说，Agent 做“清洗建议”和“异常解释”很合适；真正落库/写入当前系统前，必须经过预览和用户确认。
-      </p>
     </div>
   </section>
 </template>
 
 <script setup>
+import { computed, reactive, ref } from "vue";
+import {
+  aggregateCargos,
+  buildPreview,
+  downloadTemplateWorkbook,
+  importFields,
+  readWorkbook,
+  validateCargo
+} from "../services/excelImport";
+import { uid } from "../utils/format";
+
+const emit = defineEmits(["import-cargos"]);
+
+const colors = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3"];
+const workbook = ref(null);
+const selectedSheetName = ref("");
+const activeSheet = ref(null);
+const preview = ref(null);
+const manualCorrections = ref([]);
+const suggestionRow = ref(null);
+const suggestionErrors = ref([]);
+const mapping = reactive({});
+const suggestionForm = reactive({
+  name: "",
+  lengthCm: "",
+  widthCm: "",
+  heightCm: "",
+  quantity: 1,
+  weightKg: 0,
+  type: "normal",
+  color: "",
+  sku: "",
+  remark: ""
+});
+const options = reactive({ dimensionUnit: "auto", weightUnit: "auto" });
+const importMode = ref("replace");
+
+const visibleMappingFields = computed(() =>
+  importFields.filter((field) => field.key !== "totalWeightKg" || mapping.totalWeightKg || activeSheet.value?.headers.length)
+);
+const correctedRowNumbers = computed(() => new Set(manualCorrections.value.map((cargo) => cargo.sourceRowNumber)));
+const unresolvedInvalidRows = computed(() =>
+  preview.value ? preview.value.invalidRows.filter((row) => !correctedRowNumbers.value.has(row.rowNumber)) : []
+);
+const approvedAggregated = computed(() => {
+  if (!preview.value) return [];
+  return aggregateCargos([
+    ...preview.value.validRows.map((row) => row.cargo),
+    ...manualCorrections.value
+  ]);
+});
+const approvedQuantity = computed(() =>
+  approvedAggregated.value.reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0)
+);
+const suggestionSummary = computed(() => {
+  if (!suggestionRow.value) return "";
+  return `${suggestionForm.name || "未命名货物"}，${suggestionForm.lengthCm || "-"} × ${suggestionForm.widthCm || "-"} × ${suggestionForm.heightCm || "-"} cm，${suggestionForm.quantity || 0} 件，${suggestionForm.weightKg || 0} kg/件`;
+});
+
 const requiredFields = [
   { key: "name", label: "货物名称", example: "纸箱 B", rule: "不能为空" },
   { key: "lengthCm", label: "长度 cm", example: "60", rule: "大于 0 的数字" },
@@ -133,17 +371,110 @@ const requiredFields = [
   { key: "weightKg", label: "单件重量 kg", example: "12", rule: "大于等于 0 的数字" }
 ];
 
-const optionalFields = [
-  { key: "type", label: "货物类型", example: "normal", defaultValue: "normal" },
-  { key: "color", label: "显示颜色", example: "#3b82f6", defaultValue: "系统自动分配" },
-  { key: "id", label: "货物 ID/SKU", example: "SKU-001", defaultValue: "系统自动生成" },
-  { key: "remark", label: "备注", example: "易碎，不可重压", defaultValue: "空" }
-];
-
 const sampleHeaders = ["name", "lengthCm", "widthCm", "heightCm", "quantity", "weightKg", "type", "color", "remark"];
 const sampleRows = [
   { id: 1, name: "蝶阀木箱 A", lengthCm: 110, widthCm: 45, heightCm: 82, quantity: 8, weightKg: 180, type: "pallet", color: "#2a9d8f", remark: "木箱/托盘类" },
   { id: 2, name: "纸箱 B", lengthCm: 60, widthCm: 40, heightCm: 35, quantity: 30, weightKg: 12, type: "normal", color: "#3b82f6", remark: "普通可堆叠" },
   { id: 3, name: "易碎品 C", lengthCm: 55, widthCm: 45, heightCm: 30, quantity: 12, weightKg: 18, type: "nonstack", color: "#8b5cf6", remark: "不可重压" }
 ];
+
+async function handleFile(event) {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+  workbook.value = await readWorkbook(file);
+  selectedSheetName.value = workbook.value.sheets[0]?.name || "";
+  selectSheet();
+}
+
+function selectSheet() {
+  activeSheet.value = workbook.value?.sheets.find((sheet) => sheet.name === selectedSheetName.value) || null;
+  Object.keys(mapping).forEach((key) => delete mapping[key]);
+  Object.assign(mapping, activeSheet.value?.mapping || {});
+  refreshPreview();
+}
+
+function refreshPreview() {
+  preview.value = activeSheet.value ? buildPreview(activeSheet.value, mapping, options) : null;
+  manualCorrections.value = [];
+  closeSuggestion();
+}
+
+function importPreview() {
+  if (!approvedAggregated.value.length) return;
+  const cargos = approvedAggregated.value.map((cargo, index) => ({
+    id: uid("cargo"),
+    name: cargo.name,
+    lengthCm: cargo.lengthCm,
+    widthCm: cargo.widthCm,
+    heightCm: cargo.heightCm,
+    quantity: cargo.quantity,
+    weightKg: cargo.weightKg,
+    type: cargo.type,
+    color: cargo.color || colors[index % colors.length]
+  }));
+  emit("import-cargos", { cargos, mode: importMode.value, skippedRows: unresolvedInvalidRows.value.length });
+}
+
+function openSuggestion(row) {
+  suggestionRow.value = row;
+  Object.assign(suggestionForm, row.suggestion.cargo);
+  suggestionErrors.value = [...row.suggestion.errors];
+}
+
+function closeSuggestion() {
+  suggestionRow.value = null;
+  suggestionErrors.value = [];
+}
+
+function applySuggestion() {
+  const cargo = normalizeSuggestionCargo();
+  const errors = validateCargo(cargo);
+  if (errors.length) {
+    suggestionErrors.value = errors;
+    return;
+  }
+  const rowNumber = suggestionRow.value.rowNumber;
+  manualCorrections.value = [
+    ...manualCorrections.value.filter((item) => item.sourceRowNumber !== rowNumber),
+    { ...cargo, sourceRowNumber: rowNumber }
+  ];
+  closeSuggestion();
+}
+
+function normalizeSuggestionCargo() {
+  return {
+    name: String(suggestionForm.name || "").trim(),
+    lengthCm: round2(suggestionForm.lengthCm),
+    widthCm: round2(suggestionForm.widthCm),
+    heightCm: round2(suggestionForm.heightCm),
+    quantity: Math.round(Number(suggestionForm.quantity || 0)),
+    weightKg: round2(suggestionForm.weightKg),
+    type: suggestionForm.type || "normal",
+    color: suggestionForm.color || "",
+    sku: suggestionForm.sku || "",
+    remark: String(suggestionForm.remark || "").trim()
+  };
+}
+
+function round2(value) {
+  return Math.round(Number(value || 0) * 100) / 100;
+}
+
+function downloadTemplate() {
+  downloadTemplateWorkbook(sampleRows);
+}
+
+function typeText(type) {
+  return {
+    normal: "普通货物",
+    upright: "保持朝上",
+    nonstack: "不可重压",
+    pallet: "托盘/木箱"
+  }[type] || "普通货物";
+}
+
+function cargoKey(cargo) {
+  return `${cargo.name}-${cargo.lengthCm}-${cargo.widthCm}-${cargo.heightCm}-${cargo.quantity}-${cargo.type}`;
+}
 </script>

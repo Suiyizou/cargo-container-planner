@@ -565,7 +565,7 @@ select {
 }
 
 .map-zone {
-  opacity: 0.16;
+  opacity: 0.08;
 }
 
 .map-zone.front-left,
@@ -585,8 +585,8 @@ select {
 }
 
 .map-cargo {
-  opacity: 0.46;
-  stroke: rgba(15, 23, 42, 0.52);
+  opacity: 0.24;
+  stroke: rgba(15, 23, 42, 0.34);
   stroke-width: 3;
 }
 
@@ -605,15 +605,15 @@ select {
 }
 
 .map-center-halo {
-  fill: rgba(225, 29, 72, 0.2);
-  stroke: rgba(225, 29, 72, 0.36);
-  stroke-width: 5;
+  fill: rgba(225, 29, 72, 0.18);
+  stroke: rgba(225, 29, 72, 0.48);
+  stroke-width: 7;
 }
 
 .map-center-dot {
   fill: #e11d48;
   stroke: #fff;
-  stroke-width: 4;
+  stroke-width: 5;
 }
 
 .balance-quadrants {
@@ -1079,6 +1079,182 @@ select {
   background: #eef6ff;
 }
 
+.excel-import-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid #cbd7e6;
+  background: #fff;
+}
+
+.excel-import-hero strong {
+  color: #174777;
+  font-size: 20px;
+}
+
+.excel-import-hero p {
+  margin: 8px 0 0;
+  color: #40546b;
+}
+
+.excel-import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.file-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.file-button input {
+  display: none;
+}
+
+.excel-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.excel-summary-grid div {
+  padding: 14px;
+  border: 1px solid #d7e1ee;
+  background: #fff;
+}
+
+.excel-summary-grid span {
+  display: block;
+  color: #657a93;
+  font-size: 13px;
+}
+
+.excel-summary-grid strong {
+  display: block;
+  margin-top: 8px;
+  color: #132033;
+  font-size: 22px;
+  line-height: 1.25;
+  word-break: break-all;
+}
+
+.excel-control-grid,
+.mapping-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.mapping-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.excel-control-grid label,
+.mapping-grid label {
+  display: grid;
+  gap: 6px;
+  color: #40546b;
+}
+
+.excel-control-grid select,
+.mapping-grid select {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid #bad0e8;
+  background: #fff;
+  color: #132033;
+  font: inherit;
+}
+
+.mapping-grid b {
+  margin-left: 2px;
+  color: #be123c;
+}
+
+.excel-preview-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-top: 14px;
+  padding: 14px 18px;
+  border: 1px solid #cbd7e6;
+  background: #fff;
+}
+
+.excel-preview-actions p {
+  margin: 0;
+  color: #40546b;
+}
+
+.excel-warning {
+  color: #be123c !important;
+}
+
+.excel-ok {
+  color: #047857 !important;
+}
+
+.suggestion-modal {
+  width: min(760px, calc(100vw - 48px));
+}
+
+.suggestion-summary {
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid #d7e1ee;
+  background: #f8fbff;
+}
+
+.suggestion-summary strong {
+  color: #132033;
+  font-size: 16px;
+}
+
+.suggestion-summary ul {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: #40546b;
+  line-height: 1.65;
+}
+
+.suggestion-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.suggestion-form-grid label {
+  display: grid;
+  gap: 6px;
+  color: #40546b;
+}
+
+.suggestion-form-grid input,
+.suggestion-form-grid select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #bad0e8;
+  background: #fff;
+  color: #132033;
+  font: inherit;
+}
+
+.suggestion-error {
+  margin: 14px 0 0;
+}
+
 .admin-page {
   background: #f7fafc;
 }
@@ -1328,6 +1504,22 @@ select {
   .admin-form-grid {
     grid-template-columns: 1fr;
   }
+
+  .excel-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .excel-import-hero,
+  .excel-preview-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .excel-control-grid,
+  .mapping-grid,
+  .suggestion-form-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
@@ -1341,6 +1533,10 @@ select {
   }
 
   .admin-event-list li {
+    grid-template-columns: 1fr;
+  }
+
+  .excel-summary-grid {
     grid-template-columns: 1fr;
   }
 }

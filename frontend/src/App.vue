@@ -12,7 +12,6 @@
         <button :class="{ active: activePage === 'planner' }" type="button" @click="activePage = 'planner'">装箱计算</button>
         <button :class="{ active: activePage === 'algorithm' }" type="button" @click="activePage = 'algorithm'">算法说明</button>
         <button :class="{ active: activePage === 'excel-template' }" type="button" @click="activePage = 'excel-template'">Excel 样板</button>
-        <button :class="{ active: activePage === 'admin' }" type="button" @click="activePage = 'admin'">管理后台</button>
         <button type="button" @click="openContainerModal">添加箱型</button>
         <div class="menu">
           <button type="button" @click="menuOpen = !menuOpen">数据操作</button>
@@ -167,8 +166,8 @@
       v-else-if="activePage === 'algorithm'"
       :evaluation="selectedEvaluation"
     />
-    <ExcelTemplatePage v-else-if="activePage === 'excel-template'" />
-    <AdminDashboard v-else />
+    <ExcelTemplatePage v-else-if="activePage === 'excel-template'" @import-cargos="importExcelCargos" />
+    <AdminDashboard v-else-if="activePage === 'admin'" />
 
     <CargoModal v-if="cargoModalOpen" :cargo="editingCargo" @close="closeCargoModal" @save="saveCargo" />
     <ContainerModal v-if="containerModalOpen" @close="containerModalOpen = false" @save="saveContainer" />
@@ -193,7 +192,7 @@ import { fmt, shortType, uid } from "./utils/format";
 const STORAGE_KEY = "cargo-planner-vue-state";
 const colors = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3", "#ca8a04", "#475569"];
 
-const activePage = ref("planner");
+const activePage = ref(window.location.hash === "#admin" ? "admin" : "planner");
 const cargos = ref([]);
 const containers = ref([]);
 const result = ref(null);
@@ -447,6 +446,15 @@ function containerIcon(name) {
   if (name.includes("45")) return "45";
   if (name.includes("40")) return "40";
   return "20";
+}
+
+function importExcelCargos({ cargos: importedCargos, mode, skippedRows = 0 }) {
+  if (!importedCargos?.length) return;
+  cargos.value = mode === "append" ? [...cargos.value, ...importedCargos] : importedCargos;
+  result.value = null;
+  selectedBoxIndex.value = 1;
+  activePage.value = "planner";
+  showToast(`${mode === "append" ? "已追加" : "已导入"} ${importedCargos.length} 类货物${skippedRows ? `，跳过 ${skippedRows} 行异常数据` : ""}`);
 }
 
 function systemColorFor(index) {

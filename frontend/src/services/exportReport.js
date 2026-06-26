@@ -276,7 +276,7 @@ function drawLegend(ctx, x, y, width, height, catalog) {
   ctx.fillText("货物编号与颜色图例", x + 24, y + 32);
   ctx.fillStyle = "#64748b";
   ctx.font = "400 15px Microsoft YaHei, Arial";
-  ctx.fillText("图中 #编号 对应录入货物顺序；每层都会列出底面 X/Y、竖向 Z 与对应堆放规则。", x + 250, y + 32);
+  ctx.fillText("图中 #编号 对应录入货物顺序；A=长×宽、B=宽×高、C=长×高，不同底面会拆成 #2A/#2B。", x + 250, y + 32);
 
   const columns = 4;
   const cellWidth = (width - 48) / columns;
@@ -531,7 +531,7 @@ function drawIsoCargo(ctx, project, item, layer) {
 }
 
 function drawIsoCargoBadge(ctx, item, point) {
-  const label = `#${item.cargoNo}`;
+  const label = reportCargoLabel(item);
   ctx.font = "800 14px Microsoft YaHei, Arial";
   const width = Math.max(34, ctx.measureText(label).width + 16);
   const height = 24;
@@ -552,15 +552,15 @@ function drawLayerStats(ctx, x, y, width, height, layer, index) {
   stats.forEach((item) => {
     if (rowY > y + height - 74) return;
     ctx.fillStyle = item.color;
-    roundRect(ctx, x + 18, rowY - 22, 34, 30, 8);
+    roundRect(ctx, x + 18, rowY - 22, 42, 30, 8);
     ctx.fill();
     ctx.fillStyle = "#ffffff";
     ctx.font = "800 13px Microsoft YaHei, Arial";
-    centerText(ctx, `#${item.cargoNo}`, x + 35, rowY - 3);
+    centerText(ctx, item.label, x + 39, rowY - 3);
 
     ctx.fillStyle = "#132033";
     ctx.font = "800 16px Microsoft YaHei, Arial";
-    ctx.fillText(`${item.name}`, x + 62, rowY - 8);
+    ctx.fillText(`${item.name}`, x + 68, rowY - 8);
     ctx.fillStyle = "#52657b";
     ctx.font = "400 13px Microsoft YaHei, Arial";
     ctx.fillText(`${item.count} 件`, x + width - 74, rowY - 8);
@@ -576,7 +576,7 @@ function drawLayerStats(ctx, x, y, width, height, layer, index) {
 }
 
 function drawCargoLabel(ctx, item, x, y, width, height, options = {}) {
-  const label = `#${item.cargoNo}`;
+  const label = reportCargoLabel(item);
   const size = options.compact ? 13 : Math.max(13, Math.min(20, Math.floor(Math.min(width, height) * 0.32)));
   ctx.font = `800 ${size}px Microsoft YaHei, Arial`;
   const labelWidth = ctx.measureText(label).width + 14;
@@ -610,7 +610,7 @@ function drawCargoLabel(ctx, item, x, y, width, height, options = {}) {
 }
 
 function drawSideCargoLabel(ctx, item, x, y, width, height, options = {}) {
-  const label = `#${item.cargoNo}`;
+  const label = reportCargoLabel(item);
   const size = options.compact ? 13 : Math.max(13, Math.min(18, Math.floor(Math.min(width, height) * 0.3)));
   ctx.font = `800 ${size}px Microsoft YaHei, Arial`;
   const pillWidth = Math.min(Math.max(ctx.measureText(label).width + 14, 34), Math.max(width - 6, 34));
@@ -719,7 +719,7 @@ function drawFooter(ctx, y) {
   ctx.stroke();
   ctx.fillStyle = "#64748b";
   ctx.font = "400 14px Microsoft YaHei, Arial";
-  ctx.fillText("说明：分层按货物底面 z 坐标分组；俯视图显示 X/Y 底面边，侧视图显示 X/Z 高度边；右侧统计完整列出每类货物的 X/Y/Z 原始边方向。", 48, y);
+  ctx.fillText("说明：分层按货物底面 z 坐标分组；A=长×宽底、B=宽×高底、C=长×高底；同一货物不同底面会以 #2A/#2B 拆分标注。", 48, y);
 }
 
 function buildCargoCatalog(cargos, placements) {
@@ -766,10 +766,13 @@ function buildLayers(placements) {
 function countByCargo(items) {
   const map = new Map();
   items.forEach((item) => {
-    const key = item.cargoNo;
+    const faceCode = bottomFaceCode(item);
+    const key = `${item.cargoNo}-${faceCode}`;
     if (!map.has(key)) {
       map.set(key, {
         cargoNo: item.cargoNo,
+        faceCode,
+        label: reportCargoLabel(item),
         name: item.name,
         color: item.color,
         count: 0,
@@ -793,15 +796,33 @@ function countByCargo(items) {
       orientationDetails: [...item.orientationDetails],
       stackMethods: [...item.stackMethods]
     }))
-    .sort((a, b) => a.cargoNo - b.cargoNo);
+    .sort((a, b) => a.cargoNo - b.cargoNo || a.faceCode.localeCompare(b.faceCode));
 }
 
 function orientationDetail(item) {
+  const faceCode = bottomFaceCode(item);
   return [
-    `底面X=${item.xAxis || "长"}${formatNum(item.xAxisBaseCm, 0)}cm`,
-    `底面Y=${item.yAxis || "宽"}${formatNum(item.yAxisBaseCm, 0)}cm`,
+    `底面${faceCode}=${bottomFaceName(faceCode)}`,
+    `X=${item.xAxis || "长"}${formatNum(item.xAxisBaseCm, 0)}cm`,
+    `Y=${item.yAxis || "宽"}${formatNum(item.yAxisBaseCm, 0)}cm`,
     `高度Z=${item.zAxis || item.heightAxis || "高"}${formatNum(item.zAxisBaseCm, 0)}cm`
   ].join(" / ");
+}
+
+function reportCargoLabel(item) {
+  return `#${item.cargoNo}${bottomFaceCode(item)}`;
+}
+
+function bottomFaceCode(item) {
+  const axes = [item.xAxis || "长", item.yAxis || "宽"].join("");
+  if (axes.includes("长") && axes.includes("宽")) return "A";
+  if (axes.includes("宽") && axes.includes("高")) return "B";
+  if (axes.includes("长") && axes.includes("高")) return "C";
+  return "A";
+}
+
+function bottomFaceName(code) {
+  return { A: "长×宽", B: "宽×高", C: "长×高" }[code] || "长×宽";
 }
 
 function stackMethod(item) {

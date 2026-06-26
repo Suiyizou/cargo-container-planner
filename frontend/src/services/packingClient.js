@@ -9,12 +9,13 @@ export function calculatePacking(payload) {
 
   const jobId = ++currentJobId;
   currentWorker = new Worker(new URL("../workers/packingWorker.js", import.meta.url), { type: "module" });
+  const timeoutMs = packingTimeoutMs(payload);
 
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => {
       cleanup();
-      reject(new Error("本机计算超时，请减少货物数量或拆分批次计算。"));
-    }, 60000);
+      reject(new Error("本机计算仍未完成，请先减少箱型数量、降低货物总件数，或拆分批次计算。"));
+    }, timeoutMs);
 
     currentWorker.onmessage = (event) => {
       const { id, type, result, message } = event.data || {};
@@ -44,4 +45,11 @@ function cleanup() {
 
 function toWorkerPayload(payload) {
   return JSON.parse(JSON.stringify(payload));
+}
+
+function packingTimeoutMs(payload) {
+  const unitCount = (payload?.cargos || []).reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0);
+  if (unitCount >= 240) return 240000;
+  if (unitCount >= 120) return 180000;
+  return 90000;
 }
