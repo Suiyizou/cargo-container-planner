@@ -1,5 +1,6 @@
+import { requestJson } from "./apiClient";
+
 const configuredBase = import.meta.env.VITE_API_BASE_URL;
-const API_BASE = (configuredBase || defaultApiBase()).replace(/\/$/, "");
 const TOKEN_KEY = "cargo-planner-admin-token";
 const DEVICE_KEY = "cargo-planner-device-id";
 
@@ -67,21 +68,11 @@ async function request(path, options = {}) {
   const token = storedAdminToken();
   if (token) headers["X-Auth-Token"] = token;
 
-  const response = await fetch(`${API_BASE}${path}`, {
+  return requestJson(path, {
     method: options.method || "GET",
     headers,
-    body: options.body ? JSON.stringify(options.body) : undefined
-  });
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
-  if (!response.ok) {
-    throw new Error(data?.message || `API ${response.status}`);
-  }
-  return data;
-}
-
-function defaultApiBase() {
-  return "/api";
+    body: options.body
+  }, configuredBase);
 }
 
 function getDeviceId() {
