@@ -55,15 +55,6 @@
           </RouterLink>
         </nav>
 
-        <div class="side-toolbox">
-          <strong>常用工具</strong>
-          <button type="button" @click="openContainerModal">添加箱型</button>
-          <button type="button" @click="loadSample">套用示例</button>
-          <button type="button" @click="exportCsv">导出 CSV</button>
-          <label>导入 CSV<input type="file" accept=".csv,text/csv" @change="importCsv" /></label>
-          <button type="button" @click="resetContainers">恢复默认箱型</button>
-          <button class="danger ghost" type="button" @click="clearCargos">清空货物</button>
-        </div>
       </aside>
 
       <section class="workspace">
@@ -104,6 +95,17 @@
             <div class="planner-action-row">
               <button class="primary" type="button" @click="openCargoModal()">手动录入货物</button>
               <RouterLink class="planner-link-button" to="/planner/cargos">查看货物总览</RouterLink>
+            </div>
+            <div class="config-toolbox">
+              <strong>常用工具</strong>
+              <div class="config-tool-grid">
+                <button type="button" @click="openContainerModal">添加箱型</button>
+                <button type="button" @click="loadSample">套用示例</button>
+                <button type="button" @click="exportCsv">导出 CSV</button>
+                <label>导入 CSV<input type="file" accept=".csv,text/csv" @change="importCsv" /></label>
+                <button type="button" @click="resetContainers">恢复默认箱型</button>
+                <button class="danger ghost" type="button" @click="clearCargos">清空货物</button>
+              </div>
             </div>
           </article>
 

@@ -189,8 +189,7 @@ select {
   font-size: 18px;
 }
 
-.side-nav,
-.side-toolbox {
+.side-nav {
   display: grid;
   gap: 8px;
 }
@@ -199,9 +198,7 @@ select {
   display: none;
 }
 
-.side-nav a,
-.side-toolbox button,
-.side-toolbox label {
+.side-nav a {
   display: flex;
   align-items: center;
   min-height: 40px;
@@ -215,9 +212,7 @@ select {
   cursor: pointer;
 }
 
-.side-nav a:hover,
-.side-toolbox button:hover,
-.side-toolbox label:hover {
+.side-nav a:hover {
   background: #f1f7ff;
   border-color: #cfe0f3;
 }
@@ -252,19 +247,47 @@ select {
   box-shadow: none;
 }
 
-.side-toolbox {
-  margin-top: 6px;
+.config-toolbox {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
   padding-top: 14px;
   border-top: 1px solid #e1eaf5;
 }
 
-.side-toolbox strong {
-  padding: 0 12px 4px;
+.config-toolbox strong {
   color: #657a93;
   font-size: 13px;
 }
 
-.side-toolbox input {
+.config-tool-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.config-tool-grid button,
+.config-tool-grid label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid #c5d3e4;
+  border-radius: 6px;
+  background: #fff;
+  color: #174a7f;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.config-tool-grid button:hover,
+.config-tool-grid label:hover {
+  border-color: #2c78c4;
+  box-shadow: 0 4px 12px rgba(30, 93, 158, 0.12);
+}
+
+.config-tool-grid input {
   display: none;
 }
 
@@ -281,7 +304,6 @@ select {
 
 .sidebar-collapsed .sidebar-toggle span,
 .sidebar-collapsed .side-user-card,
-.sidebar-collapsed .side-toolbox,
 .sidebar-collapsed .side-subnav,
 .sidebar-collapsed .nav-full {
   display: none;
@@ -2317,7 +2339,8 @@ select {
 
   .excel-control-grid,
   .mapping-grid,
-  .suggestion-form-grid {
+  .suggestion-form-grid,
+  .config-tool-grid {
     grid-template-columns: 1fr;
   }
 }
