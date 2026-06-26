@@ -1,37 +1,45 @@
 # 货代装箱体积规划系统
 
-这是一个以 Windows 客户端打包为优先目标的装箱计算系统。
+这是一个面向货代装箱估算、箱型选择和可视化剖析的系统。当前版本仍然保留浏览器端 WebWorker 本地装箱计算，同时新增了 Spring Boot + MySQL 后端，用于公司员工账号、设备登录限制和总管理员后台。
 
-- UI：Vue 3 + Vite
-- 3D：Three.js
-- 计算：WebWorker 本机计算
+## 当前架构
+
+- 前端：Vue 3 + Vite
+- 3D 可视化：Three.js
+- 装箱计算：WebWorker 本地计算
 - 桌面打包：Electron
-- 存储：localStorage 本地保存
-- 服务器：只用于静态页面或安装包分发，不再需要 Java 后端、MySQL、Redis
+- 后端：Spring Boot 3 + JDBC
+- 数据库：MySQL 8
+- 部署：Docker Compose，Nginx 代理 `/api` 到后端
 
-## 为什么这样设计
-
-装箱计算属于 CPU 密集型任务。几十个 B 端用户同时使用时，如果都压到 2 核 2G 服务器上，体验会不稳定。
-
-现在的方案把计算迁移到用户本机：
-
-- 浏览器版用用户电脑的 WebWorker 计算。
-- 桌面版用同一套 Vue 页面和 WebWorker 计算。
-- 服务器只发页面或安装包，压力很小。
-- 不需要用户登录模块，也不需要公司服务器维护数据库。
-
-## 当前能力
+## 已有能力
 
 - 录入货物长、宽、高、数量、单重、摆放规则和颜色。
-- 按箱型本机计算，生成推荐箱型排序。
-- 支持 20GP、20HQ、40GP、40HQ、45HQ、冷藏柜等默认箱型，也支持添加自定义箱型。
-- 主视图使用 Three.js 展示当前货舱 3D 摆放结果，可拖动、缩放查看。
-- 图例可点击隐藏/显示某类货物，方便观察内部堆放。
-- 三视图使用 Canvas 展示俯视、正视、侧视，并标注箱体长宽高。
-- 当一个箱型需要多个货舱时，可切换第 1 箱、第 2 箱等视图，并带等待动画。
-- 提供 CSV 导入、导出、示例数据、清空货物和算法说明页面。
+- 按箱型本地计算，生成推荐箱型排序。
+- 使用 Three.js 展示当前货舱 3D 摆放结果，可拖动、缩放查看。
+- 支持剩余空间、质量重心偏载可视化和导出报告。
+- 提供 CSV 导入导出、Excel 样板说明、示例数据、清空货物和算法说明页面。
+- 新增管理后台：总管理员登录、员工账号管理、在线设备/IP 查看、设备踢下线、基础运行监控。
+- 同一账号默认限制最多 5 台在线设备。
 
-## 本地开发
+## 后端与数据库
+
+建表脚本：
+
+```text
+backend/sql/schema.sql
+```
+
+默认总管理员：
+
+```text
+账号：admin
+密码：Admin@123456
+```
+
+首次生产登录后请立即修改默认密码。浏览器 Web 端无法可靠读取真实 MAC 地址，因此当前版本记录的是设备指纹、IP、浏览器 UA，并预留 `mac_address` 字段给后续桌面客户端或内网 Agent 上报。
+
+## 本地前端开发
 
 ```bash
 cd frontend
@@ -45,7 +53,20 @@ npm run dev
 http://127.0.0.1:5177
 ```
 
-## 构建网页版本
+如果要在 Vite 开发环境访问管理后台，请先启动后端：
+
+```bash
+cd backend
+mvn spring-boot:run
+```
+
+默认后端地址：
+
+```text
+http://127.0.0.1:8080/api
+```
+
+## 构建前端
 
 ```bash
 cd frontend
@@ -58,14 +79,43 @@ npm run build
 frontend/dist/
 ```
 
-## 打包 Windows 客户端
+## 构建后端
+
+```bash
+cd backend
+mvn -DskipTests package
+```
+
+输出文件：
+
+```text
+backend/target/cargo-planner-backend-0.1.0.jar
+```
+
+## Docker 部署
+
+```bash
+docker compose up -d --build
+```
+
+默认端口：
+
+```text
+前端：http://服务器IP/
+后端：http://服务器IP:8080/
+MySQL：服务器IP:3306
+```
+
+可复制 `.env.example` 为 `.env` 后修改数据库密码、端口和设备登录上限。
+
+## Windows 客户端打包
 
 ```bash
 cd frontend
 npm run desktop:build
 ```
 
-如果 Electron 下载较慢，可以在 PowerShell 中使用镜像后再执行：
+如果 Electron 下载较慢，可以在 PowerShell 中设置镜像后再执行：
 
 ```powershell
 $env:ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/'
@@ -78,36 +128,3 @@ npm run desktop:build
 ```text
 frontend/release/
 ```
-
-也可以先本地预览桌面客户端：
-
-```bash
-npm run desktop:preview
-```
-
-## Docker 静态部署
-
-```bash
-docker compose up -d --build
-```
-
-部署后访问：
-
-```text
-http://服务器IP/
-```
-
-Docker 只运行 Nginx 静态前端容器。没有后端、MySQL、Redis。
-
-## 算法说明
-
-当前算法是启发式 3D bin packing：
-
-- 先将货物按数量展开成单件。
-- 大体积货物优先摆放。
-- 每件货物不能超出箱体，不能和已摆放货物相交。
-- 有堆叠时要求下方有足够支撑面积。
-- 普通货物允许旋转；保持朝上、托盘货默认不旋转；不可重压货物不会承载上层货物。
-- 多箱型分别试算，排序优先考虑箱数更少，其次考虑首箱利用率更高。
-
-它适合做货代报价、体积估算和箱型选择辅助，不等同于专业排柜软件的全局最优求解器。

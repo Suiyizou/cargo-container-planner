@@ -1,56 +1,57 @@
 # Deployment
 
-当前项目以客户端软件为主，服务器只承担静态页面或安装包分发职责。
+当前项目采用前后端分离部署：
 
-## Web 静态部署
+- `frontend`：Nginx 静态前端，代理 `/api` 到后端。
+- `backend`：Spring Boot 管理账号、设备登录、监控接口。
+- `mysql`：保存用户、设备、登录事件和管理员审计日志。
+
+## Docker 部署
 
 ```bash
 docker compose up -d --build
 ```
 
-只有 `frontend` 容器，监听 80 端口。没有 Java 后端、MySQL 或 Redis。
-
-访问：
+首次启动 MySQL 时会自动执行：
 
 ```text
-http://your-server-ip/
+backend/sql/schema.sql
 ```
 
-装箱计算在用户浏览器的 WebWorker 中完成，不消耗服务器 CPU。
+默认总管理员：
 
-## Windows 客户端打包
+```text
+账号：admin
+密码：Admin@123456
+```
 
-在 Windows 开发机执行：
+生产环境请先复制 `.env.example` 为 `.env`，修改数据库密码和端口后再启动。
+
+## 本地开发
+
+前端：
 
 ```bash
 cd frontend
 npm install
-npm run desktop:build
+npm run dev
 ```
 
-国内网络可先设置镜像：
-
-```powershell
-$env:ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/'
-$env:ELECTRON_BUILDER_BINARIES_MIRROR='https://npmmirror.com/mirrors/electron-builder-binaries/'
-npm run desktop:build
-```
-
-安装包输出目录：
-
-```text
-frontend/release/
-```
-
-预览桌面客户端：
+后端：
 
 ```bash
-npm run desktop:preview
+cd backend
+mvn spring-boot:run
+```
+
+MySQL 可以使用本机服务，也可以只启动 compose 里的数据库：
+
+```bash
+docker compose up -d mysql
 ```
 
 ## 运行模式
 
-- 网页版：Vue + WebWorker + Three.js。
-- 桌面版：Electron + 同一套 Vue + WebWorker + Three.js。
-- 数据：保存在本机浏览器/客户端 localStorage。
-- 服务器：不参与计算，不需要数据库。
+- 装箱计算仍在用户浏览器的 WebWorker 中完成，不消耗服务器 CPU。
+- 后端主要承载账号、登录设备限制、管理员后台和监控数据。
+- Web 端无法直接读取真实 MAC 地址；当前记录设备指纹、IP、UA，并预留 MAC 字段。
