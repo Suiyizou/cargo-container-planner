@@ -98,6 +98,28 @@ export function buildPreview(sheet, mapping, options = {}) {
   };
 }
 
+export function parseCargoText(text, options = {}) {
+  const lines = splitCargoText(text);
+  const validRows = [];
+  const invalidRows = [];
+
+  lines.forEach((line, index) => {
+    const parsed = parseCargoTextLine(line, index + 1, options);
+    if (parsed.errors.length) invalidRows.push(parsed);
+    else validRows.push(parsed);
+  });
+
+  const aggregated = aggregateCargos(validRows.map((row) => row.cargo));
+  return {
+    totalRows: lines.length,
+    validRows,
+    invalidRows,
+    aggregated,
+    importedQuantity: aggregated.reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0),
+    skippedRows: invalidRows.length
+  };
+}
+
 export function guessMapping(headers) {
   const normalized = headers.map((header) => normalizeHeader(header));
   const mapping = {};
@@ -114,6 +136,201 @@ export function guessMapping(headers) {
   }
   if (!mapping.name && mapping.id) mapping.name = mapping.id;
   return mapping;
+}
+
+function parseCargoTextLine(line, rowNumber, options = {}) {
+  const rawText = cleanCell(line);
+  const text = normalizeTextSymbols(rawText);
+  const dimension = extractTextDimensions(text, options.dimensionUnit || "auto");
+  const quantity = extractTextQuantity(text);
+  const weight = extractTextWeight(text, quantity.value, options.weightUnit || "auto");
+  const explicitModel = extractTextModel(text);
+  const nameModel = extractTextNameModel(text, [dimension, quantity, weight, explicitModel].filter(Boolean));
+  const type = normalizeType(text, text);
+  const notes = [];
+
+  if (dimension) notes.push(`识别尺寸：${dimension.values.join(" × ")} cm`);
+  if (quantity.raw) notes.push(`识别数量：${quantity.value} 件`);
+  if (weight.fromTotal) notes.push("已用总重量 / 数量换算单件重量");
+  if (!weight.raws.length) notes.push("未识别单件重量，暂按 0 kg 导入，请确认重心计算是否需要补重");
+  if (nameModel.model && !explicitModel) notes.push(`从名称尾部识别型号：${nameModel.model}`);
+  if (type !== "normal") notes.push(`识别堆叠规则：${type}`);
+
+  const cargo = parsedCargo({
+    name: nameModel.name,
+    model: explicitModel?.value || nameModel.model || "",
+    lengthCm: dimension?.values[0] || 0,
+    widthCm: dimension?.values[1] || 0,
+    heightCm: dimension?.values[2] || 0,
+    quantity: quantity.value || 0,
+    weightKg: weight.value ?? 0,
+    type,
+    color: "",
+    sku: "",
+    remark: notes.join("；")
+  });
+  const errors = validateCargo(cargo).filter((error) => !error.includes("重量"));
+  const confidence = textConfidence({ name: cargo.name, dimension, quantity, weight, errors });
+
+  return {
+    rowNumber,
+    raw: { text: rawText },
+    text: rawText,
+    cargo,
+    confidence,
+    errors,
+    notes,
+    suggestion: buildTextSuggestion(rawText, cargo, errors, rowNumber)
+  };
+}
+
+function splitCargoText(text) {
+  return cleanCell(text)
+    .replace(/\r/g, "\n")
+    .split(/\n|；|;/)
+    .map((line) => cleanCell(line))
+    .filter(Boolean);
+}
+
+function normalizeTextSymbols(value) {
+  return cleanCell(value)
+    .replace(/[＊Ｘｘ]/g, "*")
+    .replace(/[×X]/g, "*")
+    .replace(/[，、。]/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function extractTextDimensions(text, defaultUnit) {
+  const number = "(\\d+(?:\\.\\d+)?)";
+  const unit = "(mm|毫米|cm|厘米|m|米)?";
+  const sizePattern = new RegExp(`${number}\\s*${unit}\\s*[*]\\s*${number}\\s*${unit}\\s*[*]\\s*${number}\\s*${unit}`, "i");
+  const sizeMatch = text.match(sizePattern);
+  if (sizeMatch) {
+    const units = [sizeMatch[2], sizeMatch[4], sizeMatch[6]].filter(Boolean);
+    const finalUnit = normalizeDimensionUnit(units[units.length - 1] || defaultUnit || "cm");
+    return {
+      raw: sizeMatch[0],
+      index: sizeMatch.index ?? -1,
+      values: [sizeMatch[1], sizeMatch[3], sizeMatch[5]].map((value) => round2(convertDimension(Number(value), finalUnit)))
+    };
+  }
+
+  const namedPattern = new RegExp(`长(?:度)?\\s*[:：]?\\s*${number}\\s*${unit}\\s*宽(?:度)?\\s*[:：]?\\s*${number}\\s*${unit}\\s*高(?:度)?\\s*[:：]?\\s*${number}\\s*${unit}`, "i");
+  const namedMatch = text.match(namedPattern);
+  if (namedMatch) {
+    const units = [namedMatch[2], namedMatch[4], namedMatch[6]].filter(Boolean);
+    const finalUnit = normalizeDimensionUnit(units[units.length - 1] || defaultUnit || "cm");
+    return {
+      raw: namedMatch[0],
+      index: namedMatch.index ?? -1,
+      values: [namedMatch[1], namedMatch[3], namedMatch[5]].map((value) => round2(convertDimension(Number(value), finalUnit)))
+    };
+  }
+  return null;
+}
+
+function extractTextQuantity(text) {
+  const labeled = text.match(/(?:数量|件数|箱数|个数|qty|pcs)\s*[:：]?\s*(\d+)\s*(?:件|箱|个|pcs)?/i);
+  const loose = text.match(/(\d+)\s*(?:件|箱|个|pcs)/i);
+  const match = labeled || loose;
+  return {
+    raw: match?.[0] || "",
+    index: match?.index ?? -1,
+    value: match ? Math.max(1, Math.round(Number(match[1]))) : 1
+  };
+}
+
+function extractTextWeight(text, quantity, defaultUnit) {
+  const total = text.match(/(?:总重|总重量|总毛重|总净重|毛重合计|重量合计|合计重量)\s*[:：]?\s*(\d+(?:\.\d+)?)\s*(kg|公斤|千克|g|克|t|吨)/i);
+  if (total) {
+    const totalKg = convertWeight(Number(total[1]), normalizeWeightUnit(total[2] || defaultUnit || "kg"));
+    return {
+      raws: [total[0]],
+      index: total.index ?? -1,
+      value: quantity ? round2(totalKg / quantity) : round2(totalKg),
+      fromTotal: Boolean(quantity)
+    };
+  }
+
+  const labeled = text.match(/(?:单重|单件重量|每件重量|每件|重量|净重|毛重|重)\s*[:：]?\s*(\d+(?:\.\d+)?)\s*(kg|公斤|千克|g|克|t|吨)(?:\s*(?:\/|／)\s*(?:件|箱|pcs))?/i);
+  const perPiece = text.match(/(\d+(?:\.\d+)?)\s*(kg|公斤|千克|g|克|t|吨)\s*(?:\/|／)?\s*(?:件|箱|pcs|每件)/i);
+  const match = labeled || perPiece;
+  if (!match) return { raws: [], index: -1, value: 0, fromTotal: false };
+  return {
+    raws: [match[0]],
+    index: match.index ?? -1,
+    value: round2(convertWeight(Number(match[1]), normalizeWeightUnit(match[2] || defaultUnit || "kg"))),
+    fromTotal: false
+  };
+}
+
+function extractTextModel(text) {
+  const match = text.match(/(?:型号|规格|model)\s*[:：]?\s*([A-Za-z0-9#\-_/.一二三四五六七八九十]+)\b/i);
+  if (!match || /[*]/.test(match[1])) return null;
+  return { raw: match[0], index: match.index ?? -1, value: cleanCell(match[1]) };
+}
+
+function extractTextNameModel(text, parts) {
+  const indexes = parts.map((part) => part.index).filter((index) => index >= 0);
+  const firstIndex = indexes.length ? Math.min(...indexes) : -1;
+  let name = firstIndex > 0 ? text.slice(0, firstIndex) : text;
+  parts.forEach((part) => {
+    if (part.raw) name = name.replace(part.raw, " ");
+    if (Array.isArray(part.raws)) {
+      part.raws.forEach((raw) => {
+        name = name.replace(raw, " ");
+      });
+    }
+  });
+  name = name
+    .replace(/(?:名称|品名|货物|货名|产品)\s*[:：]/g, " ")
+    .replace(/\b(?:cm|mm|kg|pcs|model)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const inferred = name.match(/^(.+?)[\s\-_/]*(\d{2,6}[A-Za-z]?|[A-Za-z]\d{1,4}|#\d{1,6})$/);
+  if (inferred && /[\u4e00-\u9fa5A-Za-z]/.test(inferred[1])) {
+    return { name: cleanCell(inferred[1]), model: cleanCell(inferred[2].replace(/^#/, "")) };
+  }
+  return { name, model: "" };
+}
+
+function buildTextSuggestion(line, cargo, errors, rowNumber) {
+  const fallbackDimensions = parseDimensionText(line, "auto");
+  const suggested = {
+    name: cargo.name || inferNameFromRow({ text: line }) || `文本第 ${rowNumber} 行货物`,
+    model: cargo.model || "",
+    lengthCm: cargo.lengthCm || fallbackDimensions?.[0] || "",
+    widthCm: cargo.widthCm || fallbackDimensions?.[1] || "",
+    heightCm: cargo.heightCm || fallbackDimensions?.[2] || "",
+    quantity: cargo.quantity || 1,
+    weightKg: cargo.weightKg || 0,
+    type: cargo.type || normalizeType("", line),
+    color: "",
+    sku: "",
+    remark: cargo.remark || ""
+  };
+  const notes = [];
+  if (errors.some((error) => error.includes("名称"))) notes.push("名称未识别，建议从原始文本中截取货物名");
+  if (errors.some((error) => error.includes("长度") || error.includes("宽度") || error.includes("高度"))) notes.push("尺寸未识别，建议补充长宽高");
+  if (errors.some((error) => error.includes("数量"))) notes.push("数量未识别，建议确认件数");
+  return {
+    cargo: suggested,
+    notes,
+    errors: validateCargo(suggested).filter((error) => !error.includes("重量"))
+  };
+}
+
+function textConfidence({ name, dimension, quantity, weight, errors }) {
+  let score = 0;
+  if (name) score += 0.25;
+  if (dimension) score += 0.35;
+  if (quantity.raw) score += 0.2;
+  else score += 0.12;
+  if (weight.raws.length) score += 0.2;
+  else score += 0.08;
+  score -= errors.length * 0.18;
+  return Math.max(0, Math.min(100, Math.round(score * 100)));
 }
 
 function extractTable(rows) {
@@ -393,11 +610,25 @@ function unitFromHeader(header, selectedUnit) {
   return "cm";
 }
 
+function normalizeDimensionUnit(unit) {
+  const text = cleanCell(unit).toLowerCase();
+  if (/mm|毫米/.test(text)) return "mm";
+  if (/^m$|米/.test(text)) return "m";
+  return "cm";
+}
+
 function weightUnitFromHeader(header, selectedUnit) {
   if (selectedUnit && selectedUnit !== "auto") return selectedUnit;
   const text = cleanCell(header).toLowerCase();
   if (/吨|ton|t\b/.test(text)) return "t";
   if (/克|g\b/.test(text) && !/kg|公斤|千克/.test(text)) return "g";
+  return "kg";
+}
+
+function normalizeWeightUnit(unit) {
+  const text = cleanCell(unit).toLowerCase();
+  if (/吨|ton|^t$/.test(text)) return "t";
+  if (/克|^g$/.test(text) && !/kg|公斤|千克/.test(text)) return "g";
   return "kg";
 }
 

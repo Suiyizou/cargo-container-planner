@@ -69,19 +69,136 @@
       <div class="recognition-head">
         <div>
           <strong>路径二：智能识别</strong>
-          <p>预留给“复制一段货物信息后自动提取名称、型号、尺寸、数量、重量”的工作流。当前先搭入口，识别逻辑后续再接后端或 Agent。</p>
+          <p>直接粘贴聊天记录、报价明细或邮件里的货物描述，系统会本地提取名称、型号、尺寸、数量、重量和堆叠规则。</p>
         </div>
-        <button type="button" disabled>识别预览</button>
+        <div class="recognition-actions">
+          <button type="button" @click="fillRecognitionSample">套用示例</button>
+          <button type="button" @click="clearRecognition">清空</button>
+          <button class="primary" type="button" :disabled="!recognitionText.trim()" @click="runRecognition">识别预览</button>
+        </div>
       </div>
       <textarea
         v-model="recognitionText"
+        @input="recognitionPreview = null"
         rows="10"
-        placeholder="例如：纸箱B 60*40*35cm 30件 单重12kg；易碎品C 55×45×30cm 12件 不可重压"
+        placeholder="例如：
+蝶阀100 110*45*82cm 8件 单重180kg 木箱
+纸箱B 60*40*35cm 30件 单重12kg
+易碎品C 55×45×30cm 12件 单重18kg 不可重压"
       ></textarea>
-      <div class="recognition-placeholder">
-        <span>待接入</span>
-        <strong>文本解析、字段置信度、异常建议和一键导入</strong>
+
+      <div v-if="recognitionMessage" class="recognition-placeholder" :class="{ error: recognitionMessageType === 'error' }">
+        <span>{{ recognitionMessageType === "error" ? "需要处理" : "识别提示" }}</span>
+        <strong>{{ recognitionMessage }}</strong>
       </div>
+
+      <template v-if="recognitionPreview">
+        <div class="excel-summary-grid recognition-summary-grid">
+          <div>
+            <span>文本条目</span>
+            <strong>{{ recognitionPreview.totalRows }}</strong>
+          </div>
+          <div>
+            <span>有效条目</span>
+            <strong>{{ recognitionPreview.validRows.length }}</strong>
+          </div>
+          <div>
+            <span>异常条目</span>
+            <strong>{{ recognitionIssues.length }}</strong>
+          </div>
+          <div>
+            <span>聚合后货物</span>
+            <strong>{{ recognitionRows.length }}</strong>
+          </div>
+          <div>
+            <span>导入件数</span>
+            <strong>{{ recognitionQuantity }}</strong>
+          </div>
+        </div>
+
+        <div class="recognition-import-row">
+          <label>
+            <span>导入方式</span>
+            <select v-model="importMode">
+              <option value="replace">替换当前货物</option>
+              <option value="append">追加到当前货物</option>
+            </select>
+          </label>
+          <button class="primary" type="button" :disabled="!recognitionRows.length" @click="importRecognitionRows">
+            导入 {{ recognitionRows.length }} 类 / {{ recognitionQuantity }} 件货物
+          </button>
+        </div>
+
+        <div v-if="recognitionRows.length" class="template-table-wrap">
+          <table class="template-table sample">
+            <thead>
+              <tr>
+                <th>货物</th>
+                <th>型号</th>
+                <th>尺寸 cm</th>
+                <th>数量</th>
+                <th>单重 kg</th>
+                <th>类型</th>
+                <th>备注</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="cargo in recognitionRows.slice(0, 12)" :key="cargoKey(cargo)">
+                <td>{{ cargo.name }}</td>
+                <td>{{ cargo.model || "-" }}</td>
+                <td>{{ cargo.lengthCm }} × {{ cargo.widthCm }} × {{ cargo.heightCm }}</td>
+                <td>{{ cargo.quantity }}</td>
+                <td>{{ cargo.weightKg }}</td>
+                <td>{{ typeText(cargo.type) }}</td>
+                <td>{{ cargo.remark || "-" }}</td>
+              </tr>
+              <tr v-if="recognitionRows.length > 12">
+                <td colspan="7">还有 {{ recognitionRows.length - 12 }} 类识别结果未显示</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-if="recognitionPreview.validRows.length" class="template-table-wrap">
+          <table class="template-table">
+            <thead>
+              <tr>
+                <th>原文行</th>
+                <th>识别结果</th>
+                <th>置信度</th>
+                <th>提示</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in recognitionPreview.validRows.slice(0, 8)" :key="`valid-${row.rowNumber}`">
+                <td>{{ row.text }}</td>
+                <td>{{ suggestionCargoLabel(row.cargo) }} / {{ row.cargo.lengthCm }} × {{ row.cargo.widthCm }} × {{ row.cargo.heightCm }} cm</td>
+                <td><span class="confidence-pill" :class="{ warn: row.confidence < 75 }">{{ row.confidence }}%</span></td>
+                <td>{{ row.notes.join("；") || "-" }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-if="recognitionIssues.length" class="template-table-wrap">
+          <table class="template-table">
+            <thead>
+              <tr>
+                <th>原文行</th>
+                <th>问题</th>
+                <th>建议名称</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in recognitionIssues" :key="`issue-${row.rowNumber}`">
+                <td>{{ row.text }}</td>
+                <td>{{ row.errors.join("；") }}</td>
+                <td>{{ suggestionCargoLabel(row.suggestion?.cargo) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
     </div>
 
     <div v-else-if="excelMode === 'agent'" class="algorithm-note agent-workbench">
@@ -503,6 +620,7 @@ import {
   buildPreview,
   downloadTemplateWorkbook,
   importFields,
+  parseCargoText,
   readWorkbook,
   validateCargo
 } from "../services/excelImport";
@@ -523,6 +641,9 @@ const activeSheet = ref(null);
 const preview = ref(null);
 const excelMode = ref("manual");
 const recognitionText = ref("");
+const recognitionPreview = ref(null);
+const recognitionMessage = ref("");
+const recognitionMessageType = ref("ok");
 const manualCorrections = ref([]);
 const suggestionRow = ref(null);
 const suggestionErrors = ref([]);
@@ -570,6 +691,11 @@ const agentCleanedRows = computed(() => agentTask.value?.cleanedRows || []);
 const agentIssues = computed(() => agentTask.value?.issues || []);
 const agentImportQuantity = computed(() =>
   agentCleanedRows.value.reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0)
+);
+const recognitionRows = computed(() => recognitionPreview.value?.aggregated || []);
+const recognitionIssues = computed(() => recognitionPreview.value?.invalidRows || []);
+const recognitionQuantity = computed(() =>
+  recognitionRows.value.reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0)
 );
 const suggestionSummary = computed(() => {
   if (!suggestionRow.value) return "";
@@ -620,6 +746,52 @@ function refreshPreview() {
   preview.value = activeSheet.value ? buildPreview(activeSheet.value, mapping, options) : null;
   manualCorrections.value = [];
   closeSuggestion();
+}
+
+function runRecognition() {
+  recognitionPreview.value = parseCargoText(recognitionText.value, {
+    dimensionUnit: "auto",
+    weightUnit: "auto"
+  });
+  if (!recognitionPreview.value.totalRows) {
+    recognitionMessageType.value = "error";
+    recognitionMessage.value = "没有可识别的文本行，请先粘贴货物描述。";
+    return;
+  }
+  if (!recognitionRows.value.length) {
+    recognitionMessageType.value = "error";
+    recognitionMessage.value = "暂未识别出可导入货物，请补充货物名称、长宽高和数量。";
+    return;
+  }
+  recognitionMessageType.value = recognitionIssues.value.length ? "error" : "ok";
+  recognitionMessage.value = recognitionIssues.value.length
+    ? `识别出 ${recognitionRows.value.length} 类货物，还有 ${recognitionIssues.value.length} 条需要补充。`
+    : `识别完成：${recognitionRows.value.length} 类货物，${recognitionQuantity.value} 件。`;
+}
+
+function fillRecognitionSample() {
+  recognitionText.value = [
+    "蝶阀100 110*45*82cm 8件 单重180kg 木箱",
+    "蝶阀200 125*55*90cm 4件 总重960kg 木箱",
+    "纸箱B 60*40*35cm 30件 单重12kg",
+    "易碎品C 55×45×30cm 12件 单重18kg 不可重压",
+    "电子产品配件 型号K 长48.5cm 宽15cm 高11.7cm 数量1 单重1.2kg 朝上"
+  ].join("\n");
+  recognitionPreview.value = null;
+  recognitionMessage.value = "已填入示例文本，可以点击“识别预览”。";
+  recognitionMessageType.value = "ok";
+}
+
+function clearRecognition() {
+  recognitionText.value = "";
+  recognitionPreview.value = null;
+  recognitionMessage.value = "";
+}
+
+function importRecognitionRows() {
+  if (!recognitionRows.value.length) return;
+  const cargos = recognitionRows.value.map((cargo, index) => normalizeImportedCargo(cargo, index));
+  emit("import-cargos", { cargos, mode: importMode.value, skippedRows: recognitionIssues.value.length });
 }
 
 function importPreview() {

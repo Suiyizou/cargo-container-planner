@@ -1717,6 +1717,15 @@ select {
   align-items: flex-start;
 }
 
+.recognition-actions,
+.recognition-import-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
 .smart-recognition-card textarea {
   width: 100%;
   margin-top: 14px;
@@ -1741,9 +1750,55 @@ select {
   color: #40546b;
 }
 
+.recognition-placeholder.error {
+  border-color: #fecaca;
+  background: #fff1f2;
+}
+
 .recognition-placeholder span {
   color: #1f6fbe;
   font-weight: 800;
+}
+
+.recognition-placeholder.error span {
+  color: #be123c;
+}
+
+.recognition-summary-grid {
+  margin-bottom: 14px;
+}
+
+.recognition-import-row {
+  justify-content: space-between;
+  margin: 14px 0;
+  padding: 14px;
+  border: 1px solid #d7e1ee;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.recognition-import-row label {
+  display: grid;
+  gap: 6px;
+  min-width: 220px;
+  color: #40546b;
+}
+
+.confidence-pill {
+  display: inline-flex;
+  justify-content: center;
+  min-width: 58px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: #047857;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.confidence-pill.warn {
+  background: #fff6df;
+  color: #9a5b00;
 }
 
 .excel-manual-card {
