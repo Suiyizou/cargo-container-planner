@@ -130,7 +130,7 @@ function drawSummary(ctx, x, y, width, height, options, placements, layers) {
     ["首箱空间占用", `${formatNum(evaluation.firstBoxFillPercent)}%`],
     ["货物总体积", `${formatNum(evaluation.totalRawVolumeM3, 2)} m³`],
     ["货物总重量", `${formatNum((evaluation.totalWeightKg || 0) / 1000, 2)} t`],
-    ["当前货舱", `${placements.length} 件 / ${layers.length} 层`]
+    ["当前货舱", `${sumPlacementQuantity(placements)} 件 / ${layers.length} 层`]
   ];
   values.forEach((item, index) => {
     const cellWidth = width / values.length;
@@ -749,7 +749,7 @@ function drawFooter(ctx, y) {
   ctx.stroke();
   ctx.fillStyle = "#64748b";
   ctx.font = "400 14px Microsoft YaHei, Arial";
-  ctx.fillText("说明：分层按货物底面 z 坐标分组；A=长×宽底、B=宽×高底、C=长×高底；同一货物不同底面会以 #2A/#2B 拆分标注。", 48, y);
+  ctx.fillText("说明：分层按货物底面 z 坐标分组；A=长×宽底、B=宽×高底、C=长×高底；大批量同规格货物可能以组合块显示，件数按真实数量统计。", 48, y);
 }
 
 function buildCargoCatalog(cargos, placements) {
@@ -815,7 +815,7 @@ function countByCargo(items) {
       });
     }
     const current = map.get(key);
-    current.count += 1;
+    current.count += placementQuantity(item);
     current.nonStack = current.nonStack || Boolean(item.nonStack);
     current.bottomFaces.add(item.bottomFace || "长×宽");
     current.orientationDetails.add(orientationDetail(item));
@@ -833,12 +833,14 @@ function countByCargo(items) {
 
 function orientationDetail(item) {
   const faceCode = bottomFaceCode(item);
-  return [
+  const details = [
     `底面${faceCode}=${bottomFaceName(faceCode)}`,
     `X=${item.xAxis || "长"}${formatNum(item.xAxisBaseCm, 0)}cm`,
     `Y=${item.yAxis || "宽"}${formatNum(item.yAxisBaseCm, 0)}cm`,
     `高度Z=${item.zAxis || item.heightAxis || "高"}${formatNum(item.zAxisBaseCm, 0)}cm`
-  ].join(" / ");
+  ];
+  if (placementQuantity(item) > 1) details.push(`组合${placementQuantity(item)}件`);
+  return details.join(" / ");
 }
 
 function reportCargoLabel(item) {
@@ -861,6 +863,14 @@ function stackMethod(item) {
   if (item.nonStack) return "堆放方式：不可重压；可放在箱底或可承重货物顶面，本件不作为上层支撑。";
   if (Number(item.zCm || 0) <= 0.1) return "堆放方式：箱底铺放；可承重，可作为上层货物支撑面。";
   return "堆放方式：上层堆放；下方可承重重叠面积需达到 98.5%，本件可继续承重。";
+}
+
+function placementQuantity(item) {
+  return Math.max(1, Math.floor(Number(item?.groupQuantity || 1)));
+}
+
+function sumPlacementQuantity(placements) {
+  return placements.reduce((sum, item) => sum + placementQuantity(item), 0);
 }
 
 function wrapText(ctx, text, x, y, maxWidth, lineHeight, maxLines = 2) {

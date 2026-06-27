@@ -469,6 +469,50 @@ select {
   color: #132033;
 }
 
+.calculation-load-hint {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 12px;
+  align-items: center;
+  padding: 14px 16px;
+  border: 1px solid #b9d8f5;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #f5fbff 0%, #eef7ff 100%);
+  color: #174777;
+  box-shadow: 0 8px 22px rgba(20, 34, 52, 0.04);
+}
+
+.calculation-load-hint strong {
+  color: #0f4c81;
+  font-size: 16px;
+}
+
+.calculation-load-hint span {
+  color: #24415f;
+  font-weight: 700;
+}
+
+.calculation-load-hint em {
+  grid-column: 1 / -1;
+  color: #52657b;
+  font-style: normal;
+  line-height: 1.6;
+}
+
+.calculation-load-hint.medium {
+  border-color: #e8c36a;
+  background: #fff8e8;
+}
+
+.calculation-load-hint.heavy {
+  border-color: #f0a5a5;
+  background: #fff1f1;
+}
+
+.calculation-load-hint.compact {
+  margin-top: -2px;
+}
+
 .planner-config-grid {
   display: grid;
   grid-template-columns: minmax(420px, 0.9fr) minmax(360px, 1.1fr);

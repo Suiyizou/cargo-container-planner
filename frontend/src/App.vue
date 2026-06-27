@@ -88,6 +88,11 @@
           </div>
           <span class="status-pill" :class="{ warn: loading }">{{ apiStatus }}</span>
         </div>
+        <div v-if="showPackingWorkloadHint" class="calculation-load-hint" :class="packingWorkloadHint.level">
+          <strong>{{ packingWorkloadHint.title }}</strong>
+          <span>{{ packingWorkloadHint.detail }}</span>
+          <em>{{ packingWorkloadHint.advice }}</em>
+        </div>
 
         <div class="planner-config-grid">
           <article class="planner-card">
@@ -169,6 +174,11 @@
           <div><span>总件数</span><strong>{{ cargoTotalQuantity }}</strong></div>
           <div><span>总质量</span><strong>{{ fmt(cargoTotalWeightKg / 1000, 2) }} t</strong></div>
           <div><span>总体积</span><strong>{{ fmt(cargoTotalVolumeM3, 2) }} m³</strong></div>
+        </div>
+        <div v-if="showPackingWorkloadHint" class="calculation-load-hint compact" :class="packingWorkloadHint.level">
+          <strong>{{ packingWorkloadHint.title }}</strong>
+          <span>{{ packingWorkloadHint.detail }}</span>
+          <em>{{ packingWorkloadHint.advice }}</em>
         </div>
 
         <section class="panel cargo-overview-panel">
@@ -395,7 +405,7 @@ import ContainerScene from "./components/ContainerScene.vue";
 import ProjectionCanvas from "./components/ProjectionCanvas.vue";
 import { exportPackingReportsZip, exportPackingReport } from "./services/exportReport";
 import { assignCargoModels } from "./services/excelImport";
-import { calculatePacking } from "./services/packingClient";
+import { calculatePacking, estimatePackingWorkload } from "./services/packingClient";
 import { cloneDefaultContainers, mergeDefaultContainers } from "./services/localData";
 import { fetchAdminMe, logoutAdmin } from "./services/adminApi";
 import { clearSession, isSessionExpired, storedExpiresAt, storedToken, storedUser } from "./services/authSession";
@@ -506,6 +516,17 @@ const cargoTotalVolumeM3 = computed(() =>
   cargos.value.reduce((sum, cargo) =>
     sum + Number(cargo.lengthCm || 0) * Number(cargo.widthCm || 0) * Number(cargo.heightCm || 0) * Number(cargo.quantity || 0) / 1000000,
   0)
+);
+const packingWorkloadHint = computed(() => estimatePackingWorkload({
+  cargos: cargos.value,
+  containers: containers.value,
+  utilizationPercent: utilizationPercent.value,
+  globalGapCm: globalGapCm.value
+}));
+const showPackingWorkloadHint = computed(() =>
+  packingWorkloadHint.value.rawUnitCount >= 120
+  || packingWorkloadHint.value.typeCount >= 40
+  || packingWorkloadHint.value.seconds >= 20
 );
 
 onMounted(async () => {
@@ -665,8 +686,14 @@ function goPlannerStep(stepKey) {
 async function recalculate() {
   if (!cargos.value.length || !containers.value.length) return;
   const seq = ++calcSeq;
+  const workload = estimatePackingWorkload({
+    cargos: cargos.value,
+    containers: containers.value,
+    utilizationPercent: utilizationPercent.value,
+    globalGapCm: globalGapCm.value
+  });
   loading.value = true;
-  apiStatus.value = "正在计算";
+  apiStatus.value = workload.seconds >= 20 ? `预计 ${workload.durationLabel}` : "正在计算";
   try {
     const nextResult = await calculatePacking({
       cargos: cargos.value,

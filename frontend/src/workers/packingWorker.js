@@ -10,6 +10,9 @@ const EPS = 0.0001;
 const SUPPORT_RATIO = 0.985;
 const MAX_DETAILED_BOXES = 24;
 const LOCAL_SEARCH_PASSES = 5;
+const GROUPING_MIN_TOTAL_UNITS = 120;
+const GROUPING_MIN_CARGO_QUANTITY = 24;
+const GROUPING_MAX_BLOCK_QUANTITY = 16;
 
 const SEARCH_STRATEGIES = [
   { id: "laff-footprint", name: "LAFF 大底面积优先", unitOrder: "footprint", pointOrder: "low-wide", blueVertical: false },
@@ -34,23 +37,14 @@ if (workerScope?.addEventListener) {
 
 export function calculate(request = {}) {
   const globalGapCm = safeGlobalGapCm(request.globalGapCm);
-  const units = buildUnits(request.cargos || [], globalGapCm);
+  const cargos = request.cargos || [];
   const total = totals(request.cargos || []);
   const utilization = safeUtilizationPercent(request.utilizationPercent);
   const evaluations = [];
-  let reusableOneBox = null;
 
   for (const container of request.containers || []) {
-    const evaluation = reusableOneBox && canReuseOneBox(reusableOneBox, container, total)
-      ? evaluateContainerFromReusable(container, units, total, utilization, globalGapCm, reusableOneBox)
-      : evaluateContainer(container, units, total, utilization, globalGapCm);
-
-    if (canSeedReusableOneBox(evaluation)) {
-      reusableOneBox = {
-        container: evaluation.container,
-        firstBox: evaluation._sourceFirstBox
-      };
-    }
+    const units = buildUnits(cargos, globalGapCm, container, total);
+    const evaluation = evaluateContainer(container, units, total, utilization, globalGapCm);
     evaluations.push(evaluation);
   }
 
@@ -99,7 +93,10 @@ function buildEvaluation(container, units, total, utilizationPercent, globalGapC
     feasible: !multi.fatalOversize && boxes > 0,
     fatalOversize: multi.fatalOversize,
     boxes,
-    totalUnits: units.length,
+    totalUnits: total.totalQuantity,
+    solverUnits: units.length,
+    groupedBlockCount: units.filter((unit) => unit.groupQuantity > 1).length,
+    groupedPhysicalUnits: units.reduce((sum, unit) => sum + Math.max(0, unitQuantity(unit) - 1), 0),
     usableVolumeM3: round(usableVolume),
     totalRawVolumeM3: round(total.totalRawVolumeM3),
     totalWeightKg: round(total.totalWeightKg),
@@ -175,9 +172,9 @@ function packMultiple(container, allUnits) {
 
   let boxes = packedBoxes.length;
   if (remaining.length && packedBoxes.length) {
-    remainingUnitCountAfterDetailed = remaining.length;
-    const averagePlaced = Math.max(1, Math.round(packedBoxes.reduce((sum, box) => sum + box.placed.length, 0) / packedBoxes.length));
-    boxes += Math.ceil(remaining.length / averagePlaced);
+    remainingUnitCountAfterDetailed = sumUnitQuantity(remaining);
+    const averagePlaced = Math.max(1, Math.round(packedBoxes.reduce((sum, box) => sum + sumUnitQuantity(box.placed), 0) / packedBoxes.length));
+    boxes += Math.ceil(remainingUnitCountAfterDetailed / averagePlaced);
     estimated = true;
     remaining = [];
   }
@@ -193,53 +190,130 @@ function packMultiple(container, allUnits) {
   };
 }
 
-function buildUnits(cargos, globalGapCm) {
+function buildUnits(cargos, globalGapCm, container = null, total = null) {
   const units = [];
+  const totalQuantity = total?.totalQuantity ?? cargos.reduce((sum, cargo) => sum + Math.max(0, Math.floor(Number(cargo.quantity || 0))), 0);
+  const canGroup = Boolean(container) && totalQuantity >= GROUPING_MIN_TOTAL_UNITS;
   cargos.forEach((cargo, cargoIndex) => {
     const rule = TYPE_RULES[cargo.type] || TYPE_RULES.normal;
     const gap = globalGapCm + rule.extraGapCm;
     const cargoId = cargo.id || `cargo-${cargoIndex}`;
-    for (let i = 0; i < Number(cargo.quantity || 0); i += 1) {
-      const unit = {
-        unitKey: `${cargoId}-${i}`,
-        cargoId,
-        cargoIndex,
-        itemIndex: i,
-        name: cargoDisplayName(cargo),
-        baseName: cargo.name,
-        model: cargo.model || "",
-        color: cargo.color || COLORS[cargoIndex % COLORS.length],
-        type: cargo.type || "normal",
-        baseLengthCm: Number(cargo.lengthCm),
-        baseWidthCm: Number(cargo.widthCm),
-        baseHeightCm: Number(cargo.heightCm),
-        lengthCm: Number(cargo.lengthCm) + gap,
-        widthCm: Number(cargo.widthCm) + gap,
-        heightCm: Number(cargo.heightCm) + rule.extraGapCm,
-        x: 0,
-        y: 0,
-        z: 0,
-        weightKg: Number(cargo.weightKg || 0),
-        rotatable: rule.rotatable,
-        nonStack: rule.nonStack,
-        extraGapCm: rule.extraGapCm,
-        globalGapCm,
-        verticalGapCm: rule.extraGapCm,
-        gapCm: gap,
-        volumeM3: Number(cargo.lengthCm) * Number(cargo.widthCm) * Number(cargo.heightCm) / 1_000_000
-      };
-      unit.orientations = generateOrientations(unit);
-      units.push(unit);
+    const quantity = Math.max(0, Math.floor(Number(cargo.quantity || 0)));
+    if (canGroup && quantity >= GROUPING_MIN_CARGO_QUANTITY) {
+      units.push(...buildGroupedCargoUnits(cargo, cargoIndex, cargoId, rule, gap, globalGapCm, container, quantity));
+      return;
+    }
+
+    for (let i = 0; i < quantity; i += 1) {
+      units.push(makeCargoUnit(cargo, cargoIndex, cargoId, i, 1, rule, gap, globalGapCm));
     }
   });
   return orderUnits(units, "support");
+}
+
+function buildGroupedCargoUnits(cargo, cargoIndex, cargoId, rule, gap, globalGapCm, container, quantity) {
+  const units = [];
+  let remaining = quantity;
+  let serial = 0;
+  while (remaining > 0) {
+    const layout = remaining > 1
+      ? bestGroupLayout(cargo, rule, gap, container, Math.min(GROUPING_MAX_BLOCK_QUANTITY, remaining))
+      : null;
+    if (layout?.count > 1) {
+      units.push(makeCargoUnit(cargo, cargoIndex, cargoId, serial, layout.count, rule, gap, globalGapCm, layout));
+      remaining -= layout.count;
+    } else {
+      units.push(makeCargoUnit(cargo, cargoIndex, cargoId, serial, 1, rule, gap, globalGapCm));
+      remaining -= 1;
+    }
+    serial += 1;
+  }
+  return units;
+}
+
+function bestGroupLayout(cargo, rule, gap, container, maxCount) {
+  const itemLength = Number(cargo.lengthCm) + gap;
+  const itemWidth = Number(cargo.widthCm) + gap;
+  const itemHeight = Number(cargo.heightCm) + rule.extraGapCm;
+  if (itemHeight > container.heightCm + EPS) return null;
+
+  let best = null;
+  for (let count = maxCount; count >= 2; count -= 1) {
+    for (let rows = 1; rows <= count; rows += 1) {
+      if (count % rows !== 0) continue;
+      const cols = count / rows;
+      const lengthCm = itemLength * cols;
+      const widthCm = itemWidth * rows;
+      if (!flatBlockFits(container, lengthCm, widthCm, itemHeight, rule.rotatable)) continue;
+      const score = Math.abs(lengthCm - widthCm) + Math.max(lengthCm, widthCm) * 0.02;
+      if (!best || count > best.count || (count === best.count && score < best.score)) {
+        best = { count, cols, rows, score };
+      }
+    }
+    if (best?.count === count) break;
+  }
+  return best;
+}
+
+function flatBlockFits(container, lengthCm, widthCm, heightCm, rotatable) {
+  const fits = lengthCm <= container.lengthCm + EPS && widthCm <= container.widthCm + EPS && heightCm <= container.heightCm + EPS;
+  const rotatedFits = rotatable && widthCm <= container.lengthCm + EPS && lengthCm <= container.widthCm + EPS && heightCm <= container.heightCm + EPS;
+  return fits || rotatedFits;
+}
+
+function makeCargoUnit(cargo, cargoIndex, cargoId, itemIndex, groupQuantity, rule, gap, globalGapCm, layout = null) {
+  const cols = layout?.cols || 1;
+  const rows = layout?.rows || 1;
+  const baseLengthCm = Number(cargo.lengthCm) * cols;
+  const baseWidthCm = Number(cargo.widthCm) * rows;
+  const baseHeightCm = Number(cargo.heightCm);
+  const unit = {
+    unitKey: groupQuantity > 1 ? `${cargoId}-g${itemIndex}-x${groupQuantity}` : `${cargoId}-${itemIndex}`,
+    cargoId,
+    cargoIndex,
+    itemIndex,
+    name: cargoDisplayName(cargo),
+    baseName: cargo.name,
+    model: cargo.model || "",
+    color: cargo.color || COLORS[cargoIndex % COLORS.length],
+    type: cargo.type || "normal",
+    baseLengthCm,
+    baseWidthCm,
+    baseHeightCm,
+    lengthCm: (Number(cargo.lengthCm) + gap) * cols,
+    widthCm: (Number(cargo.widthCm) + gap) * rows,
+    heightCm: Number(cargo.heightCm) + rule.extraGapCm,
+    x: 0,
+    y: 0,
+    z: 0,
+    weightKg: Number(cargo.weightKg || 0) * groupQuantity,
+    rotatable: rule.rotatable,
+    nonStack: rule.nonStack,
+    extraGapCm: rule.extraGapCm,
+    globalGapCm,
+    verticalGapCm: rule.extraGapCm,
+    gapCm: gap,
+    groupQuantity,
+    groupCols: cols,
+    groupRows: rows,
+    packedLengthCm: (Number(cargo.lengthCm) + gap) * cols,
+    packedWidthCm: (Number(cargo.widthCm) + gap) * rows,
+    packedHeightCm: Number(cargo.heightCm) + rule.extraGapCm,
+    volumeM3: Number(cargo.lengthCm) * Number(cargo.widthCm) * Number(cargo.heightCm) * groupQuantity / 1_000_000
+  };
+  unit.orientations = generateOrientations(unit);
+  return unit;
 }
 
 function generateOrientations(unit, options = {}) {
   const base = [
     { lengthCm: unit.lengthCm, widthCm: unit.widthCm, heightCm: unit.heightCm, lengthAxis: "长", widthAxis: "宽", heightAxis: "高" }
   ];
-  if (unit.rotatable) {
+  if (unit.groupQuantity > 1 && unit.rotatable) {
+    base.push(
+      { lengthCm: unit.widthCm, widthCm: unit.lengthCm, heightCm: unit.heightCm, lengthAxis: "宽", widthAxis: "长", heightAxis: "高" }
+    );
+  } else if (unit.rotatable) {
     base.push(
       { lengthCm: unit.widthCm, widthCm: unit.lengthCm, heightCm: unit.heightCm, lengthAxis: "宽", widthAxis: "长", heightAxis: "高" },
       { lengthCm: unit.lengthCm, widthCm: unit.heightCm, heightCm: unit.widthCm, lengthAxis: "长", widthAxis: "高", heightAxis: "宽" },
@@ -498,8 +572,10 @@ function makePackedBox(placed, unplaced, strategy, stats) {
     strategyId: strategy.id,
     strategyName: strategy.name,
     strategySummary: {
-      placedCount: placed.length,
-      unplacedCount: unplaced.length,
+      placedCount: sumUnitQuantity(placed),
+      unplacedCount: sumUnitQuantity(unplaced),
+      solverPlacedCount: placed.length,
+      solverUnplacedCount: unplaced.length,
       occupiedVolumeM3: round(sumOccupiedVolumeM3(placed)),
       maxTopCm: round(maxTop(placed)),
       refillPlacedCount: Number(stats.repairedCount || 0),
@@ -543,7 +619,9 @@ function orderUnits(units, strategyId) {
 
 function comparePackAttempt(container) {
   return (a, b) => {
-    if (a.placed.length !== b.placed.length) return b.placed.length - a.placed.length;
+    const aPlacedCount = sumUnitQuantity(a.placed);
+    const bPlacedCount = sumUnitQuantity(b.placed);
+    if (aPlacedCount !== bPlacedCount) return bPlacedCount - aPlacedCount;
     const occupiedDiff = sumOccupiedVolumeM3(b.placed) - sumOccupiedVolumeM3(a.placed);
     if (Math.abs(occupiedDiff) > EPS) return occupiedDiff;
     const supportDiff = supportSurfaceScore(b.placed, container) - supportSurfaceScore(a.placed, container);
@@ -591,9 +669,9 @@ function applyPlacement(unit, placement) {
 
 function stripPlacement(unit) {
   const copy = { ...unit, x: 0, y: 0, z: 0 };
-  copy.lengthCm = Number(copy.baseLengthCm) + Number(copy.gapCm || 0);
-  copy.widthCm = Number(copy.baseWidthCm) + Number(copy.gapCm || 0);
-  copy.heightCm = Number(copy.baseHeightCm) + Number(copy.verticalGapCm || 0);
+  copy.lengthCm = Number(copy.packedLengthCm || (Number(copy.baseLengthCm) + Number(copy.gapCm || 0)));
+  copy.widthCm = Number(copy.packedWidthCm || (Number(copy.baseWidthCm) + Number(copy.gapCm || 0)));
+  copy.heightCm = Number(copy.packedHeightCm || (Number(copy.baseHeightCm) + Number(copy.verticalGapCm || 0)));
   copy.lengthAxis = "长";
   copy.widthAxis = "宽";
   copy.heightAxis = "高";
@@ -710,10 +788,11 @@ function maxTop(units) {
 
 function totals(cargos) {
   return cargos.reduce((acc, cargo) => {
+    acc.totalQuantity += Math.max(0, Math.floor(Number(cargo.quantity || 0)));
     acc.totalRawVolumeM3 += Number(cargo.lengthCm) * Number(cargo.widthCm) * Number(cargo.heightCm) * Number(cargo.quantity || 0) / 1_000_000;
     acc.totalWeightKg += Number(cargo.weightKg || 0) * Number(cargo.quantity || 0);
     return acc;
-  }, { totalRawVolumeM3: 0, totalWeightKg: 0 });
+  }, { totalQuantity: 0, totalRawVolumeM3: 0, totalWeightKg: 0 });
 }
 
 function cargoDisplayName(cargo) {
@@ -738,7 +817,7 @@ function buildTrace(container, units, total, multi, metrics) {
     solver: "LAFF + Extreme Point + Local Search",
     pipeline: [
       "主线程把货物、箱型、计划可用率、货物间隙复制给 Web Worker",
-      "Worker 将每类货物按数量展开为单件，保留前端展示需要的 DTO 字段",
+      "Worker 对大批量同规格货物先按当前箱型组合成若干块，少量和余数仍保留单件 DTO 字段",
       "每个箱型独立运行多轮 LAFF 搜索，分别尝试大底面积、高度、承重优先、不可重压最后和蓝色/小件竖放策略",
       "每个 LAFF 层内使用 Extreme Point 候选点回填底部、顶部和侧边空隙",
       "候选落位必须满足边界、不相交、底面支撑和不可重压货物不承载上层货物",
@@ -752,7 +831,10 @@ function buildTrace(container, units, total, multi, metrics) {
     parameters: {
       utilizationPercent: metrics.utilizationPercent,
       globalGapCm: metrics.globalGapCm,
-      unitCount: units.length,
+      physicalUnitCount: total.totalQuantity,
+      solverUnitCount: units.length,
+      groupedBlockCount: units.filter((unit) => unit.groupQuantity > 1).length,
+      groupedPhysicalUnits: units.reduce((sum, unit) => sum + Math.max(0, unitQuantity(unit) - 1), 0),
       cargoTypeCounts: countBy(units, "type")
     },
     formulas: [
@@ -781,8 +863,10 @@ function buildTrace(container, units, total, multi, metrics) {
       remainingUnitCountAfterDetailed: multi.remainingUnitCountAfterDetailed || 0
     },
     firstBox: {
-      placedCount: firstBox.placed.length,
-      unplacedCount: firstBox.unplaced.length,
+      placedCount: sumUnitQuantity(firstBox.placed),
+      unplacedCount: sumUnitQuantity(firstBox.unplaced),
+      solverPlacedCount: firstBox.placed.length,
+      solverUnplacedCount: firstBox.unplaced.length,
       maxTopCm: round(maxTop(firstBox.placed)),
       strategyId: firstBox.strategyId || "",
       strategyName: firstBox.strategyName || ""
@@ -790,8 +874,10 @@ function buildTrace(container, units, total, multi, metrics) {
     boxStrategies: multi.packedBoxes.map((box, index) => ({
       boxIndex: index + 1,
       strategyName: box.strategyName || "",
-      placedCount: box.placed.length,
-      unplacedCount: box.unplaced.length,
+      placedCount: sumUnitQuantity(box.placed),
+      unplacedCount: sumUnitQuantity(box.unplaced),
+      solverPlacedCount: box.placed.length,
+      solverUnplacedCount: box.unplaced.length,
       occupiedVolumeM3: round(sumOccupiedVolumeM3(box.placed)),
       maxTopCm: round(maxTop(box.placed))
     }))
@@ -830,6 +916,9 @@ function toPlacementDto(unit) {
     yCm: round(unit.y),
     zCm: round(unit.z),
     weightKg: round(unit.weightKg),
+    groupQuantity: unitQuantity(unit),
+    groupCols: Number(unit.groupCols || 1),
+    groupRows: Number(unit.groupRows || 1),
     nonStack: unit.nonStack
   };
 }
@@ -868,6 +957,14 @@ function countBy(items, key) {
     acc[value] = (acc[value] || 0) + 1;
     return acc;
   }, {});
+}
+
+function unitQuantity(unit) {
+  return Math.max(1, Math.floor(Number(unit?.groupQuantity || 1)));
+}
+
+function sumUnitQuantity(units) {
+  return units.reduce((sum, unit) => sum + unitQuantity(unit), 0);
 }
 
 function round(value) {

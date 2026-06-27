@@ -71,6 +71,7 @@
     <div v-if="tooltip.visible" class="scene-tooltip" :style="{ left: `${tooltip.x}px`, top: `${tooltip.y}px` }">
       <strong>{{ tooltip.item.name }}</strong>
       <span>{{ tooltip.item.lengthCm }} × {{ tooltip.item.widthCm }} × {{ tooltip.item.heightCm }} cm</span>
+      <span v-if="tooltip.item.groupQuantity > 1">组合块 {{ tooltip.item.groupQuantity }} 件</span>
       <span>{{ tooltip.item.bottomFaceDetail || "X向=长 / Y向=宽" }}</span>
       <span>高度 Z向={{ tooltip.item.zAxis || tooltip.item.heightAxis || "高" }}{{ tooltip.item.zAxisBaseCm ? `${tooltip.item.zAxisBaseCm}cm` : "" }}</span>
       <span>位置 X{{ tooltip.item.xCm }} / Y{{ tooltip.item.yCm }} / Z{{ tooltip.item.zCm }} cm</span>
