@@ -51,18 +51,6 @@
             <span class="nav-full">装箱计算</span>
             <span class="nav-short">装箱</span>
           </RouterLink>
-          <div v-if="activePage === 'planner'" class="side-subnav">
-            <button
-              v-for="step in plannerWorkflowSteps"
-              :key="step.key"
-              :class="{ active: plannerMode === step.key }"
-              type="button"
-              :disabled="step.disabled"
-              @click="goPlannerStep(step.key)"
-            >
-              {{ step.no }} {{ step.label }}
-            </button>
-          </div>
           <RouterLink to="/smart-import" :class="{ active: activePage === 'smart-import' }">
             <span class="nav-full">智能导入</span>
             <span class="nav-short">导入</span>
@@ -92,21 +80,6 @@
       @save-settings="applyUserSettings"
     />
     <main v-else-if="activePage === 'planner'" :key="`planner-${plannerMode}`" class="planner-page">
-      <section class="planner-flow">
-        <button
-          v-for="step in plannerWorkflowSteps"
-          :key="step.key"
-          :class="{ active: plannerMode === step.key, done: step.done }"
-          type="button"
-          :disabled="step.disabled"
-          @click="goPlannerStep(step.key)"
-        >
-          <span>{{ step.no }}</span>
-          <b>{{ step.label }}</b>
-          <small>{{ step.description }}</small>
-        </button>
-      </section>
-
       <section v-if="plannerMode === 'config'" class="planner-section">
         <div class="planner-page-head">
           <div>
@@ -132,7 +105,6 @@
             </label>
             <div class="planner-action-row">
               <button class="primary" type="button" @click="openCargoModal()">手动录入货物</button>
-              <button type="button" @click="goPlannerStep('cargos')">下一步：货物总览</button>
             </div>
             <div class="config-toolbox">
               <strong>常用工具</strong>
@@ -175,6 +147,9 @@
             </div>
           </article>
         </div>
+        <div class="workflow-footer">
+          <button class="primary" type="button" @click="goPlannerStep('cargos')">下一步</button>
+        </div>
       </section>
 
       <section v-else-if="plannerMode === 'cargos'" class="planner-section">
@@ -201,10 +176,6 @@
             <div>
               <p>Current Cargo</p>
               <h2>当前货物列表</h2>
-            </div>
-            <div class="section-actions">
-              <button type="button" @click="goPlannerStep('config')">上一步：计算配置</button>
-              <button class="primary" type="button" :disabled="!cargos.length" @click="goPlannerStep('results')">下一步：计算方案</button>
             </div>
           </div>
           <div v-if="cargos.length" class="cargo-overview-table-wrap">
@@ -247,6 +218,10 @@
           </div>
           <p v-else class="empty">还没有录入货物，可以先手动新增，或去智能导入页面导入表格。</p>
         </section>
+        <div class="workflow-footer">
+          <button type="button" @click="goPlannerStep('config')">上一步</button>
+          <button class="primary" type="button" :disabled="!cargos.length" @click="goPlannerStep('results')">下一步</button>
+        </div>
       </section>
 
       <section v-else class="planner-section">
@@ -258,8 +233,6 @@
             </div>
             <div class="view-actions">
               <span class="status-pill" :class="{ warn: loading }">{{ apiStatus }}</span>
-              <button type="button" @click="goPlannerStep('cargos')">返回货物总览</button>
-              <button type="button" @click="recalculate">重新计算</button>
             </div>
           </div>
           <div class="box-switch" v-if="selectedEvaluation?.packedBoxes?.length > 1">
@@ -301,9 +274,6 @@
             <div class="view-actions">
               <label><input v-model="showRemaining" type="checkbox" /> 显示剩余空间</label>
               <label><input v-model="showMassBalance" type="checkbox" /> 显示重心偏载</label>
-              <button type="button" :disabled="exportingReport || loading || !selectedPlacements.length" @click="exportCurrentReport('png')">导出图片</button>
-              <button type="button" :disabled="exportingReport || loading || !selectedPlacements.length" @click="exportCurrentReport('pdf')">导出 PDF</button>
-              <button type="button" :disabled="exportingReport || loading || !selectedEvaluation?.packedBoxes?.length" @click="exportAllReportsZip">{{ exportZipLabel }}</button>
             </div>
           </div>
           <div class="scene-wrap">
@@ -326,6 +296,11 @@
           <ProjectionCanvas title="正视图：长 × 高" note="看长度方向堆叠" mode="front" :container="selectedContainer" :placements="selectedPlacements" />
           <ProjectionCanvas title="侧视图：宽 × 高" note="看宽度方向堆叠" mode="side" :container="selectedContainer" :placements="selectedPlacements" />
         </section>
+        <div class="workflow-footer export-footer">
+          <button type="button" :disabled="exportingReport || loading || !selectedPlacements.length" @click="exportCurrentReport('png')">导出报告图片</button>
+          <button type="button" :disabled="exportingReport || loading || !selectedPlacements.length" @click="exportCurrentReport('pdf')">导出 PDF</button>
+          <button class="primary" type="button" :disabled="exportingReport || loading || !selectedEvaluation?.packedBoxes?.length" @click="exportAllReportsZip">{{ exportZipLabel }}</button>
+        </div>
       </section>
     </main>
 
@@ -532,32 +507,6 @@ const cargoTotalVolumeM3 = computed(() =>
     sum + Number(cargo.lengthCm || 0) * Number(cargo.widthCm || 0) * Number(cargo.heightCm || 0) * Number(cargo.quantity || 0) / 1000000,
   0)
 );
-const plannerWorkflowSteps = computed(() => [
-  {
-    key: "config",
-    no: "01",
-    label: "确认配置",
-    description: `${utilizationPercent.value}% 可用率 / ${globalGapCm.value}cm 间隙`,
-    done: cargos.value.length > 0,
-    disabled: false
-  },
-  {
-    key: "cargos",
-    no: "02",
-    label: "货物总览",
-    description: `${cargoTypeCount.value} 类 / ${cargoTotalQuantity.value} 件`,
-    done: cargos.value.length > 0,
-    disabled: false
-  },
-  {
-    key: "results",
-    no: "03",
-    label: "计算方案",
-    description: selectedEvaluation.value ? `${selectedEvaluation.value.container.name} / ${selectedEvaluation.value.boxes || 0} 箱` : "可视化与导出",
-    done: Boolean(selectedEvaluation.value?.packedBoxes?.length),
-    disabled: !cargos.value.length
-  }
-]);
 
 onMounted(async () => {
   window.addEventListener("auth-expired", handleAuthExpired);

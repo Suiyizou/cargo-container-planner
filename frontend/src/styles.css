@@ -361,39 +361,6 @@ select {
   box-shadow: 0 10px 20px rgba(31, 111, 190, 0.16);
 }
 
-.side-subnav {
-  display: grid;
-  gap: 6px;
-  margin: -2px 0 4px 12px;
-  padding-left: 10px;
-  border-left: 2px solid #d9e6f5;
-}
-
-.side-subnav a,
-.side-subnav button {
-  min-height: 34px;
-  padding: 6px 10px;
-  color: #51677f;
-  font-size: 14px;
-  font-weight: 700;
-  text-align: left;
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
-}
-
-.side-subnav a.active,
-.side-subnav button.active {
-  background: #eaf4ff;
-  border-color: #9dc2eb;
-  color: #174777;
-  box-shadow: none;
-}
-
-.side-subnav button:disabled {
-  opacity: 0.42;
-}
-
 .config-toolbox {
   display: grid;
   gap: 10px;
@@ -451,7 +418,6 @@ select {
 
 .sidebar-collapsed .sidebar-toggle span,
 .sidebar-collapsed .side-user-card,
-.sidebar-collapsed .side-subnav,
 .sidebar-collapsed .nav-full {
   display: none;
 }
@@ -470,61 +436,6 @@ select {
   display: grid;
   gap: 14px;
   padding: 14px;
-}
-
-.planner-flow {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.planner-flow button {
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
-  gap: 2px 12px;
-  min-height: 82px;
-  padding: 14px;
-  text-align: left;
-  background: #fff;
-  border-color: #d3deea;
-  box-shadow: 0 8px 22px rgba(20, 34, 52, 0.04);
-}
-
-.planner-flow button span {
-  grid-row: span 2;
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 8px;
-  background: #eef6ff;
-  color: #1f6fbe;
-  font-weight: 900;
-}
-
-.planner-flow button b {
-  color: #132033;
-  font-size: 18px;
-}
-
-.planner-flow button small {
-  color: #657a93;
-}
-
-.planner-flow button.active {
-  border-color: #1f6fbe;
-  background: #eef6ff;
-  box-shadow: 0 12px 28px rgba(31, 111, 190, 0.12);
-}
-
-.planner-flow button.active span,
-.planner-flow button.done span {
-  background: #1f6fbe;
-  color: #fff;
-}
-
-.planner-flow button:disabled {
-  background: #f7f9fc;
 }
 
 .planner-section {
@@ -600,6 +511,25 @@ select {
   gap: 10px;
   align-items: center;
   justify-content: flex-end;
+}
+
+.workflow-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 0 0;
+  background: linear-gradient(180deg, rgba(244, 247, 251, 0), #f4f7fb 34%);
+}
+
+.workflow-footer button {
+  min-width: 116px;
+}
+
+.export-footer button {
+  min-width: 140px;
 }
 
 .template-save-row {
