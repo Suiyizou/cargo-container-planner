@@ -15,10 +15,6 @@
           智能识别
           <span>粘贴货物描述，提取标准规格</span>
         </button>
-        <button type="button" :class="{ active: excelMode === 'agent' }" @click="switchExcelMode('agent')">
-          Agent 清洗
-          <span>后端任务、清洗 JSON/Excel</span>
-        </button>
         <button type="button" :class="{ active: excelMode === 'reference' }" @click="switchExcelMode('reference')">
           字段样板
           <span>标准字段、规则和示例</span>
@@ -69,14 +65,13 @@
       <div class="recognition-head">
         <div>
           <strong>路径二：智能识别</strong>
-          <p>直接粘贴聊天记录、报价明细或邮件里的货物描述；可先本地快速预览，也可以交给后端 Agent 工作流提取标准规格。</p>
+          <p>直接粘贴聊天记录、报价明细或邮件里的货物描述；系统会交给后端智能识别流程提取标准规格并返回可导入清单。</p>
         </div>
         <div class="recognition-actions">
           <button type="button" @click="fillRecognitionSample">套用示例</button>
           <button type="button" @click="clearRecognition">清空</button>
-          <button class="primary" type="button" :disabled="!recognitionText.trim()" @click="runRecognition">识别预览</button>
-          <button class="primary secondary" type="button" :disabled="!recognitionText.trim() || recognitionAgentBusy" @click="submitTextRecognitionTask">
-            {{ recognitionAgentBusy ? "Agent 识别中..." : "交给 Agent 识别" }}
+          <button class="primary" type="button" :disabled="!recognitionText.trim() || recognitionAgentBusy" @click="submitTextRecognitionTask">
+            {{ recognitionAgentBusy ? "智能识别中..." : "智能识别" }}
           </button>
         </div>
       </div>
@@ -122,7 +117,7 @@
         <div v-if="recognitionAgentTask" class="agent-status-row text-agent-status">
           <span>{{ recognitionAgentTask.taskNo }} · {{ recognitionAgentTask.agentNotes }}</span>
           <button type="button" :disabled="!recognitionAgentTask.id" @click="downloadRecognitionAgentResult">
-            下载清洗后 Excel
+            下载识别结果 Excel
           </button>
         </div>
 
@@ -169,27 +164,6 @@
           </table>
         </div>
 
-        <div v-if="recognitionValidRows.length" class="template-table-wrap">
-          <table class="template-table">
-            <thead>
-              <tr>
-                <th>原文行</th>
-                <th>识别结果</th>
-                <th>置信度</th>
-                <th>提示</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in recognitionValidRows.slice(0, 8)" :key="`valid-${row.rowNumber}`">
-                <td>{{ row.text }}</td>
-                <td>{{ suggestionCargoLabel(row.cargo) }} / {{ row.cargo.lengthCm }} × {{ row.cargo.widthCm }} × {{ row.cargo.heightCm }} cm</td>
-                <td><span class="confidence-pill" :class="{ warn: row.confidence < 75 }">{{ row.confidence }}%</span></td>
-                <td>{{ row.notes?.join("；") || "-" }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
         <div v-if="recognitionIssues.length" class="template-table-wrap">
           <table class="template-table">
             <thead>
@@ -211,148 +185,6 @@
       </template>
     </div>
 
-    <div v-else-if="excelMode === 'agent'" class="algorithm-note agent-workbench">
-      <div class="agent-workbench-header">
-        <div>
-          <strong>路径三：Agent 清洗工作台</strong>
-          <p>
-            上传非标准表格后先建立清洗任务，后端解析并保存任务结果；当前是规则清洗底座，后续可替换为真实 Agent 异步回填。
-          </p>
-        </div>
-        <div class="excel-import-actions">
-          <label class="file-button">
-            选择待清洗文件
-            <input type="file" accept=".xlsx,.xls,.csv,.tsv,text/csv" @change="handleAgentFile" />
-          </label>
-          <button class="primary" type="button" :disabled="!agentFile || agentBusy" @click="submitAgentTask">
-            {{ agentBusy ? "清洗中..." : "建立清洗任务" }}
-          </button>
-          <button type="button" :disabled="agentBusy" @click="loadAgentTasks()">刷新任务</button>
-        </div>
-      </div>
-
-      <div class="agent-status-row">
-        <span>当前文件：{{ agentFile?.name || "尚未选择" }}</span>
-        <span v-if="agentMessage" :class="agentMessageType === 'error' ? 'excel-warning' : 'excel-ok'">
-          {{ agentMessage }}
-        </span>
-      </div>
-
-      <div v-if="agentTask" class="agent-result-panel">
-        <div class="agent-task-title">
-          <div>
-            <b>{{ agentTask.taskNo }}</b>
-            <span>{{ agentTask.originalFileName }}</span>
-          </div>
-          <em :class="statusClass(agentTask.status)">{{ statusText(agentTask.status) }}</em>
-        </div>
-
-        <div class="excel-summary-grid agent-summary-grid">
-          <div>
-            <span>原始行</span>
-            <strong>{{ agentTask.rowCount || 0 }}</strong>
-          </div>
-          <div>
-            <span>有效行</span>
-            <strong>{{ agentTask.validCount || 0 }}</strong>
-          </div>
-          <div>
-            <span>异常行</span>
-            <strong>{{ agentTask.issueCount || 0 }}</strong>
-          </div>
-          <div>
-            <span>清洗后货物</span>
-            <strong>{{ agentCleanedRows.length }}</strong>
-          </div>
-          <div>
-            <span>导入件数</span>
-            <strong>{{ agentImportQuantity }}</strong>
-          </div>
-        </div>
-
-        <p v-if="agentTask.agentNotes" class="agent-note-text">{{ agentTask.agentNotes }}</p>
-        <p v-if="agentTask.errorMessage" class="excel-warning">{{ agentTask.errorMessage }}</p>
-
-        <div v-if="agentCleanedRows.length" class="agent-preview-actions">
-          <label>
-            <span>导入方式</span>
-            <select v-model="importMode">
-              <option value="replace">替换当前货物</option>
-              <option value="append">追加到当前货物</option>
-            </select>
-          </label>
-          <button class="primary" type="button" @click="importAgentRows">
-            导入清洗结果
-          </button>
-          <button type="button" @click="downloadAgentResult">下载清洗后 Excel</button>
-        </div>
-
-        <div v-if="agentCleanedRows.length" class="template-table-wrap">
-          <table class="template-table sample">
-            <thead>
-              <tr>
-                <th>货物</th>
-                <th>型号</th>
-                <th>尺寸 cm</th>
-                <th>数量</th>
-                <th>单重 kg</th>
-                <th>类型</th>
-                <th>备注</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="cargo in agentCleanedRows.slice(0, 10)" :key="cargoKey(cargo)">
-                <td>{{ cargo.name }}</td>
-                <td>{{ cargo.model || "-" }}</td>
-                <td>{{ cargo.lengthCm }} × {{ cargo.widthCm }} × {{ cargo.heightCm }}</td>
-                <td>{{ cargo.quantity }}</td>
-                <td>{{ cargo.weightKg }}</td>
-                <td>{{ typeText(cargo.type) }}</td>
-                <td>{{ cargo.remark || "-" }}</td>
-              </tr>
-              <tr v-if="agentCleanedRows.length > 10">
-                <td colspan="7">还有 {{ agentCleanedRows.length - 10 }} 类清洗结果未显示</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div v-if="agentIssues.length" class="template-table-wrap agent-issues">
-          <table class="template-table">
-            <thead>
-              <tr>
-                <th>工作表</th>
-                <th>行号</th>
-                <th>问题</th>
-                <th>建议名称</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="issue in agentIssues.slice(0, 6)" :key="`${issue.sheetName}-${issue.rowNumber}`">
-                <td>{{ issue.sheetName }}</td>
-                <td>{{ issue.rowNumber }}</td>
-                <td>{{ issue.errors?.join("；") }}</td>
-                <td>{{ suggestionCargoLabel(issue.suggestion?.cargo) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div v-if="agentTasks.length" class="agent-task-grid">
-        <button
-          v-for="task in agentTasks"
-          :key="task.id"
-          type="button"
-          :class="{ active: agentTask?.id === task.id }"
-          @click="selectAgentTask(task.id)"
-        >
-          <b>{{ task.taskNo }}</b>
-          <span>{{ task.originalFileName }}</span>
-          <em :class="statusClass(task.status)">{{ statusText(task.status) }} · {{ task.cleanedCount || 0 }} 类</em>
-        </button>
-      </div>
-    </div>
       </div>
     </div>
 
@@ -541,10 +373,10 @@
     </div>
 
     <div v-if="excelMode === 'reference'" class="algorithm-note">
-      <strong>Agent 的位置</strong>
+      <strong>智能识别的位置</strong>
       <p>
-        当前先用确定性规则完成解析、校验、单位换算和预览。后续 Agent 应该接在“表头低置信度、合并单元格、多层表头、业务备注复杂”的环节，
-        只给出清洗建议，最终导入仍然由用户确认。
+        表格文件继续走本地确定性规则完成解析、校验、单位换算和预览。粘贴文本则走后端智能识别流程，
+        由模型提取货物名称、型号、尺寸、数量、重量和备注，最终导入仍然由用户确认。
       </p>
     </div>
 
@@ -630,17 +462,12 @@ import {
   buildPreview,
   downloadTemplateWorkbook,
   importFields,
-  parseCargoText,
   readWorkbook,
   validateCargo
 } from "../services/excelImport";
 import {
-  createExcelCleaningTask,
   createTextRecognitionTask,
-  downloadCleanedExcel,
   downloadTextRecognitionExcel,
-  fetchExcelCleaningTask,
-  fetchExcelCleaningTasks,
   fetchTextRecognitionTask
 } from "../services/excelAgentApi";
 import { uid } from "../utils/format";
@@ -678,13 +505,6 @@ const suggestionForm = reactive({
 });
 const options = reactive({ dimensionUnit: "auto", weightUnit: "auto" });
 const importMode = ref("replace");
-const agentFile = ref(null);
-const agentBusy = ref(false);
-const agentTask = ref(null);
-const agentTasks = ref([]);
-const agentMessage = ref("");
-const agentMessageType = ref("ok");
-
 const visibleMappingFields = computed(() =>
   importFields.filter((field) => field.key !== "totalWeightKg" || mapping.totalWeightKg || activeSheet.value?.headers.length)
 );
@@ -702,20 +522,14 @@ const approvedAggregated = computed(() => {
 const approvedQuantity = computed(() =>
   approvedAggregated.value.reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0)
 );
-const agentCleanedRows = computed(() => agentTask.value?.cleanedRows || []);
-const agentIssues = computed(() => agentTask.value?.issues || []);
-const agentImportQuantity = computed(() =>
-  agentCleanedRows.value.reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0)
-);
-const recognitionRows = computed(() => recognitionAgentTask.value?.cleanedRows || recognitionPreview.value?.aggregated || []);
-const recognitionIssues = computed(() => recognitionAgentTask.value?.issues || recognitionPreview.value?.invalidRows || []);
+const recognitionRows = computed(() => recognitionAgentTask.value?.cleanedRows || []);
+const recognitionIssues = computed(() => recognitionAgentTask.value?.issues || []);
 const recognitionQuantity = computed(() =>
   recognitionRows.value.reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0)
 );
-const recognitionTotalRows = computed(() => recognitionAgentTask.value?.rowCount ?? recognitionPreview.value?.totalRows ?? 0);
-const recognitionValidCount = computed(() => recognitionAgentTask.value?.validCount ?? recognitionPreview.value?.validRows?.length ?? 0);
-const recognitionHasResult = computed(() => Boolean(recognitionAgentTask.value || recognitionPreview.value));
-const recognitionValidRows = computed(() => recognitionPreview.value?.validRows || []);
+const recognitionTotalRows = computed(() => recognitionAgentTask.value?.rowCount ?? 0);
+const recognitionValidCount = computed(() => recognitionAgentTask.value?.validCount ?? 0);
+const recognitionHasResult = computed(() => Boolean(recognitionAgentTask.value));
 const suggestionSummary = computed(() => {
   if (!suggestionRow.value) return "";
   const label = suggestionForm.model ? `${suggestionForm.name || "未命名货物"} ${suggestionForm.model}` : suggestionForm.name || "未命名货物";
@@ -748,10 +562,7 @@ async function handleFile(event) {
 }
 
 function switchExcelMode(mode) {
-  excelMode.value = mode;
-  if (mode === "agent" && !agentTask.value && !agentTasks.value.length) {
-    loadAgentTasks({ silent: true });
-  }
+  excelMode.value = mode === "agent" ? "recognition" : mode;
 }
 
 function selectSheet() {
@@ -773,28 +584,6 @@ function resetRecognitionResult() {
   recognitionMessage.value = "";
 }
 
-function runRecognition() {
-  recognitionAgentTask.value = null;
-  recognitionPreview.value = parseCargoText(recognitionText.value, {
-    dimensionUnit: "auto",
-    weightUnit: "auto"
-  });
-  if (!recognitionPreview.value.totalRows) {
-    recognitionMessageType.value = "error";
-    recognitionMessage.value = "没有可识别的文本行，请先粘贴货物描述。";
-    return;
-  }
-  if (!recognitionRows.value.length) {
-    recognitionMessageType.value = "error";
-    recognitionMessage.value = "暂未识别出可导入货物，请补充货物名称、长宽高和数量。";
-    return;
-  }
-  recognitionMessageType.value = recognitionIssues.value.length ? "error" : "ok";
-  recognitionMessage.value = recognitionIssues.value.length
-    ? `识别出 ${recognitionRows.value.length} 类货物，还有 ${recognitionIssues.value.length} 条需要补充。`
-    : `识别完成：${recognitionRows.value.length} 类货物，${recognitionQuantity.value} 件。`;
-}
-
 async function submitTextRecognitionTask() {
   if (!recognitionText.value.trim()) return;
   recognitionAgentBusy.value = true;
@@ -811,11 +600,11 @@ async function submitTextRecognitionTask() {
     recognitionMessageType.value = recognitionAgentTask.value.status === "FAILED" ? "error" : "ok";
     recognitionMessage.value =
       recognitionAgentTask.value.status === "FAILED"
-        ? `Agent 识别失败：${recognitionAgentTask.value.errorMessage || "请检查后端任务日志"}`
-        : `Agent 已返回：${recognitionRows.value.length} 类货物，${recognitionQuantity.value} 件；${recognitionIssues.value.length} 条需要人工确认。`;
+        ? `智能识别失败：${recognitionAgentTask.value.errorMessage || "请检查后端任务日志"}`
+        : `智能识别完成：${recognitionRows.value.length} 类货物，${recognitionQuantity.value} 件；${recognitionIssues.value.length} 条需要人工确认。`;
   } catch (error) {
     recognitionMessageType.value = "error";
-    recognitionMessage.value = `Agent 接口不可用：${error.message}`;
+    recognitionMessage.value = `智能识别接口不可用：${error.message}`;
   } finally {
     recognitionAgentBusy.value = false;
   }
@@ -837,7 +626,7 @@ function fillRecognitionSample() {
   ].join("\n");
   recognitionPreview.value = null;
   recognitionAgentTask.value = null;
-  recognitionMessage.value = "已填入示例文本，可以本地预览，也可以交给 Agent 识别英文 skid 明细。";
+  recognitionMessage.value = "已填入示例文本，点击智能识别后会由后端流程提取中文和英文 skid 明细。";
   recognitionMessageType.value = "ok";
 }
 
@@ -879,83 +668,6 @@ function importPreview() {
     color: cargo.color || colors[index % colors.length]
   }));
   emit("import-cargos", { cargos, mode: importMode.value, skippedRows: unresolvedInvalidRows.value.length });
-}
-
-function handleAgentFile(event) {
-  const file = event.target.files?.[0];
-  event.target.value = "";
-  if (!file) return;
-  agentFile.value = file;
-  agentMessage.value = "";
-}
-
-async function submitAgentTask() {
-  if (!agentFile.value) return;
-  agentBusy.value = true;
-  agentMessage.value = "";
-  try {
-    agentTask.value = await createExcelCleaningTask(agentFile.value);
-    await loadAgentTasks({ silent: true });
-    agentMessageType.value = agentTask.value.status === "FAILED" ? "error" : "ok";
-    agentMessage.value =
-      agentTask.value.status === "FAILED"
-        ? "清洗任务失败，请查看错误信息"
-        : `清洗完成：${agentTask.value.cleanedCount || 0} 类货物，${agentTask.value.issueCount || 0} 行异常`;
-  } catch (error) {
-    agentMessageType.value = "error";
-    agentMessage.value = `后端清洗接口不可用：${error.message}`;
-  } finally {
-    agentBusy.value = false;
-  }
-}
-
-async function loadAgentTasks(options = {}) {
-  if (!options.silent) {
-    agentBusy.value = true;
-    agentMessage.value = "";
-  }
-  try {
-    agentTasks.value = await fetchExcelCleaningTasks();
-    if (!agentTask.value && agentTasks.value[0]) {
-      agentTask.value = await fetchExcelCleaningTask(agentTasks.value[0].id);
-    }
-  } catch (error) {
-    if (!options.silent) {
-      agentMessageType.value = "error";
-      agentMessage.value = `任务列表读取失败：${error.message}`;
-    }
-  } finally {
-    if (!options.silent) agentBusy.value = false;
-  }
-}
-
-async function selectAgentTask(id) {
-  agentBusy.value = true;
-  agentMessage.value = "";
-  try {
-    agentTask.value = await fetchExcelCleaningTask(id);
-  } catch (error) {
-    agentMessageType.value = "error";
-    agentMessage.value = `任务读取失败：${error.message}`;
-  } finally {
-    agentBusy.value = false;
-  }
-}
-
-function importAgentRows() {
-  if (!agentCleanedRows.value.length) return;
-  const cargos = agentCleanedRows.value.map((cargo, index) => normalizeImportedCargo(cargo, index));
-  emit("import-cargos", { cargos, mode: importMode.value, skippedRows: agentTask.value?.issueCount || 0 });
-}
-
-async function downloadAgentResult() {
-  if (!agentTask.value?.id) return;
-  try {
-    await downloadCleanedExcel(agentTask.value.id, `${agentTask.value.taskNo || "cleaned-cargos"}.xlsx`);
-  } catch (error) {
-    agentMessageType.value = "error";
-    agentMessage.value = `下载失败：${error.message}`;
-  }
 }
 
 function normalizeImportedCargo(cargo, index) {
@@ -1030,24 +742,6 @@ function typeText(type) {
     nonstack: "不可重压",
     pallet: "托盘/木箱"
   }[type] || "普通货物";
-}
-
-function statusText(status) {
-  return {
-    PENDING: "等待中",
-    RUNNING: "清洗中",
-    SUCCEEDED: "已完成",
-    FAILED: "失败"
-  }[status] || status || "-";
-}
-
-function statusClass(status) {
-  return {
-    PENDING: "status-pending",
-    RUNNING: "status-running",
-    SUCCEEDED: "status-success",
-    FAILED: "status-failed"
-  }[status] || "status-pending";
 }
 
 function suggestionCargoLabel(cargo) {

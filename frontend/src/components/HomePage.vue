@@ -19,7 +19,7 @@
       </RouterLink>
       <RouterLink class="home-action-card" to="/smart-import">
         <span>智能导入</span>
-        <strong>手动校验或创建 Agent 清洗任务</strong>
+        <strong>手动校验或粘贴文本智能识别</strong>
       </RouterLink>
       <RouterLink class="home-action-card" to="/algorithm">
         <span>查看算法说明</span>

@@ -299,7 +299,7 @@ import ProjectionCanvas from "./components/ProjectionCanvas.vue";
 import { exportPackingReport } from "./services/exportReport";
 import { assignCargoModels } from "./services/excelImport";
 import { calculatePacking } from "./services/packingClient";
-import { cloneDefaultContainers } from "./services/localData";
+import { cloneDefaultContainers, mergeDefaultContainers } from "./services/localData";
 import { cargoLabel, fmt, shortType, uid } from "./utils/format";
 
 const STORAGE_KEY = "cargo-planner-vue-state";
@@ -403,7 +403,7 @@ function restoreState() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
     cargos.value = saved.cargos || [];
-    containers.value = saved.containers || [];
+    containers.value = mergeDefaultContainers(saved.containers || []);
     utilizationPercent.value = saved.utilizationPercent || 90;
     globalGapCm.value = saved.globalGapCm ?? 1;
     showRemaining.value = saved.showRemaining ?? true;
@@ -607,6 +607,7 @@ function importCsv(event) {
 }
 
 function containerIcon(name) {
+  if (name.includes("FR") || name.includes("平板")) return "FR";
   if (name.includes("RF") || name.includes("冷藏")) return "RF";
   if (name.includes("45")) return "45";
   if (name.includes("40")) return "40";
