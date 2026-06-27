@@ -212,15 +212,6 @@ public class AdminService {
         Timestamp.from(Instant.now()),
         deviceRowId
     );
-    authService.recordEvent(
-        ((Number) device.get("userId")).longValue(),
-        (String) device.get("username"),
-        "DELETE_DEVICE",
-        (String) device.get("deviceId"),
-        ip,
-        null,
-        "Deleted by admin " + admin.username()
-    );
     audit(admin.id(), "DELETE_DEVICE", "DEVICE", deviceRowId, "Deleted device " + device.get("deviceId"), ip);
     jdbcTemplate.update("DELETE FROM cp_login_devices WHERE id = ?", deviceRowId);
     return Map.of("ok", true, "deletedDeviceId", deviceRowId);

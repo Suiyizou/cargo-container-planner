@@ -52,9 +52,16 @@
             <span class="nav-short">装箱</span>
           </RouterLink>
           <div v-if="activePage === 'planner'" class="side-subnav">
-            <RouterLink to="/planner/config" :class="{ active: plannerMode === 'config' }">计算配置</RouterLink>
-            <RouterLink to="/planner/cargos" :class="{ active: plannerMode === 'cargos' }">货物总览</RouterLink>
-            <RouterLink to="/planner/results" :class="{ active: plannerMode === 'results' }">计算结果</RouterLink>
+            <button
+              v-for="step in plannerWorkflowSteps"
+              :key="step.key"
+              :class="{ active: plannerMode === step.key }"
+              type="button"
+              :disabled="step.disabled"
+              @click="goPlannerStep(step.key)"
+            >
+              {{ step.no }} {{ step.label }}
+            </button>
           </div>
           <RouterLink to="/smart-import" :class="{ active: activePage === 'smart-import' }">
             <span class="nav-full">智能导入</span>
@@ -85,6 +92,21 @@
       @save-settings="applyUserSettings"
     />
     <main v-else-if="activePage === 'planner'" :key="`planner-${plannerMode}`" class="planner-page">
+      <section class="planner-flow">
+        <button
+          v-for="step in plannerWorkflowSteps"
+          :key="step.key"
+          :class="{ active: plannerMode === step.key, done: step.done }"
+          type="button"
+          :disabled="step.disabled"
+          @click="goPlannerStep(step.key)"
+        >
+          <span>{{ step.no }}</span>
+          <b>{{ step.label }}</b>
+          <small>{{ step.description }}</small>
+        </button>
+      </section>
+
       <section v-if="plannerMode === 'config'" class="planner-section">
         <div class="planner-page-head">
           <div>
@@ -110,7 +132,7 @@
             </label>
             <div class="planner-action-row">
               <button class="primary" type="button" @click="openCargoModal()">手动录入货物</button>
-              <RouterLink class="planner-link-button" to="/planner/cargos">查看货物总览</RouterLink>
+              <button type="button" @click="goPlannerStep('cargos')">下一步：货物总览</button>
             </div>
             <div class="config-toolbox">
               <strong>常用工具</strong>
@@ -130,11 +152,26 @@
               <span>2</span>
               <strong>模板货物栏</strong>
             </div>
-            <p class="planner-muted">这里预留企业长期货物模板入口，后续可以连接数据库，把常用 SKU 一键加入当前计划。</p>
+            <p class="planner-muted">先提供本机常用货物模板，后续接数据库后可升级为企业 SKU 模板库。</p>
+            <div class="template-save-row">
+              <input v-model.trim="templateName" placeholder="模板名称，例如：E-House 项目" />
+              <button type="button" :disabled="!cargos.length" @click="saveCargoTemplate">保存当前为模板</button>
+            </div>
+            <div v-if="cargoTemplates.length" class="template-list">
+              <button
+                v-for="template in cargoTemplates"
+                :key="template.id"
+                type="button"
+                @click="applyCargoTemplate(template.id)"
+              >
+                <b>{{ template.name }}</b>
+                <small>{{ template.cargos.length }} 类 / {{ templateQuantity(template) }} 件</small>
+              </button>
+            </div>
+            <p v-else class="empty">还没有本机货物模板。录入或导入货物后，可以把当前清单保存成模板。</p>
             <div class="template-placeholder-grid">
               <button type="button" @click="loadSample">套用示例货物</button>
-              <button type="button" disabled>从数据库选择</button>
-              <button type="button" disabled>保存为模板</button>
+              <button type="button" :disabled="!cargoTemplates.length" @click="deleteSelectedCargoTemplate">删除最近模板</button>
             </div>
           </article>
         </div>
@@ -146,7 +183,10 @@
             <p>Cargo Overview</p>
             <h2>货物总览</h2>
           </div>
-          <button class="primary" type="button" @click="openCargoModal()">新增货物</button>
+          <div class="section-actions">
+            <button class="primary" type="button" @click="openCargoModal()">新增货物</button>
+            <button class="danger ghost" type="button" :disabled="!cargos.length" @click="clearCargos">清空全部</button>
+          </div>
         </div>
 
         <div class="planner-metrics">
@@ -162,7 +202,10 @@
               <p>Current Cargo</p>
               <h2>当前货物列表</h2>
             </div>
-            <RouterLink class="planner-link-button" to="/planner/results">查看计算结果</RouterLink>
+            <div class="section-actions">
+              <button type="button" @click="goPlannerStep('config')">上一步：计算配置</button>
+              <button class="primary" type="button" :disabled="!cargos.length" @click="goPlannerStep('results')">下一步：计算方案</button>
+            </div>
           </div>
           <div v-if="cargos.length" class="cargo-overview-table-wrap">
             <table class="cargo-overview-table">
@@ -215,6 +258,7 @@
             </div>
             <div class="view-actions">
               <span class="status-pill" :class="{ warn: loading }">{{ apiStatus }}</span>
+              <button type="button" @click="goPlannerStep('cargos')">返回货物总览</button>
               <button type="button" @click="recalculate">重新计算</button>
             </div>
           </div>
@@ -383,6 +427,7 @@ import { clearSession, isSessionExpired, storedExpiresAt, storedToken, storedUse
 import { cargoLabel, fmt, shortType, uid } from "./utils/format";
 
 const STORAGE_KEY = "cargo-planner-vue-state";
+const TEMPLATE_STORAGE_KEY = "cargo-planner-cargo-templates";
 const colors = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3", "#ca8a04", "#475569"];
 
 const route = useRoute();
@@ -390,6 +435,8 @@ const router = useRouter();
 const profileVersion = ref(0);
 const sidebarCollapsed = ref(false);
 const authChecked = ref(false);
+const workspaceReady = ref(false);
+const hasStoredWorkspace = ref(false);
 const currentUser = ref(storedUser());
 const profileOpen = ref(false);
 const loginRedirecting = ref(false);
@@ -441,6 +488,8 @@ const showMassBalance = ref(true);
 const cargoModalOpen = ref(false);
 const containerModalOpen = ref(false);
 const editingCargo = ref(null);
+const cargoTemplates = ref([]);
+const templateName = ref("");
 const exportingReport = ref(false);
 const toast = ref("");
 const apiStatus = ref("本机计算");
@@ -483,15 +532,43 @@ const cargoTotalVolumeM3 = computed(() =>
     sum + Number(cargo.lengthCm || 0) * Number(cargo.widthCm || 0) * Number(cargo.heightCm || 0) * Number(cargo.quantity || 0) / 1000000,
   0)
 );
+const plannerWorkflowSteps = computed(() => [
+  {
+    key: "config",
+    no: "01",
+    label: "确认配置",
+    description: `${utilizationPercent.value}% 可用率 / ${globalGapCm.value}cm 间隙`,
+    done: cargos.value.length > 0,
+    disabled: false
+  },
+  {
+    key: "cargos",
+    no: "02",
+    label: "货物总览",
+    description: `${cargoTypeCount.value} 类 / ${cargoTotalQuantity.value} 件`,
+    done: cargos.value.length > 0,
+    disabled: false
+  },
+  {
+    key: "results",
+    no: "03",
+    label: "计算方案",
+    description: selectedEvaluation.value ? `${selectedEvaluation.value.container.name} / ${selectedEvaluation.value.boxes || 0} 箱` : "可视化与导出",
+    done: Boolean(selectedEvaluation.value?.packedBoxes?.length),
+    disabled: !cargos.value.length
+  }
+]);
 
 onMounted(async () => {
   window.addEventListener("auth-expired", handleAuthExpired);
   await initializeAuth();
   restoreState();
+  restoreCargoTemplates();
   cargos.value = normalizeCargoModels(cargos.value);
   if (!containers.value.length) containers.value = cloneDefaultContainers();
   if (!selectedContainerId.value && containers.value[0]) selectedContainerId.value = containers.value[0].id;
-  if (!cargos.value.length) loadSample(false);
+  if (!cargos.value.length && !hasStoredWorkspace.value) loadSample(false);
+  workspaceReady.value = true;
   recalculate();
 });
 
@@ -506,6 +583,12 @@ watch([cargos, containers, utilizationPercent, globalGapCm], () => {
 }, { deep: true });
 
 watch([showRemaining, showMassBalance], persistState);
+watch([workspaceReady, activePage, plannerMode, cargoTypeCount], () => {
+  if (workspaceReady.value && activePage.value === "planner" && plannerMode.value === "results" && !cargos.value.length) {
+    router.replace("/planner/config");
+    showToast("请先确认配置并录入货物，再进入计算方案。");
+  }
+});
 watch([activePage, currentUser, authChecked], () => {
   if (authChecked.value && activePage.value === "admin" && currentUser.value?.role !== "ADMIN") {
     router.replace("/home");
@@ -572,7 +655,9 @@ function handleUserUpdated(user) {
 
 function restoreState() {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+    const raw = localStorage.getItem(STORAGE_KEY);
+    hasStoredWorkspace.value = Boolean(raw);
+    const saved = JSON.parse(raw || "{}");
     cargos.value = saved.cargos || [];
     containers.value = mergeDefaultContainers(saved.containers || []);
     utilizationPercent.value = saved.utilizationPercent || 90;
@@ -582,6 +667,7 @@ function restoreState() {
     selectedContainerId.value = saved.selectedContainerId || "";
   } catch {
     localStorage.removeItem(STORAGE_KEY);
+    hasStoredWorkspace.value = false;
   }
 }
 
@@ -595,6 +681,36 @@ function persistState() {
     showMassBalance: showMassBalance.value,
     selectedContainerId: selectedContainerId.value
   }));
+}
+
+function restoreCargoTemplates() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(TEMPLATE_STORAGE_KEY) || "[]");
+    cargoTemplates.value = Array.isArray(stored)
+      ? stored.filter((template) => template?.id && template?.name && Array.isArray(template.cargos)).slice(0, 20)
+      : [];
+  } catch {
+    localStorage.removeItem(TEMPLATE_STORAGE_KEY);
+    cargoTemplates.value = [];
+  }
+}
+
+function persistCargoTemplates() {
+  localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(cargoTemplates.value.slice(0, 20)));
+}
+
+function goPlannerStep(stepKey) {
+  if (stepKey === "results" && !cargos.value.length) {
+    showToast("请先录入货物，再计算装箱方案。");
+    router.push("/planner/cargos");
+    return;
+  }
+  const routeMap = {
+    config: "/planner/config",
+    cargos: "/planner/cargos",
+    results: "/planner/results"
+  };
+  router.push(routeMap[stepKey] || "/planner/config");
 }
 
 async function recalculate() {
@@ -699,13 +815,67 @@ function loadSample(notify = true) {
     { id: uid("cargo"), name: "纸箱 B", lengthCm: 60, widthCm: 40, heightCm: 35, quantity: 30, weightKg: 12, type: "normal", color: systemColorFor(1) },
     { id: uid("cargo"), name: "易碎品 C", lengthCm: 55, widthCm: 45, heightCm: 30, quantity: 12, weightKg: 18, type: "nonstack", color: systemColorFor(2) }
   ];
+  result.value = null;
+  selectedBoxIndex.value = 1;
   if (notify) showToast("已套用示例货物。");
 }
 
 function clearCargos() {
+  if (!cargos.value.length) {
+    showToast("当前没有货物可清空。");
+    return;
+  }
+  if (!window.confirm("确认清空当前全部货物吗？这个操作不会删除已保存的模板。")) return;
   cargos.value = [];
   result.value = null;
+  selectedBoxIndex.value = 1;
   showToast("已清空货物。");
+}
+
+function saveCargoTemplate() {
+  if (!cargos.value.length) {
+    showToast("请先录入货物，再保存模板。");
+    return;
+  }
+  const name = templateName.value || `货物模板 ${cargoTemplates.value.length + 1}`;
+  const snapshot = cargos.value.map(({ id, ...cargo }) => ({ ...cargo }));
+  const template = {
+    id: uid("tpl"),
+    name,
+    cargos: snapshot,
+    createdAt: new Date().toISOString()
+  };
+  cargoTemplates.value = [template, ...cargoTemplates.value.filter((item) => item.name !== name)].slice(0, 20);
+  templateName.value = "";
+  persistCargoTemplates();
+  showToast("已保存货物模板。");
+}
+
+function applyCargoTemplate(templateId) {
+  const template = cargoTemplates.value.find((item) => item.id === templateId);
+  if (!template) return;
+  cargos.value = normalizeCargoModels(template.cargos.map((cargo, index) => ({
+    ...cargo,
+    id: uid("cargo"),
+    color: cargo.color || systemColorFor(index)
+  })));
+  result.value = null;
+  selectedBoxIndex.value = 1;
+  router.push("/planner/cargos");
+  showToast(`已套用模板「${template.name}」。`);
+}
+
+function deleteSelectedCargoTemplate() {
+  const template = cargoTemplates.value[0];
+  if (!template) return;
+  if (!window.confirm(`确认删除最近模板「${template.name}」吗？`)) return;
+  cargoTemplates.value = cargoTemplates.value.slice(1);
+  persistCargoTemplates();
+  showToast("已删除模板。");
+}
+
+function templateQuantity(template) {
+  return (template.cargos || []).reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0);
 }
 
 function exportCsv() {
@@ -806,6 +976,8 @@ function importCsv(event) {
       };
     });
     cargos.value = normalizeCargoModels(cargos.value);
+    result.value = null;
+    selectedBoxIndex.value = 1;
     showToast("CSV 已导入。");
   };
   reader.readAsText(file, "utf-8");
