@@ -160,6 +160,101 @@ select {
   font-weight: 800;
 }
 
+.login-redirect-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  background: rgba(244, 247, 251, 0.84);
+  backdrop-filter: blur(12px);
+}
+
+.login-redirect-card {
+  width: min(420px, calc(100vw - 48px));
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 30px;
+  border: 1px solid #c7d9ec;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(20, 34, 52, 0.18);
+  animation: redirectCardIn 0.24s ease both;
+}
+
+.login-redirect-mark {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border-radius: 8px;
+  background: #1f6fbe;
+  color: #fff;
+  font-weight: 900;
+  font-size: 23px;
+  box-shadow: 0 12px 28px rgba(31, 111, 190, 0.24);
+}
+
+.login-redirect-card strong {
+  color: #132033;
+  font-size: 24px;
+}
+
+.login-redirect-card small {
+  color: #64748b;
+}
+
+.login-redirect-card i {
+  position: relative;
+  width: 100%;
+  height: 4px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #e4edf7;
+}
+
+.login-redirect-card i::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 38%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #1f6fbe, #14b8a6);
+  animation: redirectBar 0.86s ease-in-out infinite;
+}
+
+.login-redirect-enter-active,
+.login-redirect-leave-active {
+  transition: opacity 0.22s ease;
+}
+
+.login-redirect-enter-from,
+.login-redirect-leave-to {
+  opacity: 0;
+}
+
+@keyframes redirectCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes redirectBar {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(270%);
+  }
+}
+
 .app-body {
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);

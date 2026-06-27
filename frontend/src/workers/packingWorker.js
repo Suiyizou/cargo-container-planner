@@ -8,7 +8,7 @@ const TYPE_RULES = {
 const COLORS = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3", "#ca8a04", "#475569"];
 const EPS = 0.0001;
 const SUPPORT_RATIO = 0.985;
-const MAX_DETAILED_BOXES = 6;
+const MAX_DETAILED_BOXES = 24;
 const LOCAL_SEARCH_PASSES = 5;
 
 const SEARCH_STRATEGIES = [
@@ -108,6 +108,9 @@ function buildEvaluation(container, units, total, utilizationPercent, globalGapC
     firstBoxOccupiedVolumeM3: round(firstPackedOccupiedVolume),
     firstBoxRemainingVolumeM3: round(Math.max(0, remainingVolume)),
     estimatedBoxes: multi.estimated,
+    detailedBoxes: multi.packedBoxes.length,
+    detailedBoxLimit: multi.detailedBoxLimit || MAX_DETAILED_BOXES,
+    remainingUnitCountAfterDetailed: multi.remainingUnitCountAfterDetailed || 0,
     trace: buildTrace(container, units, total, multi, {
       utilizationPercent,
       globalGapCm,
@@ -156,6 +159,7 @@ function packMultiple(container, allUnits) {
   let firstBox = { placed: [], unplaced: remaining, strategyId: "none", strategyName: "无可行摆放", strategySummary: {} };
   let estimated = false;
   let fatalOversize = false;
+  let remainingUnitCountAfterDetailed = 0;
 
   for (let boxIndex = 0; remaining.length && boxIndex < MAX_DETAILED_BOXES; boxIndex += 1) {
     const packed = packContainer(container, remaining);
@@ -171,6 +175,7 @@ function packMultiple(container, allUnits) {
 
   let boxes = packedBoxes.length;
   if (remaining.length && packedBoxes.length) {
+    remainingUnitCountAfterDetailed = remaining.length;
     const averagePlaced = Math.max(1, Math.round(packedBoxes.reduce((sum, box) => sum + box.placed.length, 0) / packedBoxes.length));
     boxes += Math.ceil(remaining.length / averagePlaced);
     estimated = true;
@@ -181,6 +186,8 @@ function packMultiple(container, allUnits) {
     boxes: remaining.length ? -1 : boxes,
     firstBox,
     packedBoxes,
+    detailedBoxLimit: MAX_DETAILED_BOXES,
+    remainingUnitCountAfterDetailed,
     estimated,
     fatalOversize: fatalOversize || remaining.length > 0
   };
@@ -768,7 +775,10 @@ function buildTrace(container, units, total, multi, metrics) {
       firstBoxRawFillPercent: round(metrics.rawFillPercent),
       geometryBoxes: multi.boxes,
       weightBoxes: metrics.weightBoxes,
-      finalBoxes: metrics.boxes
+      finalBoxes: metrics.boxes,
+      detailedBoxes: multi.packedBoxes.length,
+      detailedBoxLimit: multi.detailedBoxLimit || MAX_DETAILED_BOXES,
+      remainingUnitCountAfterDetailed: multi.remainingUnitCountAfterDetailed || 0
     },
     firstBox: {
       placedCount: firstBox.placed.length,

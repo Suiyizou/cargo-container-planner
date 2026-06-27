@@ -20,6 +20,7 @@ export const router = createRouter({
     { path: "/algorithm", name: "algorithm", component: PageStub },
     { path: "/excel", redirect: "/smart-import" },
     { path: "/smart-import", name: "smart-import", component: PageStub },
-    { path: "/admin", name: "admin", component: PageStub }
+    { path: "/admin", name: "admin", component: PageStub },
+    { path: "/:pathMatch(.*)*", redirect: "/home" }
   ]
 });

@@ -219,7 +219,7 @@
             </div>
           </div>
           <div class="box-switch" v-if="selectedEvaluation?.packedBoxes?.length > 1">
-            <span>{{ selectedEvaluation?.estimatedBoxes ? "显示已详算货舱" : "显示货舱" }}</span>
+            <span>{{ boxSwitchLabel }}</span>
             <button
               v-for="box in selectedEvaluation.packedBoxes"
               :key="box.index"
@@ -259,7 +259,7 @@
               <label><input v-model="showMassBalance" type="checkbox" /> 显示重心偏载</label>
               <button type="button" :disabled="exportingReport || loading || !selectedPlacements.length" @click="exportCurrentReport('png')">导出图片</button>
               <button type="button" :disabled="exportingReport || loading || !selectedPlacements.length" @click="exportCurrentReport('pdf')">导出 PDF</button>
-              <button type="button" :disabled="exportingReport || loading || !selectedEvaluation?.packedBoxes?.length" @click="exportAllReportsZip">导出整套 ZIP</button>
+              <button type="button" :disabled="exportingReport || loading || !selectedEvaluation?.packedBoxes?.length" @click="exportAllReportsZip">{{ exportZipLabel }}</button>
             </div>
           </div>
           <div class="scene-wrap">
@@ -320,6 +320,16 @@
     </div>
     <div v-if="toast" class="toast">{{ toast }}</div>
   </div>
+  <Transition name="login-redirect">
+    <div v-if="loginRedirecting" class="login-redirect-overlay">
+      <div class="login-redirect-card">
+        <span class="login-redirect-mark">CP</span>
+        <strong>{{ loginRedirectText }}</strong>
+        <small>正在加载工作区与权限面板</small>
+        <i></i>
+      </div>
+    </div>
+  </Transition>
 </template>
 
 <script setup>
@@ -352,6 +362,8 @@ const sidebarCollapsed = ref(false);
 const authChecked = ref(false);
 const currentUser = ref(storedUser());
 const profileOpen = ref(false);
+const loginRedirecting = ref(false);
+const loginRedirectText = ref("正在进入系统...");
 const routeName = computed(() => String(route.name || ""));
 const activePage = computed(() => {
   if (routeName.value.startsWith("planner")) return "planner";
@@ -417,6 +429,16 @@ const selectedBox = computed(() => {
 const selectedPlacements = computed(() =>
   (selectedBox.value.placed || []).map((item) => ({ ...item, type: shortType(item.type) }))
 );
+const detailedBoxCount = computed(() => selectedEvaluation.value?.packedBoxes?.length || 0);
+const hasUndetailedBoxes = computed(() =>
+  Boolean(selectedEvaluation.value?.estimatedBoxes && Number(selectedEvaluation.value?.boxes || 0) > detailedBoxCount.value)
+);
+const boxSwitchLabel = computed(() => {
+  const total = Number(selectedEvaluation.value?.boxes || 0);
+  if (hasUndetailedBoxes.value) return `显示已详算货舱 ${detailedBoxCount.value} / 约 ${total}`;
+  return `显示货舱 ${detailedBoxCount.value || total}`;
+});
+const exportZipLabel = computed(() => hasUndetailedBoxes.value ? "导出已详算 ZIP" : "导出整套 ZIP");
 const cargoTypeCount = computed(() => cargos.value.length);
 const cargoTotalQuantity = computed(() =>
   cargos.value.reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0)
@@ -459,6 +481,7 @@ watch([activePage, currentUser, authChecked], () => {
 });
 
 async function initializeAuth() {
+  const cachedUser = storedUser();
   if (!storedToken() || isSessionExpired()) {
     clearSession();
     currentUser.value = null;
@@ -467,19 +490,30 @@ async function initializeAuth() {
   }
   try {
     currentUser.value = await fetchAdminMe();
-  } catch {
-    clearSession();
-    currentUser.value = null;
+  } catch (error) {
+    if (cachedUser && storedToken() && error?.retryable !== false) {
+      currentUser.value = cachedUser;
+      showToast("已恢复本地登录状态，后台连接恢复后会自动继续校验。");
+    } else {
+      clearSession();
+      currentUser.value = null;
+    }
   } finally {
     authChecked.value = true;
   }
 }
 
-function handleLoggedIn(user) {
+async function handleLoggedIn(user) {
   currentUser.value = user;
   profileVersion.value += 1;
-  if (user?.role === "ADMIN" && route.path === "/admin") return;
-  router.push("/home");
+  const target = user?.role === "ADMIN" ? "/admin" : "/home";
+  loginRedirectText.value = user?.role === "ADMIN" ? "正在进入后台管理" : "正在进入个人工作台";
+  loginRedirecting.value = true;
+  await new Promise((resolve) => window.setTimeout(resolve, 520));
+  await router.replace(target);
+  window.setTimeout(() => {
+    loginRedirecting.value = false;
+  }, 260);
 }
 
 async function handleLogout() {
@@ -687,7 +721,7 @@ async function exportAllReportsZip() {
     return;
   }
   exportingReport.value = true;
-  showToast("正在打包整套装箱报告...");
+  showToast(hasUndetailedBoxes.value ? "正在打包已详算货舱报告..." : "正在打包整套装箱报告...");
   try {
     await exportPackingReportsZip({
       container: selectedContainer.value,
@@ -697,7 +731,7 @@ async function exportAllReportsZip() {
       globalGapCm: globalGapCm.value,
       showMassBalance: showMassBalance.value
     });
-    showToast("整套装箱报告 ZIP 已导出。");
+    showToast(hasUndetailedBoxes.value ? "已详算货舱报告 ZIP 已导出。" : "整套装箱报告 ZIP 已导出。");
   } catch (error) {
     showToast(error.message || "批量导出失败，请稍后重试。");
   } finally {
