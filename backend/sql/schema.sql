@@ -113,6 +113,33 @@ CREATE TABLE IF NOT EXISTS cp_text_recognition_tasks (
   INDEX idx_cp_text_recognition_tasks_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+CREATE TABLE IF NOT EXISTS cp_system_settings (
+  setting_key VARCHAR(120) PRIMARY KEY,
+  setting_value LONGTEXT NULL,
+  description VARCHAR(255) NULL,
+  updated_by BIGINT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_cp_system_settings_updated_at (updated_at),
+  CONSTRAINT fk_cp_system_settings_updated_by FOREIGN KEY (updated_by) REFERENCES cp_users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+INSERT INTO cp_system_settings (setting_key, setting_value, description)
+SELECT 'llm.enabled', 'true', 'Whether text recognition should call the configured LLM first'
+WHERE NOT EXISTS (SELECT 1 FROM cp_system_settings WHERE setting_key = 'llm.enabled');
+
+INSERT INTO cp_system_settings (setting_key, setting_value, description)
+SELECT 'llm.base_url', 'https://api.deepseek.com', 'OpenAI-compatible base URL for text recognition'
+WHERE NOT EXISTS (SELECT 1 FROM cp_system_settings WHERE setting_key = 'llm.base_url');
+
+INSERT INTO cp_system_settings (setting_key, setting_value, description)
+SELECT 'llm.model', 'deepseekv4-flash', 'LLM model name for text recognition'
+WHERE NOT EXISTS (SELECT 1 FROM cp_system_settings WHERE setting_key = 'llm.model');
+
+INSERT INTO cp_system_settings (setting_key, setting_value, description)
+SELECT 'llm.api_key', '', 'API key for the configured OpenAI-compatible LLM provider'
+WHERE NOT EXISTS (SELECT 1 FROM cp_system_settings WHERE setting_key = 'llm.api_key');
+
 -- Default super administrator:
 -- username: admin
 -- password: Admin@123456

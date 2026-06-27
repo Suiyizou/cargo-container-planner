@@ -335,6 +335,49 @@
         <article class="admin-panel">
           <div class="admin-panel-head">
             <div>
+              <p>LLM Settings</p>
+              <h2>智能识别模型配置</h2>
+            </div>
+            <span class="admin-health-pill" :class="{ warn: !llmSettings?.enabled || !llmSettings?.apiKeyConfigured }">
+              {{ llmStatusText }}
+            </span>
+          </div>
+          <form class="admin-form-grid llm-settings-form" @submit.prevent="handleUpdateLlmSettings">
+            <label class="admin-toggle-row">
+              <span>启用 LLM 智能识别</span>
+              <input v-model="llmForm.enabled" type="checkbox" />
+            </label>
+            <label>
+              <span>Base URL</span>
+              <input v-model.trim="llmForm.baseUrl" placeholder="https://api.deepseek.com" />
+            </label>
+            <label>
+              <span>模型名称</span>
+              <input v-model.trim="llmForm.model" placeholder="deepseekv4-flash" />
+            </label>
+            <label>
+              <span>API Key</span>
+              <input v-model.trim="llmForm.apiKey" autocomplete="off" type="password" placeholder="留空则保留当前密钥" />
+            </label>
+            <label class="admin-toggle-row">
+              <span>清空当前 API Key</span>
+              <input v-model="llmForm.clearApiKey" type="checkbox" />
+            </label>
+            <div class="admin-setting-list llm-current-settings">
+              <span><b>当前提供方</b>{{ llmSettings?.provider || "Spring AI OpenAI-compatible" }}</span>
+              <span><b>当前模型</b>{{ llmSettings?.model || "-" }}</span>
+              <span><b>Key 状态</b>{{ llmSettings?.apiKeyConfigured ? `已配置 ${llmSettings.apiKeyPreview}` : "未配置" }}</span>
+              <span><b>默认行为</b>开启但无 Key 时自动使用规则兜底</span>
+            </div>
+            <div class="admin-form-actions">
+              <button class="primary" type="submit" :disabled="loading">保存 LLM 配置</button>
+            </div>
+          </form>
+        </article>
+
+        <article class="admin-panel">
+          <div class="admin-panel-head">
+            <div>
               <p>Operations</p>
               <h2>系统管理预留</h2>
             </div>
@@ -411,12 +454,14 @@ import {
   fetchAdminMe,
   fetchDevices,
   fetchEmployees,
+  fetchLlmSettings,
   fetchMonitoring,
   kickDevice,
   loginAdmin,
   logoutAdmin,
   storedAdminToken,
-  updateEmployee
+  updateEmployee,
+  updateLlmSettings
 } from "../services/adminApi";
 
 const adminPages = [
@@ -434,9 +479,17 @@ const currentUser = ref(null);
 const employees = ref([]);
 const devices = ref([]);
 const monitoring = ref(null);
+const llmSettings = ref(null);
 const activeAdminPage = ref("overview");
 const loginForm = reactive({ username: "admin", password: "" });
 const employeeForm = reactive({ username: "", displayName: "", password: "", role: "EMPLOYEE" });
+const llmForm = reactive({
+  enabled: true,
+  baseUrl: "https://api.deepseek.com",
+  model: "deepseekv4-flash",
+  apiKey: "",
+  clearApiKey: false
+});
 
 const activePageMeta = computed(() =>
   adminPages.find((item) => item.key === activeAdminPage.value) || adminPages[0]
@@ -447,6 +500,11 @@ const normalizedDevices = computed(() => devices.value.map(normalizeDisplayName)
 const onlineDevices = computed(() => normalizedDevices.value.filter((device) => device.online));
 const recentEvents = computed(() => monitoring.value?.recentEvents || []);
 const topEndpoints = computed(() => monitoring.value?.runtime?.topEndpoints || []);
+const llmStatusText = computed(() => {
+  if (!llmSettings.value) return "未加载";
+  if (!llmSettings.value.enabled) return "已关闭";
+  return llmSettings.value.apiKeyConfigured ? "已启用" : "缺少 Key";
+});
 const heapPercent = computed(() => {
   const used = Number(monitoring.value?.runtime?.heapUsedMb || 0);
   const max = Number(monitoring.value?.runtime?.heapMaxMb || 0);
@@ -481,6 +539,7 @@ async function handleLogout() {
     employees.value = [];
     devices.value = [];
     monitoring.value = null;
+    llmSettings.value = null;
     loginForm.password = "";
     activeAdminPage.value = "overview";
     showMessage("已退出登录");
@@ -490,14 +549,17 @@ async function handleLogout() {
 async function loadDashboard(showSuccess = true) {
   await withLoading(async () => {
     currentUser.value = normalizeDisplayName(await fetchAdminMe());
-    const [employeeRows, deviceRows, monitoringData] = await Promise.all([
+    const [employeeRows, deviceRows, monitoringData, llmData] = await Promise.all([
       fetchEmployees(),
       fetchDevices(),
-      fetchMonitoring()
+      fetchMonitoring(),
+      fetchLlmSettings()
     ]);
     employees.value = employeeRows;
     devices.value = deviceRows;
     monitoring.value = monitoringData;
+    llmSettings.value = llmData;
+    syncLlmForm(llmData);
     if (showSuccess) showMessage("后台数据已刷新");
   });
 }
@@ -532,6 +594,30 @@ async function handleKickDevice(device) {
     await loadDashboard(false);
     showMessage("设备已踢下线");
   });
+}
+
+async function handleUpdateLlmSettings() {
+  await withLoading(async () => {
+    const payload = {
+      enabled: llmForm.enabled,
+      baseUrl: llmForm.baseUrl,
+      model: llmForm.model,
+      clearApiKey: llmForm.clearApiKey
+    };
+    if (llmForm.apiKey) payload.apiKey = llmForm.apiKey;
+    const next = await updateLlmSettings(payload);
+    llmSettings.value = next;
+    syncLlmForm(next);
+    showMessage("LLM 配置已保存");
+  });
+}
+
+function syncLlmForm(settings) {
+  llmForm.enabled = settings?.enabled ?? true;
+  llmForm.baseUrl = settings?.baseUrl || "https://api.deepseek.com";
+  llmForm.model = settings?.model || "deepseekv4-flash";
+  llmForm.apiKey = "";
+  llmForm.clearApiKey = false;
 }
 
 async function withLoading(action) {

@@ -20,9 +20,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/admin")
 public class AdminController {
   private final AdminService adminService;
+  private final LlmSettingsService llmSettingsService;
 
-  public AdminController(AdminService adminService) {
+  public AdminController(AdminService adminService, LlmSettingsService llmSettingsService) {
     this.adminService = adminService;
+    this.llmSettingsService = llmSettingsService;
   }
 
   @GetMapping("/employees")
@@ -66,5 +68,19 @@ public class AdminController {
   @GetMapping("/monitoring")
   public Map<String, Object> monitoring() {
     return adminService.monitoring();
+  }
+
+  @GetMapping("/settings/llm")
+  public Map<String, Object> llmSettings() {
+    return llmSettingsService.publicSettings();
+  }
+
+  @PatchMapping("/settings/llm")
+  public Map<String, Object> updateLlmSettings(
+      @RequestBody LlmSettingsRequest request,
+      @RequestAttribute(AdminAuthInterceptor.CURRENT_USER_ATTRIBUTE) AuthenticatedUser admin,
+      HttpServletRequest httpRequest
+  ) {
+    return llmSettingsService.updateSettings(request, admin, ClientInfo.ip(httpRequest));
   }
 }

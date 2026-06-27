@@ -27,5 +27,3 @@ management:
 
 app:
   device-limit-per-user: ${APP_DEVICE_LIMIT_PER_USER:5}
-  text-recognition:
-    spring-ai-enabled: ${TEXT_RECOGNITION_SPRING_AI_ENABLED:false}

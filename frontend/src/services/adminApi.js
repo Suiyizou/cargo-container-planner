@@ -63,6 +63,14 @@ export async function fetchMonitoring() {
   return request("/admin/monitoring");
 }
 
+export async function fetchLlmSettings() {
+  return request("/admin/settings/llm");
+}
+
+export async function updateLlmSettings(payload) {
+  return request("/admin/settings/llm", { method: "PATCH", body: payload });
+}
+
 async function request(path, options = {}) {
   const headers = { "Content-Type": "application/json" };
   const token = storedAdminToken();

@@ -2838,6 +2838,30 @@ select {
   grid-column: 1 / -1;
 }
 
+.llm-settings-form {
+  align-items: end;
+}
+
+.admin-toggle-row {
+  align-self: stretch;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #d7e1ee;
+  border-radius: 6px;
+  background: #f8fbff;
+}
+
+.admin-toggle-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+}
+
+.llm-current-settings {
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .admin-table-wrap {
   overflow-x: auto;
   border: 1px solid #d7e1ee;

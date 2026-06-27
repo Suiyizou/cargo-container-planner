@@ -27,19 +27,26 @@ backend/sql/schema.sql
 
 生产环境请先复制 `.env.example` 为 `.env`，修改数据库密码和端口后再启动。
 
-## Spring AI 文本识别
+## LLM 文本识别
 
-智能导入里的“交给 Agent 识别”默认先使用规则兜底，服务端不需要 API Key 也能启动。后续拿到 Key 后，在 `.env` 中启用：
+智能导入里的“交给 Agent 识别”由后台“系统管理”控制，默认启用 LLM，默认模型为 `deepseekv4-flash`。如果尚未配置 API Key，会自动使用规则兜底。
+
+推荐操作：
+
+```text
+管理员登录后台 -> 系统管理 -> 智能识别模型配置 -> 填写 API Key -> 保存
+```
+
+`.env` 可作为首次启动的默认种子值：
 
 ```env
-TEXT_RECOGNITION_SPRING_AI_ENABLED=true
-SPRING_AI_CHAT_MODEL=openai
+SPRING_AI_CHAT_MODEL=none
 SPRING_AI_OPENAI_API_KEY=你的_API_Key
 SPRING_AI_OPENAI_BASE_URL=https://api.deepseek.com
 SPRING_AI_OPENAI_MODEL=deepseekv4-flash
 ```
 
-更新后重启后端或重新执行：
+说明：后台保存后的配置存入 MySQL，修改 LLM 开关、API Key、Base URL、模型名后不需要重新打包。更新镜像或配置后可重启后端：
 
 ```bash
 docker compose up -d --build backend

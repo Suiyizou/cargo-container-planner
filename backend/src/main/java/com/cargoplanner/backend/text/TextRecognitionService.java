@@ -1,5 +1,7 @@
 package com.cargoplanner.backend.text;
 
+import com.cargoplanner.backend.admin.LlmSettingsService;
+import com.cargoplanner.backend.admin.LlmSettingsService.LlmRuntimeSettings;
 import com.cargoplanner.backend.common.ApiException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -24,9 +26,13 @@ import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.openai.OpenAiChatModel;
+import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -58,20 +64,17 @@ public class TextRecognitionService {
 
   private final JdbcTemplate jdbcTemplate;
   private final ObjectMapper objectMapper;
-  private final ObjectProvider<ChatClient.Builder> chatClientBuilderProvider;
-  private final boolean springAiEnabled;
+  private final LlmSettingsService llmSettingsService;
   private volatile boolean tableReady = false;
 
   public TextRecognitionService(
       JdbcTemplate jdbcTemplate,
       ObjectMapper objectMapper,
-      ObjectProvider<ChatClient.Builder> chatClientBuilderProvider,
-      @Value("${app.text-recognition.spring-ai-enabled:false}") boolean springAiEnabled
+      LlmSettingsService llmSettingsService
   ) {
     this.jdbcTemplate = jdbcTemplate;
     this.objectMapper = objectMapper;
-    this.chatClientBuilderProvider = chatClientBuilderProvider;
-    this.springAiEnabled = springAiEnabled;
+    this.llmSettingsService = llmSettingsService;
   }
 
   @Transactional
@@ -268,30 +271,41 @@ public class TextRecognitionService {
   }
 
   private RecognitionResult recognize(String text, String languageHint) {
-    if (springAiEnabled) {
-      ChatClient.Builder builder = chatClientBuilderProvider.getIfAvailable();
-      if (builder != null) {
+    LlmRuntimeSettings settings = llmSettingsService.runtimeSettings();
+    if (settings.enabled()) {
+      if (settings.hasApiKey()) {
         try {
-          return recognizeWithSpringAi(builder.build(), text, languageHint);
+          return recognizeWithSpringAi(settings, text, languageHint);
         } catch (Exception error) {
           RecognitionResult fallback = recognizeWithRules(text);
-          return fallback.withNotes("Spring AI 识别失败，已自动切换到规则兜底：" + trim(error.getMessage(), 160));
+          return fallback.withNotes("LLM 识别失败，已自动切换到规则兜底：" + trim(error.getMessage(), 160));
         }
       }
+      RecognitionResult fallback = recognizeWithRules(text);
+      return fallback.withNotes("LLM 默认启用，但管理员尚未配置 API Key，已使用规则兜底。");
     }
     RecognitionResult fallback = recognizeWithRules(text);
-    if (springAiEnabled) {
-      return fallback.withNotes("Spring AI 已启用但未找到可用 ChatClient，已使用规则兜底。");
-    }
-    return fallback.withNotes("当前未启用 Spring AI，已使用规则兜底；配置 API Key 后可切换为模型识别。");
+    return fallback.withNotes("管理员已关闭 LLM 识别，当前使用规则兜底。");
   }
 
-  private RecognitionResult recognizeWithSpringAi(ChatClient chatClient, String text, String languageHint) throws JsonProcessingException {
-    String content = chatClient.prompt()
-        .system(systemPrompt())
-        .user(userPrompt(text, languageHint))
-        .call()
-        .content();
+  private RecognitionResult recognizeWithSpringAi(LlmRuntimeSettings settings, String text, String languageHint) throws JsonProcessingException {
+    OpenAiApi openAiApi = OpenAiApi.builder()
+        .baseUrl(settings.baseUrl())
+        .apiKey(settings.apiKey())
+        .build();
+    OpenAiChatOptions options = OpenAiChatOptions.builder()
+        .model(settings.model())
+        .temperature(0.1)
+        .build();
+    OpenAiChatModel chatModel = OpenAiChatModel.builder()
+        .openAiApi(openAiApi)
+        .defaultOptions(options)
+        .build();
+    ChatResponse response = chatModel.call(new Prompt(List.of(
+        new SystemMessage(systemPrompt()),
+        new UserMessage(userPrompt(text, languageHint))
+    )));
+    String content = response.getResult().getOutput().getText();
     Map<String, Object> payload = objectMapper.readValue(extractJsonObject(content), new TypeReference<Map<String, Object>>() {});
     List<Map<String, Object>> rawRows = mapList(payload.get("rows"));
     List<Map<String, Object>> modelIssues = mapList(payload.get("issues"));
@@ -324,8 +338,9 @@ public class TextRecognitionService {
     List<Map<String, Object>> cleanedRows = aggregateCargos(validRows);
     String notes = cleanCell(payload.get("notes"));
     if (notes.isBlank()) {
-      notes = "Spring AI 已完成文本结构化抽取，并按系统字段校验、聚合同名同规格货物。";
+      notes = "LLM 已完成文本结构化抽取，并按系统字段校验、聚合同名同规格货物。";
     }
+    notes = notes + "（模型：" + settings.model() + "）";
     return new RecognitionResult(Math.max(rawRows.size() + modelIssues.size(), textRows(text).size()), validRows.size(), issues.size(), cleanedRows, issues, notes);
   }
 
