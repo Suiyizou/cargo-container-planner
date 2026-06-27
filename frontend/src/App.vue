@@ -297,23 +297,53 @@
 
     <CargoModal v-if="cargoModalOpen" :cargo="editingCargo" @close="closeCargoModal" @save="saveCargo" />
     <ContainerModal v-if="containerModalOpen" @close="containerModalOpen = false" @save="saveContainer" />
-    <div v-if="profileOpen" class="modal-backdrop">
+    <div v-if="profileOpen" class="modal-backdrop profile-backdrop">
       <div class="modal profile-modal">
-        <header>
-          <div>
-            <p>Personal Center</p>
-            <h2>个人中心</h2>
+        <header class="profile-modal-head">
+          <div class="profile-identity">
+            <span class="profile-avatar">{{ profileInitial }}</span>
+            <div>
+              <p>Personal Center</p>
+              <h2>{{ userDisplayName }}</h2>
+              <small>{{ currentUser?.username }}</small>
+            </div>
           </div>
-          <button type="button" @click="profileOpen = false">×</button>
+          <button class="icon-button" type="button" @click="profileOpen = false">×</button>
         </header>
-        <div class="profile-summary-grid">
-          <div><span>用户名</span><strong>{{ currentUser?.username }}</strong></div>
-          <div><span>显示名</span><strong>{{ userDisplayName }}</strong></div>
-          <div><span>角色</span><strong>{{ currentUser?.role === "ADMIN" ? "管理员" : "员工" }}</strong></div>
-          <div><span>登录有效期</span><strong>{{ sessionExpiryText }}</strong></div>
+        <div class="profile-hero">
+          <div>
+            <span class="profile-role-pill">{{ profileRoleText }}</span>
+            <h3>欢迎回来，{{ userDisplayName }}</h3>
+            <p>这里汇总当前工作区、登录会话和常用入口，后续个人偏好会同步到员工自己的工作区。</p>
+          </div>
+          <div class="profile-session-card">
+            <span>令牌有效期</span>
+            <strong>{{ sessionExpiryText }}</strong>
+            <small>6 小时自动下线</small>
+          </div>
         </div>
-        <div class="modal-actions">
-          <RouterLink v-if="currentUser?.role === 'ADMIN'" class="planner-link-button" to="/admin" @click="profileOpen = false">进入后台</RouterLink>
+        <div class="profile-summary-grid refined">
+          <div><span>货物种类</span><strong>{{ cargoTypeCount }}</strong><small>当前计划</small></div>
+          <div><span>货物总件数</span><strong>{{ cargoTotalQuantity }}</strong><small>件</small></div>
+          <div><span>箱型数量</span><strong>{{ containers.length }}</strong><small>可参与计算</small></div>
+          <div><span>计划参数</span><strong>{{ utilizationPercent }}% / {{ globalGapCm }}cm</strong><small>可用率 / 间隙</small></div>
+        </div>
+        <div class="profile-action-grid">
+          <RouterLink to="/planner/config" @click="profileOpen = false">
+            <b>装箱计算</b><span>配置参数和箱型</span>
+          </RouterLink>
+          <RouterLink to="/smart-import" @click="profileOpen = false">
+            <b>智能导入</b><span>Excel 与文本识别</span>
+          </RouterLink>
+          <RouterLink to="/algorithm" @click="profileOpen = false">
+            <b>算法说明</b><span>查看规则与策略</span>
+          </RouterLink>
+          <RouterLink v-if="currentUser?.role === 'ADMIN'" to="/admin" @click="profileOpen = false">
+            <b>管理后台</b><span>员工、设备和系统</span>
+          </RouterLink>
+        </div>
+        <div class="profile-footer">
+          <span>{{ profileRoleText }} / {{ currentUser?.username }}</span>
           <button type="button" @click="handleLogout">退出登录</button>
         </div>
       </div>
@@ -385,6 +415,8 @@ const userDisplayName = computed(() => {
   profileVersion.value;
   return currentUser.value?.displayName || currentUser.value?.username || "操作员";
 });
+const profileInitial = computed(() => userDisplayName.value.slice(0, 1).toUpperCase());
+const profileRoleText = computed(() => currentUser.value?.role === "ADMIN" ? "管理员" : "员工");
 const sessionExpiryText = computed(() => {
   const value = storedExpiresAt();
   if (!value) return "6 小时";

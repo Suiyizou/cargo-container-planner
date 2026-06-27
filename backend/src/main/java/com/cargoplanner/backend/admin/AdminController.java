@@ -52,6 +52,15 @@ public class AdminController {
     return adminService.updateEmployee(id, request, admin, ClientInfo.ip(httpRequest));
   }
 
+  @PostMapping("/employees/{id}/reset-password")
+  public Map<String, Object> resetEmployeePassword(
+      @PathVariable long id,
+      @RequestAttribute(AdminAuthInterceptor.CURRENT_USER_ATTRIBUTE) AuthenticatedUser admin,
+      HttpServletRequest httpRequest
+  ) {
+    return adminService.resetEmployeePassword(id, admin, ClientInfo.ip(httpRequest));
+  }
+
   @DeleteMapping("/employees/{id}")
   public Map<String, Object> deleteEmployee(
       @PathVariable long id,
@@ -73,6 +82,15 @@ public class AdminController {
       HttpServletRequest httpRequest
   ) {
     return adminService.kickDevice(id, admin, ClientInfo.ip(httpRequest));
+  }
+
+  @DeleteMapping("/devices/{id}")
+  public Map<String, Object> deleteDevice(
+      @PathVariable long id,
+      @RequestAttribute(AdminAuthInterceptor.CURRENT_USER_ATTRIBUTE) AuthenticatedUser admin,
+      HttpServletRequest httpRequest
+  ) {
+    return adminService.deleteDevice(id, admin, ClientInfo.ip(httpRequest));
   }
 
   @GetMapping("/monitoring")

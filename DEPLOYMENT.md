@@ -27,6 +27,22 @@ backend/sql/schema.sql
 
 生产环境请先复制 `.env.example` 为 `.env`，修改数据库密码和端口后再启动。
 
+## 前端路由刷新
+
+前端使用 Vue Router history 模式，线上 Nginx 必须把非 `/api`、非静态资源的路径回退到 `index.html`。否则直接刷新 `/planner/results`、`/smart-import`、`/admin` 等地址会由 Nginx 当作真实文件路径处理，从而出现 404/405。
+
+`docker/nginx.conf` 已包含必要配置：
+
+```nginx
+location / {
+  add_header Cache-Control "no-cache";
+  try_files $uri $uri/ /index.html;
+  error_page 404 /index.html;
+}
+```
+
+如果服务器没有走 Docker 内置 Nginx，需把同等配置同步到线上站点配置后执行 `nginx -t && nginx -s reload`。
+
 ## LLM 文本识别
 
 智能导入里的“交给 Agent 识别”由后台“系统管理”控制，默认启用 LLM，默认模型为 `deepseekv4-flash`。如果尚未配置 API Key，会自动使用规则兜底。

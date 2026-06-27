@@ -56,6 +56,10 @@ export async function updateEmployee(id, payload) {
   return request(`/admin/employees/${id}`, { method: "PATCH", body: payload });
 }
 
+export async function resetEmployeePassword(id) {
+  return request(`/admin/employees/${id}/reset-password`, { method: "POST" });
+}
+
 export async function deleteEmployee(id) {
   return request(`/admin/employees/${id}`, { method: "DELETE" });
 }
@@ -66,6 +70,10 @@ export async function fetchDevices() {
 
 export async function kickDevice(id) {
   return request(`/admin/devices/${id}/kick`, { method: "POST" });
+}
+
+export async function deleteDevice(id) {
+  return request(`/admin/devices/${id}`, { method: "DELETE" });
 }
 
 export async function fetchMonitoring() {

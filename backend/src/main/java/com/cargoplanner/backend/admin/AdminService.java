@@ -21,6 +21,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AdminService {
+  private static final String DEFAULT_RESET_PASSWORD = "123456";
+
   private final JdbcTemplate jdbcTemplate;
   private final PasswordHasher passwordHasher;
   private final RequestStats requestStats;
@@ -125,6 +127,30 @@ public class AdminService {
   }
 
   @Transactional
+  public Map<String, Object> resetEmployeePassword(long userId, AuthenticatedUser admin, String ip) {
+    Map<String, Object> existing = findUser(userId);
+    PasswordHasher.PasswordHash passwordHash = passwordHasher.hash(DEFAULT_RESET_PASSWORD);
+    jdbcTemplate.update(
+        """
+        UPDATE cp_users
+        SET password_salt = ?, password_hash = ?, password_iterations = ?
+        WHERE id = ?
+        """,
+        passwordHash.salt(),
+        passwordHash.hash(),
+        passwordHash.iterations(),
+        userId
+    );
+    jdbcTemplate.update(
+        "UPDATE cp_login_devices SET online = 0, session_token_hash = NULL, revoked_at = ? WHERE user_id = ?",
+        Timestamp.from(Instant.now()),
+        userId
+    );
+    audit(admin.id(), "RESET_PASSWORD", "USER", userId, "Reset password for " + existing.get("username"), ip);
+    return findUser(userId);
+  }
+
+  @Transactional
   public Map<String, Object> deleteEmployee(long userId, AuthenticatedUser admin, String ip) {
     if (admin.id() == userId) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "Cannot delete current admin account");
@@ -176,6 +202,28 @@ public class AdminService {
     );
     audit(admin.id(), "KICK_DEVICE", "DEVICE", deviceRowId, "Kicked device " + device.get("deviceId"), ip);
     return findDevice(deviceRowId);
+  }
+
+  @Transactional
+  public Map<String, Object> deleteDevice(long deviceRowId, AuthenticatedUser admin, String ip) {
+    Map<String, Object> device = findDevice(deviceRowId);
+    jdbcTemplate.update(
+        "UPDATE cp_login_devices SET online = 0, session_token_hash = NULL, revoked_at = ? WHERE id = ?",
+        Timestamp.from(Instant.now()),
+        deviceRowId
+    );
+    authService.recordEvent(
+        ((Number) device.get("userId")).longValue(),
+        (String) device.get("username"),
+        "DELETE_DEVICE",
+        (String) device.get("deviceId"),
+        ip,
+        null,
+        "Deleted by admin " + admin.username()
+    );
+    audit(admin.id(), "DELETE_DEVICE", "DEVICE", deviceRowId, "Deleted device " + device.get("deviceId"), ip);
+    jdbcTemplate.update("DELETE FROM cp_login_devices WHERE id = ?", deviceRowId);
+    return Map.of("ok", true, "deletedDeviceId", deviceRowId);
   }
 
   public Map<String, Object> monitoring() {

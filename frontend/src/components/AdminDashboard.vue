@@ -188,8 +188,7 @@
                   <td>{{ formatDate(user.lastLoginAt) }}</td>
                   <td>
                     <div class="table-actions">
-                      <button type="button" @click="openEmployeeDialog(user)">编辑</button>
-                      <button type="button" @click="openEmployeeDialog(user, true)">重置密码</button>
+                      <button type="button" @click="handleResetPassword(user)">重置密码</button>
                       <button type="button" @click="toggleEmployee(user)">
                         {{ user.status === "ACTIVE" ? "禁用" : "启用" }}
                       </button>
@@ -263,7 +262,10 @@
                     </span>
                   </td>
                   <td>
-                    <button type="button" :disabled="!device.online" @click="handleKickDevice(device)">踢下线</button>
+                    <div class="table-actions">
+                      <button type="button" :disabled="!device.online" @click="handleKickDevice(device)">踢下线</button>
+                      <button class="danger ghost" type="button" @click="handleDeleteDevice(device)">删除设备</button>
+                    </div>
                   </td>
                 </tr>
                 <tr v-if="!devices.length">
@@ -425,22 +427,22 @@
         <header>
           <div>
             <p>Employee Account</p>
-            <h2>{{ editingEmployee ? "编辑员工" : "新增员工" }}</h2>
+            <h2>新增员工</h2>
           </div>
           <button type="button" @click="closeEmployeeDialog">×</button>
         </header>
         <form class="admin-form-grid employee-dialog-form" @submit.prevent="handleSaveEmployee">
           <label>
             <span>账号</span>
-            <input v-model.trim="employeeForm.username" :disabled="Boolean(editingEmployee)" placeholder="例如 zhangsan" />
+            <input v-model.trim="employeeForm.username" placeholder="例如 zhangsan" />
           </label>
           <label>
             <span>姓名</span>
             <input v-model.trim="employeeForm.displayName" placeholder="例如 张三" />
           </label>
           <label>
-            <span>{{ editingEmployee ? "新密码" : "初始密码" }}</span>
-            <input v-model="employeeForm.password" type="password" :placeholder="editingEmployee ? '留空则不修改' : '至少 8 位'" />
+            <span>初始密码</span>
+            <input v-model="employeeForm.password" type="password" placeholder="至少 8 位" />
           </label>
           <label>
             <span>角色</span>
@@ -458,7 +460,7 @@
           </label>
           <div class="modal-actions">
             <button type="button" @click="closeEmployeeDialog">取消</button>
-            <button class="primary" type="submit" :disabled="loading">{{ editingEmployee ? "保存修改" : "创建员工" }}</button>
+            <button class="primary" type="submit" :disabled="loading">创建员工</button>
           </div>
         </form>
       </div>
@@ -471,6 +473,7 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import {
   clearAdminToken,
   createEmployee,
+  deleteDevice,
   deleteEmployee,
   fetchAdminMe,
   fetchDevices,
@@ -479,6 +482,7 @@ import {
   fetchMonitoring,
   kickDevice,
   loginAdmin,
+  resetEmployeePassword,
   storedAdminToken,
   updateEmployee,
   updateLlmSettings
@@ -508,7 +512,6 @@ const llmSettings = ref(null);
 const activeAdminPage = ref("overview");
 const loginForm = reactive({ username: "admin", password: "" });
 const employeeDialogOpen = ref(false);
-const editingEmployee = ref(null);
 const employeeForm = reactive({ username: "", displayName: "", password: "", role: "EMPLOYEE", status: "ACTIVE" });
 const llmForm = reactive({
   enabled: true,
@@ -586,22 +589,17 @@ async function loadDashboard(showSuccess = true) {
   });
 }
 
-function openEmployeeDialog(user = null, focusPassword = false) {
-  editingEmployee.value = user;
-  employeeForm.username = user?.username || "";
-  employeeForm.displayName = user?.displayName || "";
+function openEmployeeDialog() {
+  employeeForm.username = "";
+  employeeForm.displayName = "";
   employeeForm.password = "";
-  employeeForm.role = user?.role || "EMPLOYEE";
-  employeeForm.status = user?.status || "ACTIVE";
+  employeeForm.role = "EMPLOYEE";
+  employeeForm.status = "ACTIVE";
   employeeDialogOpen.value = true;
-  if (focusPassword) {
-    showMessage("请输入新密码后保存。");
-  }
 }
 
 function closeEmployeeDialog() {
   employeeDialogOpen.value = false;
-  editingEmployee.value = null;
   employeeForm.username = "";
   employeeForm.displayName = "";
   employeeForm.password = "";
@@ -611,21 +609,19 @@ function closeEmployeeDialog() {
 
 async function handleSaveEmployee() {
   await withLoading(async () => {
-    const wasEditing = Boolean(editingEmployee.value);
-    if (wasEditing) {
-      const payload = {
-        displayName: employeeForm.displayName,
-        role: employeeForm.role,
-        status: employeeForm.status
-      };
-      if (employeeForm.password) payload.password = employeeForm.password;
-      await updateEmployee(editingEmployee.value.id, payload);
-    } else {
-      await createEmployee({ ...employeeForm });
-    }
+    await createEmployee({ ...employeeForm });
     closeEmployeeDialog();
     await loadDashboard(false);
-    showMessage(wasEditing ? "员工已更新" : "员工已创建");
+    showMessage("员工已创建");
+  });
+}
+
+async function handleResetPassword(user) {
+  if (!window.confirm(`确认将账号「${user.username}」密码重置为 123456 吗？该账号已登录设备会下线。`)) return;
+  await withLoading(async () => {
+    await resetEmployeePassword(user.id);
+    await loadDashboard(false);
+    showMessage(`账号 ${user.username} 的密码已重置为 123456`);
   });
 }
 
@@ -655,6 +651,16 @@ async function handleKickDevice(device) {
     await kickDevice(device.id);
     await loadDashboard(false);
     showMessage("设备已踢下线");
+  });
+}
+
+async function handleDeleteDevice(device) {
+  const deviceName = device.deviceName || device.deviceId || device.ipAddress || "该设备";
+  if (!window.confirm(`确认删除设备记录「${deviceName}」吗？在线设备会同步下线。`)) return;
+  await withLoading(async () => {
+    await deleteDevice(device.id);
+    await loadDashboard(false);
+    showMessage("设备记录已删除");
   });
 }
 
@@ -745,6 +751,8 @@ function eventTypeText(type) {
     LOGIN_FAIL: "登录失败",
     LOGOUT: "退出登录",
     KICK: "踢下线",
+    RESET_PASSWORD: "重置密码",
+    DELETE_DEVICE: "删除设备",
     DEVICE_LIMIT: "设备限流"
   }[type] || type || "-";
 }
@@ -755,7 +763,9 @@ function eventClass(type) {
     LOGOUT: "neutral",
     LOGIN_FAIL: "danger",
     DEVICE_LIMIT: "warn",
-    KICK: "warn"
+    KICK: "warn",
+    RESET_PASSWORD: "warn",
+    DELETE_DEVICE: "danger"
   }[type] || "neutral";
 }
 
