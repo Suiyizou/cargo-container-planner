@@ -12,7 +12,10 @@
           <span>本地识别、校验和建议修改</span>
         </button>
         <button type="button" :class="{ active: excelMode === 'recognition' }" @click="switchExcelMode('recognition')">
-          智能识别
+          <span class="recognition-menu-label">
+            <span class="hollow-star" aria-hidden="true">☆</span>
+            智能识别
+          </span>
           <span>粘贴货物描述，提取标准规格</span>
         </button>
         <button type="button" :class="{ active: excelMode === 'reference' }" @click="switchExcelMode('reference')">
@@ -64,13 +67,17 @@
     <div v-else-if="excelMode === 'recognition'" class="algorithm-note smart-recognition-card">
       <div class="recognition-head">
         <div>
-          <strong>路径二：智能识别</strong>
+          <strong class="recognition-title">
+            <span class="hollow-star" aria-hidden="true">☆</span>
+            路径二：智能识别
+          </strong>
           <p>直接粘贴聊天记录、报价明细或邮件里的货物描述；系统会交给后端智能识别流程提取标准规格并返回可导入清单。</p>
         </div>
         <div class="recognition-actions">
           <button type="button" @click="fillRecognitionSample">套用示例</button>
           <button type="button" @click="clearRecognition">清空</button>
           <button class="primary" type="button" :disabled="!recognitionText.trim() || recognitionAgentBusy" @click="submitTextRecognitionTask">
+            <span class="hollow-star button-star" aria-hidden="true">☆</span>
             {{ recognitionAgentBusy ? "智能识别中..." : "智能识别" }}
           </button>
         </div>

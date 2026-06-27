@@ -2234,6 +2234,27 @@ select {
   line-height: 1.45;
 }
 
+.excel-side-menu .recognition-menu-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: inherit;
+  opacity: 1;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.hollow-star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15em;
+  height: 1.15em;
+  color: currentColor;
+  font-size: 1.05em;
+  line-height: 1;
+}
+
 .excel-main-pane {
   min-width: 0;
 }
@@ -2249,6 +2270,12 @@ select {
   align-items: flex-start;
 }
 
+.recognition-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .recognition-actions,
 .recognition-import-row {
   display: flex;
@@ -2256,6 +2283,16 @@ select {
   gap: 10px;
   justify-content: flex-end;
   align-items: center;
+}
+
+.recognition-actions .primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.button-star {
+  font-size: 0.95em;
 }
 
 .smart-recognition-card textarea {
