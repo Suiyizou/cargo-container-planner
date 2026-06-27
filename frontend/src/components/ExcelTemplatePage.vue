@@ -85,6 +85,14 @@
 易碎品C 55×45×30cm 12件 单重18kg 不可重压"
       ></textarea>
 
+      <div v-if="recognitionAgentBusy" class="recognition-loading-panel">
+        <span class="recognition-loader"></span>
+        <div>
+          <strong>正在智能识别货物信息</strong>
+          <p>后端会提取货物名称、型号、尺寸、数量、重量和备注，完成后自动生成可导入清单。</p>
+        </div>
+      </div>
+
       <div v-if="recognitionMessage" class="recognition-placeholder" :class="{ error: recognitionMessageType === 'error' }">
         <span>{{ recognitionMessageType === "error" ? "需要处理" : "识别提示" }}</span>
         <strong>{{ recognitionMessage }}</strong>

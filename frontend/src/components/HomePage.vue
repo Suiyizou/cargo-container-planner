@@ -3,7 +3,7 @@
     <div class="home-hero">
       <div>
         <p>Workspace</p>
-        <h2>你好，{{ profile.displayName || "操作员" }}，今天要做些什么呢？</h2>
+        <h2>你好，{{ greetingName }}，今天要做些什么呢？</h2>
         <span>常用任务和个人设置都放在这里，后续登录账号后可以同步到员工自己的工作区。</span>
       </div>
       <div class="home-clock">
@@ -88,12 +88,14 @@ const STORAGE_KEY = "cargo-planner-user-profile";
 const props = defineProps({
   cargoCount: { type: Number, default: 0 },
   utilizationPercent: { type: Number, default: 90 },
-  globalGapCm: { type: Number, default: 1 }
+  globalGapCm: { type: Number, default: 1 },
+  user: { type: Object, default: null }
 });
 const emit = defineEmits(["save-settings"]);
 
 const profile = reactive(loadProfile());
 const message = ref("");
+const greetingName = computed(() => props.user?.displayName || props.user?.username || profile.displayName || "操作员");
 const todayText = computed(() =>
   new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",

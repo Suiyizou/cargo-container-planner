@@ -1,3 +1,5 @@
+import { authHeaders, clearSession } from "./authSession";
+
 export function apiBaseCandidates(configuredBase) {
   if (configuredBase) return [normalizeBase(configuredBase)];
   return ["/api"];
@@ -25,8 +27,15 @@ export async function fetchWithApiFallback(path, options = {}, configuredBase = 
   let routingError;
   for (const base of candidates) {
     try {
-      const response = await fetch(`${base}${path}`, options);
+      const response = await fetch(`${base}${path}`, {
+        ...options,
+        headers: { ...authHeaders(), ...(options.headers || {}) }
+      });
       if (response.ok && !isHtmlResponse(response)) return response;
+      if (response.status === 401) {
+        clearSession();
+        window.dispatchEvent(new CustomEvent("auth-expired"));
+      }
       const message = await readResponseError(response);
       const error = new Error(message);
       error.retryable = response.ok || shouldRetryStatus(response.status);
@@ -57,12 +66,16 @@ export async function readResponseError(response) {
 async function requestJsonOnce(base, path, options) {
   const response = await fetch(`${base}${path}`, {
     method: options.method || "GET",
-    headers: options.headers || { "Content-Type": "application/json" },
+    headers: { ...authHeaders(), ...(options.headers || { "Content-Type": "application/json" }) },
     body: normalizeBody(options.body)
   });
   const text = await response.text();
   const data = parseJson(text, response.url);
   if (!response.ok) {
+    if (response.status === 401) {
+      clearSession();
+      window.dispatchEvent(new CustomEvent("auth-expired"));
+    }
     const error = new Error(data?.message || `API ${response.status}`);
     error.retryable = shouldRetryStatus(response.status) && !data?.message;
     throw error;

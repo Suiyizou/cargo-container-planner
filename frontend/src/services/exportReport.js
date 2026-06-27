@@ -12,7 +12,7 @@ export async function exportPackingReport(options) {
   if (document.fonts?.ready) await document.fonts.ready;
 
   const canvas = renderReportCanvas(options);
-  const fileBase = `装箱剖析-${safeFileName(options.container.name)}-第${options.boxIndex || 1}货舱`;
+  const fileBase = reportFileBase(options);
   if (options.format === "pdf") {
     const pdfBlob = await createPdfFromCanvas(canvas);
     downloadBlob(pdfBlob, `${fileBase}.pdf`);
@@ -22,7 +22,36 @@ export async function exportPackingReport(options) {
   downloadBlob(imageBlob, `${fileBase}.png`);
 }
 
-function renderReportCanvas(options) {
+export async function exportPackingReportsZip(options) {
+  const boxes = options?.evaluation?.packedBoxes || [];
+  if (!options?.container || !boxes.length) {
+    throw new Error("当前方案没有可导出的货舱报告。");
+  }
+  if (document.fonts?.ready) await document.fonts.ready;
+  const generatedAt = new Date();
+  const files = [];
+  for (const box of boxes) {
+    if (!box.placed?.length) continue;
+    const canvas = renderReportCanvas({
+      ...options,
+      placements: box.placed,
+      boxIndex: box.index,
+      generatedAt
+    });
+    const blob = await canvasToBlob(canvas, "image/png", 1);
+    files.push({
+      name: `${reportFileBase({ ...options, boxIndex: box.index, generatedAt })}.png`,
+      blob
+    });
+  }
+  if (!files.length) {
+    throw new Error("没有可导出的货舱图片。");
+  }
+  const zipBlob = await createZipBlob(files);
+  downloadBlob(zipBlob, `装箱方案-${safeFileName(options.container.name)}-${timestampForFile(generatedAt)}.zip`);
+}
+
+export function renderReportCanvas(options) {
   const container = options.container;
   const catalog = buildCargoCatalog(options.cargos || [], options.placements || []);
   const placements = enrichPlacements(options.placements || [], catalog);
@@ -88,7 +117,7 @@ function drawHeader(ctx, options, catalog, layers) {
   ctx.fillText(`${options.container?.name || "-"} · 第 ${options.boxIndex || 1} 货舱`, rightX, 58);
   ctx.fillStyle = "#52657b";
   ctx.font = "400 17px Microsoft YaHei, Arial";
-  ctx.fillText(`生成时间：${new Date().toLocaleString("zh-CN")}`, rightX, 92);
+  ctx.fillText(`生成时间：${(options.generatedAt || new Date()).toLocaleString("zh-CN")}`, rightX, 92);
   ctx.fillText(`货物类别：${catalog.length} 类 · 分层数量：${layers.length} 层`, rightX, 122);
 }
 
@@ -941,6 +970,91 @@ function downloadBlob(blob, filename) {
   window.setTimeout(() => URL.revokeObjectURL(url), 500);
 }
 
+function reportFileBase(options) {
+  return `装箱剖析-${safeFileName(options.container.name)}-第${options.boxIndex || 1}货舱-${timestampForFile(options.generatedAt || new Date())}`;
+}
+
+async function createZipBlob(files) {
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  for (const file of files) {
+    const data = new Uint8Array(await file.blob.arrayBuffer());
+    const nameBytes = new TextEncoder().encode(file.name);
+    const crc = crc32(data);
+    const localHeader = zipLocalHeader(nameBytes, crc, data.length);
+    localParts.push(localHeader, data);
+    centralParts.push(zipCentralHeader(nameBytes, crc, data.length, offset));
+    offset += localHeader.length + data.length;
+  }
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const end = zipEndRecord(files.length, centralSize, offset);
+  return new Blob([...localParts, ...centralParts, end], { type: "application/zip" });
+}
+
+function zipLocalHeader(nameBytes, crc, size) {
+  const bytes = new Uint8Array(30 + nameBytes.length);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, 0x04034b50, true);
+  view.setUint16(4, 20, true);
+  view.setUint16(6, 0x0800, true);
+  view.setUint16(8, 0, true);
+  view.setUint16(10, 0, true);
+  view.setUint16(12, 0, true);
+  view.setUint32(14, crc, true);
+  view.setUint32(18, size, true);
+  view.setUint32(22, size, true);
+  view.setUint16(26, nameBytes.length, true);
+  bytes.set(nameBytes, 30);
+  return bytes;
+}
+
+function zipCentralHeader(nameBytes, crc, size, offset) {
+  const bytes = new Uint8Array(46 + nameBytes.length);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, 0x02014b50, true);
+  view.setUint16(4, 20, true);
+  view.setUint16(6, 20, true);
+  view.setUint16(8, 0x0800, true);
+  view.setUint16(10, 0, true);
+  view.setUint16(12, 0, true);
+  view.setUint16(14, 0, true);
+  view.setUint32(16, crc, true);
+  view.setUint32(20, size, true);
+  view.setUint32(24, size, true);
+  view.setUint16(28, nameBytes.length, true);
+  view.setUint32(42, offset, true);
+  bytes.set(nameBytes, 46);
+  return bytes;
+}
+
+function zipEndRecord(fileCount, centralSize, centralOffset) {
+  const bytes = new Uint8Array(22);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, 0x06054b50, true);
+  view.setUint16(8, fileCount, true);
+  view.setUint16(10, fileCount, true);
+  view.setUint32(12, centralSize, true);
+  view.setUint32(16, centralOffset, true);
+  return bytes;
+}
+
+function crc32(data) {
+  let crc = 0xffffffff;
+  for (const byte of data) {
+    crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+const CRC_TABLE = Array.from({ length: 256 }, (_, index) => {
+  let crc = index;
+  for (let bit = 0; bit < 8; bit += 1) {
+    crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+  }
+  return crc >>> 0;
+});
+
 function base64ToBytes(base64) {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -1059,4 +1173,18 @@ function roundLayer(value) {
 
 function safeFileName(value) {
   return String(value || "箱型").replace(/[\\/:*?"<>|]/g, "_");
+}
+
+function timestampForFile(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  const pad = (number) => String(number).padStart(2, "0");
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate())
+  ].join("") + "-" + [
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    pad(date.getSeconds())
+  ].join("");
 }

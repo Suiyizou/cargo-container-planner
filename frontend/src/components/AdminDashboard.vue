@@ -154,43 +154,14 @@
         <article class="admin-panel">
           <div class="admin-panel-head">
             <div>
-              <p>Employee Account</p>
-              <h2>新增员工账号</h2>
-            </div>
-          </div>
-          <form class="admin-form-grid" @submit.prevent="handleCreateEmployee">
-            <label>
-              <span>账号</span>
-              <input v-model.trim="employeeForm.username" placeholder="例如 zhangsan" />
-            </label>
-            <label>
-              <span>姓名</span>
-              <input v-model.trim="employeeForm.displayName" placeholder="例如 张三" />
-            </label>
-            <label>
-              <span>初始密码</span>
-              <input v-model="employeeForm.password" type="password" placeholder="至少 8 位" />
-            </label>
-            <label>
-              <span>角色</span>
-              <select v-model="employeeForm.role">
-                <option value="EMPLOYEE">员工</option>
-                <option value="ADMIN">管理员</option>
-              </select>
-            </label>
-            <div class="admin-form-actions">
-              <button class="primary" type="submit" :disabled="loading">创建员工</button>
-            </div>
-          </form>
-        </article>
-
-        <article class="admin-panel">
-          <div class="admin-panel-head">
-            <div>
               <p>Account List</p>
               <h2>员工管理</h2>
             </div>
-            <span>{{ employees.length }} 个账号</span>
+            <div class="admin-inline-actions">
+              <span>{{ employees.length }} 个账号</span>
+              <button class="primary" type="button" @click="openEmployeeDialog()">新增员工</button>
+              <button type="button" @click="loadDashboard">刷新</button>
+            </div>
           </div>
           <div class="admin-table-wrap">
             <table class="admin-table">
@@ -216,9 +187,14 @@
                   </td>
                   <td>{{ formatDate(user.lastLoginAt) }}</td>
                   <td>
-                    <button type="button" @click="toggleEmployee(user)">
-                      {{ user.status === "ACTIVE" ? "禁用" : "启用" }}
-                    </button>
+                    <div class="table-actions">
+                      <button type="button" @click="openEmployeeDialog(user)">编辑</button>
+                      <button type="button" @click="openEmployeeDialog(user, true)">重置密码</button>
+                      <button type="button" @click="toggleEmployee(user)">
+                        {{ user.status === "ACTIVE" ? "禁用" : "启用" }}
+                      </button>
+                      <button class="danger ghost" type="button" :disabled="user.id === currentUser?.id" @click="handleDeleteEmployee(user)">删除</button>
+                    </div>
                   </td>
                 </tr>
                 <tr v-if="!employees.length">
@@ -443,14 +419,59 @@
         </div>
       </section>
     </main>
+
+    <div v-if="employeeDialogOpen" class="modal-backdrop">
+      <div class="modal employee-modal">
+        <header>
+          <div>
+            <p>Employee Account</p>
+            <h2>{{ editingEmployee ? "编辑员工" : "新增员工" }}</h2>
+          </div>
+          <button type="button" @click="closeEmployeeDialog">×</button>
+        </header>
+        <form class="admin-form-grid employee-dialog-form" @submit.prevent="handleSaveEmployee">
+          <label>
+            <span>账号</span>
+            <input v-model.trim="employeeForm.username" :disabled="Boolean(editingEmployee)" placeholder="例如 zhangsan" />
+          </label>
+          <label>
+            <span>姓名</span>
+            <input v-model.trim="employeeForm.displayName" placeholder="例如 张三" />
+          </label>
+          <label>
+            <span>{{ editingEmployee ? "新密码" : "初始密码" }}</span>
+            <input v-model="employeeForm.password" type="password" :placeholder="editingEmployee ? '留空则不修改' : '至少 8 位'" />
+          </label>
+          <label>
+            <span>角色</span>
+            <select v-model="employeeForm.role">
+              <option value="EMPLOYEE">员工</option>
+              <option value="ADMIN">管理员</option>
+            </select>
+          </label>
+          <label>
+            <span>状态</span>
+            <select v-model="employeeForm.status">
+              <option value="ACTIVE">启用</option>
+              <option value="DISABLED">禁用</option>
+            </select>
+          </label>
+          <div class="modal-actions">
+            <button type="button" @click="closeEmployeeDialog">取消</button>
+            <button class="primary" type="submit" :disabled="loading">{{ editingEmployee ? "保存修改" : "创建员工" }}</button>
+          </div>
+        </form>
+      </div>
+    </div>
   </section>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import {
   clearAdminToken,
   createEmployee,
+  deleteEmployee,
   fetchAdminMe,
   fetchDevices,
   fetchEmployees,
@@ -458,11 +479,15 @@ import {
   fetchMonitoring,
   kickDevice,
   loginAdmin,
-  logoutAdmin,
   storedAdminToken,
   updateEmployee,
   updateLlmSettings
 } from "../services/adminApi";
+
+const props = defineProps({
+  currentUser: { type: Object, default: null }
+});
+const emit = defineEmits(["logout", "user-updated"]);
 
 const adminPages = [
   { key: "overview", no: "01", label: "后台概览", description: "指标与运行监控", eyebrow: "Admin Console", title: "后台总览", subtitle: "查看账号、设备、接口运行的关键状态。" },
@@ -475,14 +500,16 @@ const adminPages = [
 const loading = ref(false);
 const message = ref("");
 const hasError = ref(false);
-const currentUser = ref(null);
+const currentUser = ref(props.currentUser);
 const employees = ref([]);
 const devices = ref([]);
 const monitoring = ref(null);
 const llmSettings = ref(null);
 const activeAdminPage = ref("overview");
 const loginForm = reactive({ username: "admin", password: "" });
-const employeeForm = reactive({ username: "", displayName: "", password: "", role: "EMPLOYEE" });
+const employeeDialogOpen = ref(false);
+const editingEmployee = ref(null);
+const employeeForm = reactive({ username: "", displayName: "", password: "", role: "EMPLOYEE", status: "ACTIVE" });
 const llmForm = reactive({
   enabled: true,
   baseUrl: "https://api.deepseek.com",
@@ -518,6 +545,10 @@ onMounted(async () => {
   }
 });
 
+watch(() => props.currentUser, (user) => {
+  currentUser.value = user;
+}, { immediate: true });
+
 async function handleLogin() {
   if (loading.value) return;
   await withLoading(async () => {
@@ -533,22 +564,13 @@ async function handleLogin() {
 }
 
 async function handleLogout() {
-  await withLoading(async () => {
-    await logoutAdmin();
-    currentUser.value = null;
-    employees.value = [];
-    devices.value = [];
-    monitoring.value = null;
-    llmSettings.value = null;
-    loginForm.password = "";
-    activeAdminPage.value = "overview";
-    showMessage("已退出登录");
-  });
+  emit("logout");
 }
 
 async function loadDashboard(showSuccess = true) {
   await withLoading(async () => {
     currentUser.value = normalizeDisplayName(await fetchAdminMe());
+    emit("user-updated", currentUser.value);
     const [employeeRows, deviceRows, monitoringData, llmData] = await Promise.all([
       fetchEmployees(),
       fetchDevices(),
@@ -564,15 +586,46 @@ async function loadDashboard(showSuccess = true) {
   });
 }
 
-async function handleCreateEmployee() {
+function openEmployeeDialog(user = null, focusPassword = false) {
+  editingEmployee.value = user;
+  employeeForm.username = user?.username || "";
+  employeeForm.displayName = user?.displayName || "";
+  employeeForm.password = "";
+  employeeForm.role = user?.role || "EMPLOYEE";
+  employeeForm.status = user?.status || "ACTIVE";
+  employeeDialogOpen.value = true;
+  if (focusPassword) {
+    showMessage("请输入新密码后保存。");
+  }
+}
+
+function closeEmployeeDialog() {
+  employeeDialogOpen.value = false;
+  editingEmployee.value = null;
+  employeeForm.username = "";
+  employeeForm.displayName = "";
+  employeeForm.password = "";
+  employeeForm.role = "EMPLOYEE";
+  employeeForm.status = "ACTIVE";
+}
+
+async function handleSaveEmployee() {
   await withLoading(async () => {
-    await createEmployee({ ...employeeForm });
-    employeeForm.username = "";
-    employeeForm.displayName = "";
-    employeeForm.password = "";
-    employeeForm.role = "EMPLOYEE";
+    const wasEditing = Boolean(editingEmployee.value);
+    if (wasEditing) {
+      const payload = {
+        displayName: employeeForm.displayName,
+        role: employeeForm.role,
+        status: employeeForm.status
+      };
+      if (employeeForm.password) payload.password = employeeForm.password;
+      await updateEmployee(editingEmployee.value.id, payload);
+    } else {
+      await createEmployee({ ...employeeForm });
+    }
+    closeEmployeeDialog();
     await loadDashboard(false);
-    showMessage("员工已创建");
+    showMessage(wasEditing ? "员工已更新" : "员工已创建");
   });
 }
 
@@ -585,6 +638,15 @@ async function toggleEmployee(user) {
     });
     await loadDashboard(false);
     showMessage(user.status === "ACTIVE" ? "员工已禁用" : "员工已启用");
+  });
+}
+
+async function handleDeleteEmployee(user) {
+  if (!window.confirm(`确认删除/禁用账号「${user.username}」吗？`)) return;
+  await withLoading(async () => {
+    await deleteEmployee(user.id);
+    await loadDashboard(false);
+    showMessage("员工已删除并下线");
   });
 }
 

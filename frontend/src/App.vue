@@ -1,5 +1,16 @@
 <template>
-  <AdminDashboard v-if="activePage === 'admin'" key="admin" />
+  <LoginPage v-if="authChecked && !currentUser" @logged-in="handleLoggedIn" />
+  <div v-else-if="!authChecked" class="auth-loading-shell">
+    <div class="spinner"></div>
+    <span>正在检查登录状态...</span>
+  </div>
+  <AdminDashboard
+    v-else-if="activePage === 'admin' && currentUser?.role === 'ADMIN'"
+    key="admin"
+    :current-user="currentUser"
+    @logout="handleLogout"
+    @user-updated="handleUserUpdated"
+  />
   <div v-else class="app-shell">
     <header class="topbar">
       <div class="brand">
@@ -11,7 +22,10 @@
       </div>
       <div class="top-user">
         <span>{{ pageTitle }}</span>
-        <strong>{{ userDisplayName }}</strong>
+        <button type="button" @click="profileOpen = true">
+          <strong>{{ userDisplayName }}</strong>
+          <small>{{ currentUser?.username }}</small>
+        </button>
       </div>
     </header>
 
@@ -50,7 +64,7 @@
             <span class="nav-full">算法说明</span>
             <span class="nav-short">算法</span>
           </RouterLink>
-          <RouterLink to="/admin" :class="{ active: activePage === 'admin' }">
+          <RouterLink v-if="currentUser?.role === 'ADMIN'" to="/admin" :class="{ active: activePage === 'admin' }">
             <span class="nav-full">管理后台</span>
             <span class="nav-short">后台</span>
           </RouterLink>
@@ -64,6 +78,7 @@
     <HomePage
       v-if="activePage === 'home'"
       key="home"
+      :user="currentUser"
       :cargo-count="cargos.length"
       :utilization-percent="utilizationPercent"
       :global-gap-cm="globalGapCm"
@@ -244,6 +259,7 @@
               <label><input v-model="showMassBalance" type="checkbox" /> 显示重心偏载</label>
               <button type="button" :disabled="exportingReport || loading || !selectedPlacements.length" @click="exportCurrentReport('png')">导出图片</button>
               <button type="button" :disabled="exportingReport || loading || !selectedPlacements.length" @click="exportCurrentReport('pdf')">导出 PDF</button>
+              <button type="button" :disabled="exportingReport || loading || !selectedEvaluation?.packedBoxes?.length" @click="exportAllReportsZip">导出整套 ZIP</button>
             </div>
           </div>
           <div class="scene-wrap">
@@ -281,25 +297,49 @@
 
     <CargoModal v-if="cargoModalOpen" :cargo="editingCargo" @close="closeCargoModal" @save="saveCargo" />
     <ContainerModal v-if="containerModalOpen" @close="containerModalOpen = false" @save="saveContainer" />
+    <div v-if="profileOpen" class="modal-backdrop">
+      <div class="modal profile-modal">
+        <header>
+          <div>
+            <p>Personal Center</p>
+            <h2>个人中心</h2>
+          </div>
+          <button type="button" @click="profileOpen = false">×</button>
+        </header>
+        <div class="profile-summary-grid">
+          <div><span>用户名</span><strong>{{ currentUser?.username }}</strong></div>
+          <div><span>显示名</span><strong>{{ userDisplayName }}</strong></div>
+          <div><span>角色</span><strong>{{ currentUser?.role === "ADMIN" ? "管理员" : "员工" }}</strong></div>
+          <div><span>登录有效期</span><strong>{{ sessionExpiryText }}</strong></div>
+        </div>
+        <div class="modal-actions">
+          <RouterLink v-if="currentUser?.role === 'ADMIN'" class="planner-link-button" to="/admin" @click="profileOpen = false">进入后台</RouterLink>
+          <button type="button" @click="handleLogout">退出登录</button>
+        </div>
+      </div>
+    </div>
     <div v-if="toast" class="toast">{{ toast }}</div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import AdminDashboard from "./components/AdminDashboard.vue";
 import AlgorithmPage from "./components/AlgorithmPage.vue";
 import ExcelTemplatePage from "./components/ExcelTemplatePage.vue";
 import HomePage from "./components/HomePage.vue";
+import LoginPage from "./components/LoginPage.vue";
 import CargoModal from "./components/CargoModal.vue";
 import ContainerModal from "./components/ContainerModal.vue";
 import ContainerScene from "./components/ContainerScene.vue";
 import ProjectionCanvas from "./components/ProjectionCanvas.vue";
-import { exportPackingReport } from "./services/exportReport";
+import { exportPackingReportsZip, exportPackingReport } from "./services/exportReport";
 import { assignCargoModels } from "./services/excelImport";
 import { calculatePacking } from "./services/packingClient";
 import { cloneDefaultContainers, mergeDefaultContainers } from "./services/localData";
+import { fetchAdminMe, logoutAdmin } from "./services/adminApi";
+import { clearSession, isSessionExpired, storedExpiresAt, storedToken, storedUser } from "./services/authSession";
 import { cargoLabel, fmt, shortType, uid } from "./utils/format";
 
 const STORAGE_KEY = "cargo-planner-vue-state";
@@ -309,6 +349,9 @@ const route = useRoute();
 const router = useRouter();
 const profileVersion = ref(0);
 const sidebarCollapsed = ref(false);
+const authChecked = ref(false);
+const currentUser = ref(storedUser());
+const profileOpen = ref(false);
 const routeName = computed(() => String(route.name || ""));
 const activePage = computed(() => {
   if (routeName.value.startsWith("planner")) return "planner";
@@ -328,12 +371,17 @@ const pageTitle = computed(() => ({
 }[activePage.value] || "工作台"));
 const userDisplayName = computed(() => {
   profileVersion.value;
-  try {
-    const profile = JSON.parse(localStorage.getItem("cargo-planner-user-profile") || "{}");
-    return profile.displayName || "操作员";
-  } catch {
-    return "操作员";
-  }
+  return currentUser.value?.displayName || currentUser.value?.username || "操作员";
+});
+const sessionExpiryText = computed(() => {
+  const value = storedExpiresAt();
+  if (!value) return "6 小时";
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
 });
 const cargos = ref([]);
 const containers = ref([]);
@@ -383,12 +431,18 @@ const cargoTotalVolumeM3 = computed(() =>
 );
 
 onMounted(async () => {
+  window.addEventListener("auth-expired", handleAuthExpired);
+  await initializeAuth();
   restoreState();
   cargos.value = normalizeCargoModels(cargos.value);
   if (!containers.value.length) containers.value = cloneDefaultContainers();
   if (!selectedContainerId.value && containers.value[0]) selectedContainerId.value = containers.value[0].id;
   if (!cargos.value.length) loadSample(false);
   recalculate();
+});
+
+onUnmounted(() => {
+  window.removeEventListener("auth-expired", handleAuthExpired);
 });
 
 watch([cargos, containers, utilizationPercent, globalGapCm], () => {
@@ -398,6 +452,57 @@ watch([cargos, containers, utilizationPercent, globalGapCm], () => {
 }, { deep: true });
 
 watch([showRemaining, showMassBalance], persistState);
+watch([activePage, currentUser, authChecked], () => {
+  if (authChecked.value && activePage.value === "admin" && currentUser.value?.role !== "ADMIN") {
+    router.replace("/home");
+  }
+});
+
+async function initializeAuth() {
+  if (!storedToken() || isSessionExpired()) {
+    clearSession();
+    currentUser.value = null;
+    authChecked.value = true;
+    return;
+  }
+  try {
+    currentUser.value = await fetchAdminMe();
+  } catch {
+    clearSession();
+    currentUser.value = null;
+  } finally {
+    authChecked.value = true;
+  }
+}
+
+function handleLoggedIn(user) {
+  currentUser.value = user;
+  profileVersion.value += 1;
+  if (user?.role === "ADMIN" && route.path === "/admin") return;
+  router.push("/home");
+}
+
+async function handleLogout() {
+  try {
+    await logoutAdmin();
+  } catch {
+    clearSession();
+  }
+  currentUser.value = null;
+  profileOpen.value = false;
+  router.push("/home");
+}
+
+function handleAuthExpired() {
+  clearSession();
+  currentUser.value = null;
+  profileOpen.value = false;
+  showToast("登录已过期，请重新登录。");
+}
+
+function handleUserUpdated(user) {
+  if (user) currentUser.value = user;
+}
 
 function restoreState() {
   try {
@@ -574,6 +679,41 @@ async function exportCurrentReport(format) {
   } finally {
     exportingReport.value = false;
   }
+}
+
+async function exportAllReportsZip() {
+  if (!selectedContainer.value || !selectedEvaluation.value?.packedBoxes?.length) {
+    showToast("当前没有可打包导出的装箱方案。");
+    return;
+  }
+  exportingReport.value = true;
+  showToast("正在打包整套装箱报告...");
+  try {
+    await exportPackingReportsZip({
+      container: selectedContainer.value,
+      evaluation: normalizeEvaluationForExport(selectedEvaluation.value),
+      cargos: cargos.value,
+      utilizationPercent: utilizationPercent.value,
+      globalGapCm: globalGapCm.value,
+      showMassBalance: showMassBalance.value
+    });
+    showToast("整套装箱报告 ZIP 已导出。");
+  } catch (error) {
+    showToast(error.message || "批量导出失败，请稍后重试。");
+  } finally {
+    exportingReport.value = false;
+  }
+}
+
+function normalizeEvaluationForExport(evaluation) {
+  if (!evaluation) return evaluation;
+  return {
+    ...evaluation,
+    packedBoxes: (evaluation.packedBoxes || []).map((box) => ({
+      ...box,
+      placed: (box.placed || []).map((item) => ({ ...item, type: shortType(item.type) }))
+    }))
+  };
 }
 
 function importCsv(event) {

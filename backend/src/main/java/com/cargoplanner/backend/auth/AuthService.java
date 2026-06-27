@@ -10,6 +10,7 @@ import java.security.SecureRandom;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
@@ -27,15 +28,18 @@ public class AuthService {
   private final JdbcTemplate jdbcTemplate;
   private final PasswordHasher passwordHasher;
   private final int deviceLimit;
+  private final Duration tokenTtl;
 
   public AuthService(
       JdbcTemplate jdbcTemplate,
       PasswordHasher passwordHasher,
-      @Value("${app.device-limit-per-user:5}") int deviceLimit
+      @Value("${app.device-limit-per-user:5}") int deviceLimit,
+      @Value("${app.auth-token-hours:6}") long tokenHours
   ) {
     this.jdbcTemplate = jdbcTemplate;
     this.passwordHasher = passwordHasher;
     this.deviceLimit = deviceLimit;
+    this.tokenTtl = Duration.ofHours(Math.max(1, tokenHours));
   }
 
   @Transactional
@@ -43,6 +47,7 @@ public class AuthService {
     String username = request.username().trim();
     String ip = ClientInfo.ip(httpRequest);
     String userAgent = ClientInfo.userAgent(httpRequest);
+    expireOldSessions(Instant.now());
     UserAccount account = findAccount(username);
 
     if (account == null || !"ACTIVE".equals(account.status())) {
@@ -75,13 +80,14 @@ public class AuthService {
     jdbcTemplate.update("UPDATE cp_users SET last_login_at = ? WHERE id = ?", Timestamp.from(now), account.id());
     recordEvent(account.id(), username, "LOGIN_SUCCESS", deviceId, ip, userAgent, "Login success");
 
-    return new LoginResponse(token, toAuthenticatedUser(account), deviceLimit);
+    return new LoginResponse(token, toAuthenticatedUser(account), deviceLimit, now.plus(tokenTtl).toString());
   }
 
   public AuthenticatedUser authenticate(String token, HttpServletRequest request) {
     if (token == null || token.isBlank()) {
       throw new ApiException(HttpStatus.UNAUTHORIZED, "Missing auth token");
     }
+    expireOldSessions(Instant.now());
     String tokenHash = sha256Hex(token.trim());
     List<AuthenticatedUser> users = jdbcTemplate.query(
         """
@@ -139,6 +145,26 @@ public class AuthService {
 
   public int deviceLimit() {
     return deviceLimit;
+  }
+
+  public long tokenTtlHours() {
+    return tokenTtl.toHours();
+  }
+
+  private void expireOldSessions(Instant now) {
+    Timestamp expiredBefore = Timestamp.from(now.minus(tokenTtl));
+    Timestamp revokedAt = Timestamp.from(now);
+    jdbcTemplate.update(
+        """
+        UPDATE cp_login_devices
+        SET online = 0, session_token_hash = NULL, revoked_at = ?
+        WHERE online = 1
+          AND revoked_at IS NULL
+          AND logged_in_at < ?
+        """,
+        revokedAt,
+        expiredBefore
+    );
   }
 
   private UserAccount findAccount(String username) {

@@ -124,6 +124,25 @@ public class AdminService {
     return findUser(userId);
   }
 
+  @Transactional
+  public Map<String, Object> deleteEmployee(long userId, AuthenticatedUser admin, String ip) {
+    if (admin.id() == userId) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "Cannot delete current admin account");
+    }
+    Map<String, Object> existing = findUser(userId);
+    jdbcTemplate.update(
+        "UPDATE cp_users SET status = 'DISABLED' WHERE id = ?",
+        userId
+    );
+    jdbcTemplate.update(
+        "UPDATE cp_login_devices SET online = 0, session_token_hash = NULL, revoked_at = ? WHERE user_id = ?",
+        Timestamp.from(Instant.now()),
+        userId
+    );
+    audit(admin.id(), "DELETE_USER", "USER", userId, "Disabled user " + existing.get("username"), ip);
+    return findUser(userId);
+  }
+
   public List<Map<String, Object>> listDevices() {
     return jdbcTemplate.query(
         """
@@ -168,6 +187,7 @@ public class AdminService {
     result.put("loginSuccessToday", count("SELECT COUNT(*) FROM cp_login_events WHERE event_type = 'LOGIN_SUCCESS' AND created_at >= CURDATE()"));
     result.put("loginFailToday", count("SELECT COUNT(*) FROM cp_login_events WHERE event_type IN ('LOGIN_FAIL', 'DEVICE_LIMIT') AND created_at >= CURDATE()"));
     result.put("deviceLimit", authService.deviceLimit());
+    result.put("tokenTtlHours", authService.tokenTtlHours());
     result.put("runtime", requestStats.snapshot());
     result.put("recentEvents", recentEvents());
     return result;

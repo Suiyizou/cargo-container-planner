@@ -1,19 +1,24 @@
 import { requestJson } from "./apiClient";
+import {
+  clearSession,
+  getDeviceId,
+  getDeviceName,
+  saveSession,
+  storedToken
+} from "./authSession";
 
 const configuredBase = import.meta.env.VITE_API_BASE_URL;
-const TOKEN_KEY = "cargo-planner-admin-token";
-const DEVICE_KEY = "cargo-planner-device-id";
 
 export function storedAdminToken() {
-  return localStorage.getItem(TOKEN_KEY) || "";
+  return storedToken();
 }
 
 export function saveAdminToken(token) {
-  localStorage.setItem(TOKEN_KEY, token);
+  if (token) saveSession({ token });
 }
 
 export function clearAdminToken() {
-  localStorage.removeItem(TOKEN_KEY);
+  clearSession();
 }
 
 export async function loginAdmin(username, password) {
@@ -26,13 +31,13 @@ export async function loginAdmin(username, password) {
       deviceName: getDeviceName()
     }
   });
-  saveAdminToken(response.token);
+  saveSession(response);
   return response;
 }
 
 export async function logoutAdmin() {
   await request("/auth/logout", { method: "POST" });
-  clearAdminToken();
+  clearSession();
 }
 
 export async function fetchAdminMe() {
@@ -49,6 +54,10 @@ export async function createEmployee(payload) {
 
 export async function updateEmployee(id, payload) {
   return request(`/admin/employees/${id}`, { method: "PATCH", body: payload });
+}
+
+export async function deleteEmployee(id) {
+  return request(`/admin/employees/${id}`, { method: "DELETE" });
 }
 
 export async function fetchDevices() {
@@ -72,28 +81,9 @@ export async function updateLlmSettings(payload) {
 }
 
 async function request(path, options = {}) {
-  const headers = { "Content-Type": "application/json" };
-  const token = storedAdminToken();
-  if (token) headers["X-Auth-Token"] = token;
-
   return requestJson(path, {
     method: options.method || "GET",
-    headers,
+    headers: { "Content-Type": "application/json" },
     body: options.body
   }, configuredBase);
-}
-
-function getDeviceId() {
-  let deviceId = localStorage.getItem(DEVICE_KEY);
-  if (!deviceId) {
-    deviceId = `web-${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`}`;
-    localStorage.setItem(DEVICE_KEY, deviceId);
-  }
-  return deviceId;
-}
-
-function getDeviceName() {
-  const platform = navigator.platform || "Web";
-  const browser = navigator.userAgentData?.brands?.[0]?.brand || navigator.userAgent.split(" ")[0] || "Browser";
-  return `${platform} / ${browser}`;
 }
