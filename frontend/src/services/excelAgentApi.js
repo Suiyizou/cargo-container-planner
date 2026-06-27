@@ -33,6 +33,39 @@ export async function downloadCleanedExcel(id, fileName = "cleaned-cargos.xlsx")
   URL.revokeObjectURL(url);
 }
 
+export function createTextRecognitionTask(text, options = {}) {
+  return request("/text-recognition/tasks", {
+    method: "POST",
+    body: {
+      text,
+      sourceName: options.sourceName || "pasted-text",
+      mode: options.mode || "agent",
+      languageHint: options.languageHint || "auto"
+    }
+  });
+}
+
+export function fetchTextRecognitionTasks() {
+  return request("/text-recognition/tasks");
+}
+
+export function fetchTextRecognitionTask(id) {
+  return request(`/text-recognition/tasks/${id}`);
+}
+
+export async function downloadTextRecognitionExcel(id, fileName = "text-recognition-cargos.xlsx") {
+  const response = await fetchWithApiFallback(`/text-recognition/tasks/${id}/cleaned-excel`, {}, configuredBase);
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 async function request(path, options = {}) {
   const headers = options.body instanceof FormData ? {} : { "Content-Type": "application/json" };
   return requestJson(path, {

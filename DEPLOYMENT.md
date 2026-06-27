@@ -27,6 +27,23 @@ backend/sql/schema.sql
 
 生产环境请先复制 `.env.example` 为 `.env`，修改数据库密码和端口后再启动。
 
+## Spring AI 文本识别
+
+智能导入里的“交给 Agent 识别”默认先使用规则兜底，服务端不需要 API Key 也能启动。后续拿到 Key 后，在 `.env` 中启用：
+
+```env
+TEXT_RECOGNITION_SPRING_AI_ENABLED=true
+SPRING_AI_CHAT_MODEL=openai
+SPRING_AI_OPENAI_API_KEY=你的_API_Key
+SPRING_AI_OPENAI_MODEL=gpt-4o-mini
+```
+
+更新后重启后端或重新执行：
+
+```bash
+docker compose up -d --build backend
+```
+
 ## 本地开发
 
 前端：

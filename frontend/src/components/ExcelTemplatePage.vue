@@ -69,17 +69,20 @@
       <div class="recognition-head">
         <div>
           <strong>路径二：智能识别</strong>
-          <p>直接粘贴聊天记录、报价明细或邮件里的货物描述，系统会本地提取名称、型号、尺寸、数量、重量和堆叠规则。</p>
+          <p>直接粘贴聊天记录、报价明细或邮件里的货物描述；可先本地快速预览，也可以交给后端 Agent 工作流提取标准规格。</p>
         </div>
         <div class="recognition-actions">
           <button type="button" @click="fillRecognitionSample">套用示例</button>
           <button type="button" @click="clearRecognition">清空</button>
           <button class="primary" type="button" :disabled="!recognitionText.trim()" @click="runRecognition">识别预览</button>
+          <button class="primary secondary" type="button" :disabled="!recognitionText.trim() || recognitionAgentBusy" @click="submitTextRecognitionTask">
+            {{ recognitionAgentBusy ? "Agent 识别中..." : "交给 Agent 识别" }}
+          </button>
         </div>
       </div>
       <textarea
         v-model="recognitionText"
-        @input="recognitionPreview = null"
+        @input="resetRecognitionResult"
         rows="10"
         placeholder="例如：
 蝶阀100 110*45*82cm 8件 单重180kg 木箱
@@ -92,15 +95,15 @@
         <strong>{{ recognitionMessage }}</strong>
       </div>
 
-      <template v-if="recognitionPreview">
+      <template v-if="recognitionHasResult">
         <div class="excel-summary-grid recognition-summary-grid">
           <div>
             <span>文本条目</span>
-            <strong>{{ recognitionPreview.totalRows }}</strong>
+            <strong>{{ recognitionTotalRows }}</strong>
           </div>
           <div>
             <span>有效条目</span>
-            <strong>{{ recognitionPreview.validRows.length }}</strong>
+            <strong>{{ recognitionValidCount }}</strong>
           </div>
           <div>
             <span>异常条目</span>
@@ -114,6 +117,13 @@
             <span>导入件数</span>
             <strong>{{ recognitionQuantity }}</strong>
           </div>
+        </div>
+
+        <div v-if="recognitionAgentTask" class="agent-status-row text-agent-status">
+          <span>{{ recognitionAgentTask.taskNo }} · {{ recognitionAgentTask.agentNotes }}</span>
+          <button type="button" :disabled="!recognitionAgentTask.id" @click="downloadRecognitionAgentResult">
+            下载清洗后 Excel
+          </button>
         </div>
 
         <div class="recognition-import-row">
@@ -159,7 +169,7 @@
           </table>
         </div>
 
-        <div v-if="recognitionPreview.validRows.length" class="template-table-wrap">
+        <div v-if="recognitionValidRows.length" class="template-table-wrap">
           <table class="template-table">
             <thead>
               <tr>
@@ -170,11 +180,11 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in recognitionPreview.validRows.slice(0, 8)" :key="`valid-${row.rowNumber}`">
+              <tr v-for="row in recognitionValidRows.slice(0, 8)" :key="`valid-${row.rowNumber}`">
                 <td>{{ row.text }}</td>
                 <td>{{ suggestionCargoLabel(row.cargo) }} / {{ row.cargo.lengthCm }} × {{ row.cargo.widthCm }} × {{ row.cargo.heightCm }} cm</td>
                 <td><span class="confidence-pill" :class="{ warn: row.confidence < 75 }">{{ row.confidence }}%</span></td>
-                <td>{{ row.notes.join("；") || "-" }}</td>
+                <td>{{ row.notes?.join("；") || "-" }}</td>
               </tr>
             </tbody>
           </table>
@@ -191,8 +201,8 @@
             </thead>
             <tbody>
               <tr v-for="row in recognitionIssues" :key="`issue-${row.rowNumber}`">
-                <td>{{ row.text }}</td>
-                <td>{{ row.errors.join("；") }}</td>
+                <td>{{ row.text || row.rawText || "-" }}</td>
+                <td>{{ row.errors?.join("；") || row.message || "-" }}</td>
                 <td>{{ suggestionCargoLabel(row.suggestion?.cargo) }}</td>
               </tr>
             </tbody>
@@ -626,9 +636,12 @@ import {
 } from "../services/excelImport";
 import {
   createExcelCleaningTask,
+  createTextRecognitionTask,
   downloadCleanedExcel,
+  downloadTextRecognitionExcel,
   fetchExcelCleaningTask,
-  fetchExcelCleaningTasks
+  fetchExcelCleaningTasks,
+  fetchTextRecognitionTask
 } from "../services/excelAgentApi";
 import { uid } from "../utils/format";
 
@@ -644,6 +657,8 @@ const recognitionText = ref("");
 const recognitionPreview = ref(null);
 const recognitionMessage = ref("");
 const recognitionMessageType = ref("ok");
+const recognitionAgentBusy = ref(false);
+const recognitionAgentTask = ref(null);
 const manualCorrections = ref([]);
 const suggestionRow = ref(null);
 const suggestionErrors = ref([]);
@@ -692,11 +707,15 @@ const agentIssues = computed(() => agentTask.value?.issues || []);
 const agentImportQuantity = computed(() =>
   agentCleanedRows.value.reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0)
 );
-const recognitionRows = computed(() => recognitionPreview.value?.aggregated || []);
-const recognitionIssues = computed(() => recognitionPreview.value?.invalidRows || []);
+const recognitionRows = computed(() => recognitionAgentTask.value?.cleanedRows || recognitionPreview.value?.aggregated || []);
+const recognitionIssues = computed(() => recognitionAgentTask.value?.issues || recognitionPreview.value?.invalidRows || []);
 const recognitionQuantity = computed(() =>
   recognitionRows.value.reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0)
 );
+const recognitionTotalRows = computed(() => recognitionAgentTask.value?.rowCount ?? recognitionPreview.value?.totalRows ?? 0);
+const recognitionValidCount = computed(() => recognitionAgentTask.value?.validCount ?? recognitionPreview.value?.validRows?.length ?? 0);
+const recognitionHasResult = computed(() => Boolean(recognitionAgentTask.value || recognitionPreview.value));
+const recognitionValidRows = computed(() => recognitionPreview.value?.validRows || []);
 const suggestionSummary = computed(() => {
   if (!suggestionRow.value) return "";
   const label = suggestionForm.model ? `${suggestionForm.name || "未命名货物"} ${suggestionForm.model}` : suggestionForm.name || "未命名货物";
@@ -748,7 +767,14 @@ function refreshPreview() {
   closeSuggestion();
 }
 
+function resetRecognitionResult() {
+  recognitionPreview.value = null;
+  recognitionAgentTask.value = null;
+  recognitionMessage.value = "";
+}
+
 function runRecognition() {
+  recognitionAgentTask.value = null;
   recognitionPreview.value = parseCargoText(recognitionText.value, {
     dimensionUnit: "auto",
     weightUnit: "auto"
@@ -769,22 +795,56 @@ function runRecognition() {
     : `识别完成：${recognitionRows.value.length} 类货物，${recognitionQuantity.value} 件。`;
 }
 
+async function submitTextRecognitionTask() {
+  if (!recognitionText.value.trim()) return;
+  recognitionAgentBusy.value = true;
+  recognitionMessage.value = "";
+  recognitionPreview.value = null;
+  recognitionAgentTask.value = null;
+  try {
+    const task = await createTextRecognitionTask(recognitionText.value, {
+      sourceName: "智能识别粘贴文本",
+      mode: "agent",
+      languageHint: "auto"
+    });
+    recognitionAgentTask.value = task?.id ? await fetchTextRecognitionTask(task.id) : task;
+    recognitionMessageType.value = recognitionAgentTask.value.status === "FAILED" ? "error" : "ok";
+    recognitionMessage.value =
+      recognitionAgentTask.value.status === "FAILED"
+        ? `Agent 识别失败：${recognitionAgentTask.value.errorMessage || "请检查后端任务日志"}`
+        : `Agent 已返回：${recognitionRows.value.length} 类货物，${recognitionQuantity.value} 件；${recognitionIssues.value.length} 条需要人工确认。`;
+  } catch (error) {
+    recognitionMessageType.value = "error";
+    recognitionMessage.value = `Agent 接口不可用：${error.message}`;
+  } finally {
+    recognitionAgentBusy.value = false;
+  }
+}
+
 function fillRecognitionSample() {
   recognitionText.value = [
     "蝶阀100 110*45*82cm 8件 单重180kg 木箱",
     "蝶阀200 125*55*90cm 4件 总重960kg 木箱",
     "纸箱B 60*40*35cm 30件 单重12kg",
     "易碎品C 55×45×30cm 12件 单重18kg 不可重压",
-    "电子产品配件 型号K 长48.5cm 宽15cm 高11.7cm 数量1 单重1.2kg 朝上"
+    "电子产品配件 型号K 长48.5cm 宽15cm 高11.7cm 数量1 单重1.2kg 朝上",
+    "",
+    "cargo:",
+    "E-Houses",
+    "2 skids – each 31.200 kgs / 1080 x 200 x 340 cm",
+    "3 skids – each 18.100 kgs / 660 x 200 x 340 cm",
+    "2 skids – each 33.700 kgs / 1.210 x 230 x 340 cm"
   ].join("\n");
   recognitionPreview.value = null;
-  recognitionMessage.value = "已填入示例文本，可以点击“识别预览”。";
+  recognitionAgentTask.value = null;
+  recognitionMessage.value = "已填入示例文本，可以本地预览，也可以交给 Agent 识别英文 skid 明细。";
   recognitionMessageType.value = "ok";
 }
 
 function clearRecognition() {
   recognitionText.value = "";
   recognitionPreview.value = null;
+  recognitionAgentTask.value = null;
   recognitionMessage.value = "";
 }
 
@@ -792,6 +852,16 @@ function importRecognitionRows() {
   if (!recognitionRows.value.length) return;
   const cargos = recognitionRows.value.map((cargo, index) => normalizeImportedCargo(cargo, index));
   emit("import-cargos", { cargos, mode: importMode.value, skippedRows: recognitionIssues.value.length });
+}
+
+async function downloadRecognitionAgentResult() {
+  if (!recognitionAgentTask.value?.id) return;
+  try {
+    await downloadTextRecognitionExcel(recognitionAgentTask.value.id, `${recognitionAgentTask.value.taskNo || "text-recognition"}.xlsx`);
+  } catch (error) {
+    recognitionMessageType.value = "error";
+    recognitionMessage.value = `下载失败：${error.message}`;
+  }
 }
 
 function importPreview() {

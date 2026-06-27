@@ -9,6 +9,7 @@
 - 装箱计算：WebWorker 本地计算
 - 桌面打包：Electron
 - 后端：Spring Boot 3 + JDBC
+- 智能导入：Spring AI 可选接入，未配置 API Key 时使用规则兜底
 - 数据库：MySQL 8
 - 部署：Docker Compose，Nginx 代理 `/api` 到后端
 
@@ -21,6 +22,7 @@
 - 提供 CSV 导入导出、Excel 样板说明、示例数据、清空货物和算法说明页面。
 - 新增管理后台：总管理员登录、员工账号管理、在线设备/IP 查看、设备踢下线、基础运行监控。
 - 同一账号默认限制最多 5 台在线设备。
+- 智能导入支持两条路径：本地规则预览，以及后端文本识别任务；配置 Spring AI 后可由模型抽取非标准文本。
 
 ## 后端与数据库
 
@@ -38,6 +40,25 @@ backend/sql/schema.sql
 ```
 
 首次生产登录后请立即修改默认密码。浏览器 Web 端无法可靠读取真实 MAC 地址，因此当前版本记录的是设备指纹、IP、浏览器 UA，并预留 `mac_address` 字段给后续桌面客户端或内网 Agent 上报。
+
+## Spring AI 文本识别
+
+默认不启用模型，文本智能识别会走后端规则兜底。拿到 API Key 后设置：
+
+```env
+TEXT_RECOGNITION_SPRING_AI_ENABLED=true
+SPRING_AI_CHAT_MODEL=openai
+SPRING_AI_OPENAI_API_KEY=你的_API_Key
+SPRING_AI_OPENAI_MODEL=gpt-4o-mini
+```
+
+对应接口：
+
+```text
+POST /api/text-recognition/tasks
+GET  /api/text-recognition/tasks/{id}
+GET  /api/text-recognition/tasks/{id}/cleaned-excel
+```
 
 ## 本地前端开发
 

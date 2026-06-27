@@ -4,6 +4,14 @@ server:
 spring:
   application:
     name: cargo-planner-backend
+  ai:
+    model:
+      chat: ${SPRING_AI_CHAT_MODEL:none}
+    openai:
+      api-key: ${SPRING_AI_OPENAI_API_KEY:}
+      chat:
+        options:
+          model: ${SPRING_AI_OPENAI_MODEL:gpt-4o-mini}
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://127.0.0.1:3306/cargo_planner?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${SPRING_DATASOURCE_USERNAME:cargo_planner}
@@ -18,3 +26,5 @@ management:
 
 app:
   device-limit-per-user: ${APP_DEVICE_LIMIT_PER_USER:5}
+  text-recognition:
+    spring-ai-enabled: ${TEXT_RECOGNITION_SPRING_AI_ENABLED:false}

@@ -91,6 +91,28 @@ CREATE TABLE IF NOT EXISTS cp_excel_cleaning_tasks (
   INDEX idx_cp_excel_cleaning_tasks_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+CREATE TABLE IF NOT EXISTS cp_text_recognition_tasks (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  task_no VARCHAR(40) NOT NULL UNIQUE,
+  source_channel ENUM('LOCAL', 'AGENT') NOT NULL DEFAULT 'AGENT',
+  source_name VARCHAR(255) NOT NULL DEFAULT 'pasted-text',
+  status ENUM('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED') NOT NULL DEFAULT 'PENDING',
+  raw_text LONGTEXT NOT NULL,
+  row_count INT NOT NULL DEFAULT 0,
+  valid_count INT NOT NULL DEFAULT 0,
+  issue_count INT NOT NULL DEFAULT 0,
+  cleaned_count INT NOT NULL DEFAULT 0,
+  cleaned_json LONGTEXT NULL,
+  issues_json LONGTEXT NULL,
+  agent_notes TEXT NULL,
+  error_message TEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  finished_at DATETIME NULL,
+  INDEX idx_cp_text_recognition_tasks_status_time (status, created_at),
+  INDEX idx_cp_text_recognition_tasks_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
 -- Default super administrator:
 -- username: admin
 -- password: Admin@123456

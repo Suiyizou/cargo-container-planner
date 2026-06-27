@@ -50,6 +50,11 @@ button.active {
   color: #fff;
 }
 
+button.primary.secondary {
+  background: #0f766e;
+  border-color: #0f766e;
+}
+
 button.danger {
   color: #a33a3a;
   border-color: #d6b7b7;
@@ -1969,6 +1974,15 @@ select {
   gap: 12px;
   margin-top: 12px;
   color: #40546b;
+}
+
+.text-agent-status {
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid #b7d9d4;
+  border-radius: 8px;
+  background: #f0fdfa;
 }
 
 .agent-result-panel {
