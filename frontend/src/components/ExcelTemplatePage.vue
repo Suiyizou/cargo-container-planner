@@ -153,10 +153,11 @@
                 <th>单重 kg</th>
                 <th>类型</th>
                 <th>备注</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="cargo in recognitionRows.slice(0, 12)" :key="cargoKey(cargo)">
+              <tr v-for="(cargo, index) in recognitionRows" :key="cargoKey(cargo, index)">
                 <td>{{ cargo.name }}</td>
                 <td>{{ cargo.model || "-" }}</td>
                 <td>{{ cargo.lengthCm }} × {{ cargo.widthCm }} × {{ cargo.heightCm }}</td>
@@ -164,9 +165,9 @@
                 <td>{{ cargo.weightKg }}</td>
                 <td>{{ typeText(cargo.type) }}</td>
                 <td>{{ cargo.remark || "-" }}</td>
-              </tr>
-              <tr v-if="recognitionRows.length > 12">
-                <td colspan="7">还有 {{ recognitionRows.length - 12 }} 类识别结果未显示</td>
+                <td>
+                  <button type="button" @click="openRecognitionEdit(cargo, index)">编辑</button>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -460,6 +461,79 @@
         </div>
       </div>
     </div>
+
+    <div v-if="recognitionEditIndex >= 0" class="modal-backdrop">
+      <div class="modal suggestion-modal recognition-edit-modal">
+        <header>
+          <div>
+            <p>识别结果第 {{ recognitionEditIndex + 1 }} 条</p>
+            <h2>编辑识别货物</h2>
+          </div>
+          <button type="button" @click="closeRecognitionEdit">×</button>
+        </header>
+
+        <div class="suggestion-summary">
+          <strong>{{ recognitionEditSummary }}</strong>
+          <ul>
+            <li>这里修改的是导入前的识别结果，不会重新调用 Agent。</li>
+            <li>适合修正重量千分位、型号、尺寸或货物类型。</li>
+          </ul>
+        </div>
+
+        <div class="suggestion-form-grid">
+          <label>
+            <span>货物名称</span>
+            <input v-model.trim="recognitionEditForm.name" />
+          </label>
+          <label>
+            <span>型号/规格</span>
+            <input v-model.trim="recognitionEditForm.model" />
+          </label>
+          <label>
+            <span>长度 cm</span>
+            <input v-model.number="recognitionEditForm.lengthCm" type="number" min="0" step="0.01" />
+          </label>
+          <label>
+            <span>宽度 cm</span>
+            <input v-model.number="recognitionEditForm.widthCm" type="number" min="0" step="0.01" />
+          </label>
+          <label>
+            <span>高度 cm</span>
+            <input v-model.number="recognitionEditForm.heightCm" type="number" min="0" step="0.01" />
+          </label>
+          <label>
+            <span>数量</span>
+            <input v-model.number="recognitionEditForm.quantity" type="number" min="1" step="1" />
+          </label>
+          <label>
+            <span>单件重量 kg</span>
+            <input v-model.number="recognitionEditForm.weightKg" type="number" min="0" step="0.01" />
+          </label>
+          <label>
+            <span>类型</span>
+            <select v-model="recognitionEditForm.type">
+              <option value="normal">普通货物</option>
+              <option value="upright">保持朝上</option>
+              <option value="nonstack">不可重压</option>
+              <option value="pallet">托盘/木箱</option>
+            </select>
+          </label>
+          <label>
+            <span>备注</span>
+            <input v-model.trim="recognitionEditForm.remark" />
+          </label>
+        </div>
+
+        <p v-if="recognitionEditErrors.length" class="excel-warning suggestion-error">
+          还需要修改：{{ recognitionEditErrors.join("；") }}
+        </p>
+
+        <div class="modal-actions">
+          <button type="button" @click="closeRecognitionEdit">取消</button>
+          <button class="primary" type="button" @click="applyRecognitionEdit">保存到识别结果</button>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -494,11 +568,26 @@ const recognitionMessage = ref("");
 const recognitionMessageType = ref("ok");
 const recognitionAgentBusy = ref(false);
 const recognitionAgentTask = ref(null);
+const recognitionEditIndex = ref(-1);
+const recognitionEditErrors = ref([]);
 const manualCorrections = ref([]);
 const suggestionRow = ref(null);
 const suggestionErrors = ref([]);
 const mapping = reactive({});
 const suggestionForm = reactive({
+  name: "",
+  model: "",
+  lengthCm: "",
+  widthCm: "",
+  heightCm: "",
+  quantity: 1,
+  weightKg: 0,
+  type: "normal",
+  color: "",
+  sku: "",
+  remark: ""
+});
+const recognitionEditForm = reactive({
   name: "",
   model: "",
   lengthCm: "",
@@ -542,6 +631,13 @@ const suggestionSummary = computed(() => {
   if (!suggestionRow.value) return "";
   const label = suggestionForm.model ? `${suggestionForm.name || "未命名货物"} ${suggestionForm.model}` : suggestionForm.name || "未命名货物";
   return `${label}，${suggestionForm.lengthCm || "-"} × ${suggestionForm.widthCm || "-"} × ${suggestionForm.heightCm || "-"} cm，${suggestionForm.quantity || 0} 件，${suggestionForm.weightKg || 0} kg/件`;
+});
+const recognitionEditSummary = computed(() => {
+  if (recognitionEditIndex.value < 0) return "";
+  const label = recognitionEditForm.model
+    ? `${recognitionEditForm.name || "未命名货物"} ${recognitionEditForm.model}`
+    : recognitionEditForm.name || "未命名货物";
+  return `${label}，${recognitionEditForm.lengthCm || "-"} × ${recognitionEditForm.widthCm || "-"} × ${recognitionEditForm.heightCm || "-"} cm，${recognitionEditForm.quantity || 0} 件，${recognitionEditForm.weightKg || 0} kg/件`;
 });
 
 const requiredFields = [
@@ -590,6 +686,7 @@ function resetRecognitionResult() {
   recognitionPreview.value = null;
   recognitionAgentTask.value = null;
   recognitionMessage.value = "";
+  closeRecognitionEdit();
 }
 
 async function submitTextRecognitionTask() {
@@ -605,6 +702,7 @@ async function submitTextRecognitionTask() {
       languageHint: "auto"
     });
     recognitionAgentTask.value = task?.id ? await fetchTextRecognitionTask(task.id) : task;
+    closeRecognitionEdit();
     recognitionMessageType.value = recognitionAgentTask.value.status === "FAILED" ? "error" : "ok";
     recognitionMessage.value =
       recognitionAgentTask.value.status === "FAILED"
@@ -634,6 +732,7 @@ function fillRecognitionSample() {
   ].join("\n");
   recognitionPreview.value = null;
   recognitionAgentTask.value = null;
+  closeRecognitionEdit();
   recognitionMessage.value = "已填入示例文本，点击智能识别后会由后端流程提取中文和英文 skid 明细。";
   recognitionMessageType.value = "ok";
 }
@@ -642,6 +741,7 @@ function clearRecognition() {
   recognitionText.value = "";
   recognitionPreview.value = null;
   recognitionAgentTask.value = null;
+  closeRecognitionEdit();
   recognitionMessage.value = "";
 }
 
@@ -689,7 +789,65 @@ function normalizeImportedCargo(cargo, index) {
     quantity: Math.round(Number(cargo.quantity || 0)),
     weightKg: round2(cargo.weightKg),
     type: cargo.type || "normal",
-    color: cargo.color || colors[index % colors.length]
+    color: cargo.color || colors[index % colors.length],
+    sku: cargo.sku || "",
+    remark: cargo.remark || ""
+  };
+}
+
+function openRecognitionEdit(cargo, index) {
+  recognitionEditIndex.value = index;
+  Object.assign(recognitionEditForm, {
+    name: cargo.name || "",
+    model: cargo.model || "",
+    lengthCm: cargo.lengthCm || "",
+    widthCm: cargo.widthCm || "",
+    heightCm: cargo.heightCm || "",
+    quantity: cargo.quantity || 1,
+    weightKg: cargo.weightKg || 0,
+    type: cargo.type || "normal",
+    color: cargo.color || "",
+    sku: cargo.sku || "",
+    remark: cargo.remark || ""
+  });
+  recognitionEditErrors.value = [];
+}
+
+function closeRecognitionEdit() {
+  recognitionEditIndex.value = -1;
+  recognitionEditErrors.value = [];
+}
+
+function applyRecognitionEdit() {
+  if (!recognitionAgentTask.value || recognitionEditIndex.value < 0) return;
+  const cargo = normalizeRecognitionEditCargo();
+  const errors = validateCargo(cargo);
+  if (errors.length) {
+    recognitionEditErrors.value = errors;
+    return;
+  }
+  const rows = recognitionRows.value.map((item, index) =>
+    index === recognitionEditIndex.value ? { ...item, ...cargo } : item
+  );
+  recognitionAgentTask.value = { ...recognitionAgentTask.value, cleanedRows: rows };
+  recognitionMessageType.value = "ok";
+  recognitionMessage.value = `已修改第 ${recognitionEditIndex.value + 1} 条识别结果，可继续编辑或直接导入。`;
+  closeRecognitionEdit();
+}
+
+function normalizeRecognitionEditCargo() {
+  return {
+    name: String(recognitionEditForm.name || "").trim(),
+    model: String(recognitionEditForm.model || "").trim(),
+    lengthCm: round2(recognitionEditForm.lengthCm),
+    widthCm: round2(recognitionEditForm.widthCm),
+    heightCm: round2(recognitionEditForm.heightCm),
+    quantity: Math.round(Number(recognitionEditForm.quantity || 0)),
+    weightKg: round2(recognitionEditForm.weightKg),
+    type: recognitionEditForm.type || "normal",
+    color: recognitionEditForm.color || "",
+    sku: recognitionEditForm.sku || "",
+    remark: String(recognitionEditForm.remark || "").trim()
   };
 }
 
@@ -757,7 +915,7 @@ function suggestionCargoLabel(cargo) {
   return cargo.model ? `${cargo.name} ${cargo.model}` : cargo.name;
 }
 
-function cargoKey(cargo) {
-  return `${cargo.name}-${cargo.lengthCm}-${cargo.widthCm}-${cargo.heightCm}-${cargo.quantity}-${cargo.type}`;
+function cargoKey(cargo, index = "") {
+  return `${index}-${cargo.name}-${cargo.lengthCm}-${cargo.widthCm}-${cargo.heightCm}-${cargo.quantity}-${cargo.weightKg}-${cargo.type}`;
 }
 </script>

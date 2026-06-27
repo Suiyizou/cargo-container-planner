@@ -58,6 +58,7 @@ public class TextRecognitionService {
   );
   private static final Pattern QUANTITY_PATTERN = Pattern.compile("(?i)(?:数量|qty|quantity)?\\s*(\\d+)\\s*(?:件|个|箱|pcs?|pieces?|cartons?|boxes?)");
   private static final Pattern WEIGHT_PATTERN = Pattern.compile("(?i)(?:单重|每件|unit\\s*weight|each|weight|wt)?\\s*([0-9][0-9.,]*)\\s*(kg|kgs|公斤|千克|g|克|t|吨)");
+  private static final Pattern THOUSAND_KG_PATTERN = Pattern.compile("(?i)(?<!\\d)([0-9]{1,3}\\.[0-9]{3}(?:\\.[0-9]{3})*)\\s*(?:kgs?|kg|公斤|千克)");
   private static final Pattern MODEL_PATTERN = Pattern.compile("(?i)(?:型号|model|spec)\\s*[:：]?\\s*([A-Za-z0-9._\\-\\/]+)");
   private static final Pattern HAS_DATA_PATTERN = Pattern.compile("(?i)(\\d+\\s*[x×*]\\s*\\d+)|(kg|kgs|cm|mm|skid|pallet|pcs|件|箱|尺寸|长|宽|高)");
   private static final Pattern HAS_LETTER_OR_HAN = Pattern.compile(".*[\\p{IsHan}A-Za-z].*");
@@ -335,10 +336,14 @@ public class TextRecognitionService {
       throw new IllegalStateException("Spring AI did not return recognizable rows");
     }
 
+    int correctedWeightCount = applyThousandSeparatedWeightCorrections(validRows, text);
     List<Map<String, Object>> cleanedRows = aggregateCargos(validRows);
     String notes = cleanCell(payload.get("notes"));
     if (notes.isBlank()) {
       notes = "LLM 已完成文本结构化抽取，并按系统字段校验、聚合同名同规格货物。";
+    }
+    if (correctedWeightCount > 0) {
+      notes += "；已按原文千分位重量修正 " + correctedWeightCount + " 条（如 29.200 kgs = 29200 kg）。";
     }
     notes = notes + "（模型：" + settings.model() + "）";
     return new RecognitionResult(Math.max(rawRows.size() + modelIssues.size(), textRows(text).size()), validRows.size(), issues.size(), cleanedRows, issues, notes);
@@ -375,8 +380,13 @@ public class TextRecognitionService {
       }
     }
 
+    int correctedWeightCount = applyThousandSeparatedWeightCorrections(validRows, text);
     List<Map<String, Object>> cleanedRows = aggregateCargos(validRows);
-    return new RecognitionResult(lines.size(), validRows.size(), issues.size(), cleanedRows, issues, "规则兜底已完成：支持中英文尺寸、skids/pallets/pcs、每件重量、总重换算和同名多尺寸自动型号。");
+    String notes = "规则兜底已完成：支持中英文尺寸、skids/pallets/pcs、每件重量、总重换算和同名多尺寸自动型号。";
+    if (correctedWeightCount > 0) {
+      notes += " 已按原文千分位重量修正 " + correctedWeightCount + " 条。";
+    }
+    return new RecognitionResult(lines.size(), validRows.size(), issues.size(), cleanedRows, issues, notes);
   }
 
   private ParsedCargo parseLine(String line, String currentName, int rowNumber) {
@@ -585,6 +595,7 @@ public class TextRecognitionService {
         - All dimensions must be centimeters.
         - All weights must be kilograms per single item.
         - English examples like "2 skids - each 31.200 kgs / 1080 x 200 x 340 cm" mean quantity=2, weightKg=31200, dimensions in cm.
+        - Important: in English shipment weights, a dot followed by exactly three digits before kg/kgs is a thousands separator, not a decimal point. Output 29.200 kgs as 29200 kg, never 29.2 kg.
         - If one product title is followed by multiple skid lines, use that title as the name for those rows.
         - If the same name has different dimensions and no model, leave model empty; the backend will assign 型号 A/B/C.
         - Map skids, pallets, wooden cases and crates to type "pallet"; fragile/no stack to "nonstack"; this side up/upright to "upright"; otherwise "normal".
@@ -664,6 +675,49 @@ public class TextRecognitionService {
     if ("g".equals(unit) || "克".equals(unit)) return value / 1000;
     if ("t".equals(unit) || "吨".equals(unit)) return value * 1000;
     return value;
+  }
+
+  private int applyThousandSeparatedWeightCorrections(List<Map<String, Object>> cargos, String rawText) {
+    Map<Long, Double> corrections = thousandSeparatedWeightCorrections(rawText);
+    if (corrections.isEmpty()) return 0;
+
+    int count = 0;
+    for (Map<String, Object> cargo : cargos) {
+      double weightKg = numberValue(cargo.get("weightKg"));
+      Double corrected = corrections.get(weightKey(weightKg));
+      if (corrected != null && corrected > weightKg + 0.001) {
+        cargo.put("weightKg", round2(corrected));
+        count++;
+      }
+    }
+    return count;
+  }
+
+  private Map<Long, Double> thousandSeparatedWeightCorrections(String rawText) {
+    Map<Long, Double> corrections = new LinkedHashMap<>();
+    Matcher matcher = THOUSAND_KG_PATTERN.matcher(String.valueOf(rawText == null ? "" : rawText));
+    while (matcher.find()) {
+      String token = matcher.group(1);
+      Double decimalValue = decimalInterpretation(token);
+      if (decimalValue == null) continue;
+      corrections.put(weightKey(decimalValue), parseFlexibleNumber(token));
+    }
+    return corrections;
+  }
+
+  private Double decimalInterpretation(String token) {
+    String text = cleanCell(token).replace(" ", "");
+    if (text.isBlank()) return null;
+    if (text.indexOf('.') != text.lastIndexOf('.')) return null;
+    try {
+      return Double.parseDouble(text);
+    } catch (NumberFormatException error) {
+      return null;
+    }
+  }
+
+  private long weightKey(double value) {
+    return Math.round(value * 1000);
   }
 
   private boolean isTotalWeightLine(String text) {
