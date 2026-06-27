@@ -49,7 +49,8 @@ backend/sql/schema.sql
 TEXT_RECOGNITION_SPRING_AI_ENABLED=true
 SPRING_AI_CHAT_MODEL=openai
 SPRING_AI_OPENAI_API_KEY=你的_API_Key
-SPRING_AI_OPENAI_MODEL=gpt-4o-mini
+SPRING_AI_OPENAI_BASE_URL=https://api.deepseek.com
+SPRING_AI_OPENAI_MODEL=deepseekv4-flash
 ```
 
 对应接口：
