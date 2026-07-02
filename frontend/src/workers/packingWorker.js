@@ -13,6 +13,18 @@ const LOCAL_SEARCH_PASSES = 5;
 const GROUPING_MIN_TOTAL_UNITS = 120;
 const GROUPING_MIN_CARGO_QUANTITY = 24;
 const GROUPING_MAX_BLOCK_QUANTITY = 16;
+const BALANCE_GREEN_LIMIT_PERCENT = 2.5;
+const BALANCE_RED_LIMIT_PERCENT = 5;
+const FRONT_MAX_PERCENT = 60;
+const REAR_MIN_PERCENT_40FR = 30;
+const LATERAL_OFFSET_LIMIT_CM = 8;
+const HEAVY_TOP_FRACTION = 0.35;
+const BALANCE_SCORE_WEIGHT = 250000;
+const EARLY_BALANCE_SCORE_WEIGHT = 0;
+const HEAVY_CENTER_WEIGHT = 900;
+const HEAVY_ZONE_WEIGHT = 4200;
+const LIGHT_ZONE_WEIGHT = 650;
+const BALANCE_ZONE_ORDER = ["frontLeft", "rearRight", "frontRight", "rearLeft"];
 
 const SEARCH_STRATEGIES = [
   { id: "laff-footprint", name: "LAFF 大底面积优先", unitOrder: "footprint", pointOrder: "low-wide", blueVertical: false },
@@ -125,6 +137,7 @@ function buildEvaluation(container, units, total, utilizationPercent, globalGapC
       strategyId: box.strategyId,
       strategyName: box.strategyName,
       strategySummary: box.strategySummary,
+      balanceValidation: box.balanceValidation || validateWeightBalance(container, box.placed),
       placed: box.placed.map(toPlacementDto),
       unplacedUnitKeys: box.unplaced.map((unit) => unit.unitKey)
     }))
@@ -208,7 +221,22 @@ function buildUnits(cargos, globalGapCm, container = null, total = null) {
       units.push(makeCargoUnit(cargo, cargoIndex, cargoId, i, 1, rule, gap, globalGapCm));
     }
   });
+  markHeavyUnits(units);
   return orderUnits(units, "support");
+}
+
+function markHeavyUnits(units) {
+  const weights = units
+    .map((unit) => Number(unit.weightKg || 0))
+    .filter((weight) => weight > 0)
+    .sort((a, b) => b - a);
+  if (!weights.length) return units;
+  const topCount = Math.max(1, Math.ceil(weights.length * HEAVY_TOP_FRACTION));
+  const threshold = weights[Math.min(weights.length - 1, topCount - 1)];
+  units.forEach((unit) => {
+    unit.isHeavy = Number(unit.weightKg || 0) >= threshold - EPS;
+  });
+  return units;
 }
 
 function buildGroupedCargoUnits(cargo, cargoIndex, cargoId, rule, gap, globalGapCm, container, quantity) {
@@ -344,18 +372,30 @@ function generateOrientations(unit, options = {}) {
 
 function packContainer(container, units) {
   const attempts = [];
+  let rejectedByBalance = 0;
   for (const strategy of SEARCH_STRATEGIES) {
     const ordered = orderUnits(units, strategy.unitOrder);
     let attempt = packLayerLaff(container, ordered, strategy);
     if (attempt.unplaced.length) {
       attempt = repairWithLocalSearch(container, attempt, ordered, strategy);
     }
+    attempt = withBalanceValidation(container, attempt, rejectedByBalance);
+    if (attempt.balanceValidation?.severity === "red") rejectedByBalance += 1;
     attempts.push(attempt);
-    if (!attempt.unplaced.length) break;
+    if (!attempt.unplaced.length && attempt.balanceValidation?.severity !== "red") break;
   }
 
-  return attempts.sort(comparePackAttempt(container))[0]
-    || makePackedBox([], units, { id: "none", name: "无可行摆放" }, { localSearchPasses: 0, repairedCount: 0 });
+  const accepted = attempts.filter((attempt) => attempt.balanceValidation?.severity !== "red");
+  if (accepted.length) return accepted.sort(comparePackAttempt(container))[0];
+
+  const fallback = makePackedBox([], units, { id: "none", name: "balance rejected" }, {
+    localSearchPasses: 0,
+    repairedCount: 0,
+    balanceRejectedCount: rejectedByBalance
+  });
+  fallback.balanceValidation = emptyWeightBalance(container);
+  fallback.strategySummary.balanceRejectedCount = rejectedByBalance;
+  return fallback;
 }
 
 function packLayerLaff(container, units, strategy) {
@@ -414,7 +454,7 @@ function packExtremePoint(container, placed, unit, strategy, options = {}) {
       const placement = { ...point, ...dims };
       const validation = validatePlacement(container, placed, unit, placement);
       if (!validation.valid) continue;
-      const score = placementScore(placement, unit, container, strategy);
+      const score = placementScore(placement, unit, container, strategy, placed);
       if (!best || score < best.score) best = { ...placement, score };
     }
   }
@@ -518,7 +558,19 @@ function extremePoints(container, placed, dims, options = {}) {
   };
 
   add(0, 0, 0);
+  const centerX = Number(container.lengthCm || 0) / 2;
+  const centerY = Number(container.widthCm || 0) / 2;
+  const xAnchors = [0, centerX - dims.lengthCm, centerX - dims.lengthCm / 2, centerX, container.lengthCm - dims.lengthCm];
+  const yAnchors = [0, centerY - dims.widthCm, centerY - dims.widthCm / 2, centerY, container.widthCm - dims.widthCm];
+  const zAnchors = uniqueSorted(placed.map((box) => box.z + box.heightCm), 0);
+  for (const z of zAnchors) {
+    for (const x of xAnchors) {
+      for (const y of yAnchors) add(x, y, z);
+    }
+  }
   for (const box of placed) {
+    add(box.x - dims.lengthCm, box.y, box.z);
+    add(box.x, box.y - dims.widthCm, box.z);
     add(box.x + box.lengthCm, box.y, box.z);
     add(box.x, box.y + box.widthCm, box.z);
     add(box.x, box.y, box.z + box.heightCm);
@@ -580,7 +632,10 @@ function makePackedBox(placed, unplaced, strategy, stats) {
       maxTopCm: round(maxTop(placed)),
       refillPlacedCount: Number(stats.repairedCount || 0),
       refillPasses: Number(stats.localSearchPasses || 0),
-      layerCount: Number(stats.layerCount || countLayers(placed))
+      layerCount: Number(stats.layerCount || countLayers(placed)),
+      balanceSeverity: stats.balanceValidation?.severity || "",
+      balanceScore: round(stats.balanceValidation?.score || 0),
+      balanceRejectedCount: Number(stats.balanceRejectedCount || 0)
     }
   };
 }
@@ -608,6 +663,8 @@ function orderUnits(units, strategyId) {
       const heightDiff = tallestOrientation(b) - tallestOrientation(a);
       if (Math.abs(heightDiff) > EPS) return heightDiff;
     }
+    const weightDiff = Number(b.weightKg || 0) - Number(a.weightKg || 0);
+    if (Math.abs(weightDiff) > EPS) return weightDiff;
     const areaDiff = maxFootprint(b) - maxFootprint(a);
     if (Math.abs(areaDiff) > EPS) return areaDiff;
     const volumeDiff = unitVolumeCm3(b) - unitVolumeCm3(a);
@@ -619,6 +676,10 @@ function orderUnits(units, strategyId) {
 
 function comparePackAttempt(container) {
   return (a, b) => {
+    const balanceRankDiff = balanceSeverityRank(a.balanceValidation) - balanceSeverityRank(b.balanceValidation);
+    if (balanceRankDiff) return balanceRankDiff;
+    const balanceScoreDiff = Number(a.balanceValidation?.score || 0) - Number(b.balanceValidation?.score || 0);
+    if (Math.abs(balanceScoreDiff) > EPS) return balanceScoreDiff;
     const aPlacedCount = sumUnitQuantity(a.placed);
     const bPlacedCount = sumUnitQuantity(b.placed);
     if (aPlacedCount !== bPlacedCount) return bPlacedCount - aPlacedCount;
@@ -632,14 +693,315 @@ function comparePackAttempt(container) {
   };
 }
 
-function placementScore(placement, unit, container, strategy) {
+function withBalanceValidation(container, attempt, rejectedByBalance = 0) {
+  const validation = validateWeightBalance(container, attempt.placed);
+  attempt.balanceValidation = validation;
+  attempt.strategySummary = {
+    ...attempt.strategySummary,
+    balanceSeverity: validation.severity,
+    balanceScore: round(validation.score),
+    balanceRejected: validation.severity === "red",
+    balanceRejectedCount: rejectedByBalance
+  };
+  return attempt;
+}
+
+function projectedBalancePenalty(container, placed, unit, placement) {
+  const candidate = {
+    ...unit,
+    x: placement.x,
+    y: placement.y,
+    z: placement.z,
+    lengthCm: placement.lengthCm,
+    widthCm: placement.widthCm,
+    heightCm: placement.heightCm
+  };
+  const validation = validateWeightBalance(container, [...placed, candidate]);
+  const isEarlySpread = placed.length < Math.min(3, BALANCE_ZONE_ORDER.length - 1);
+  const severityPenalty = isEarlySpread ? 0 : validation.severity === "red" ? 3 : validation.severity === "yellow" ? 1 : 0;
+  const weight = isEarlySpread ? EARLY_BALANCE_SCORE_WEIGHT : BALANCE_SCORE_WEIGHT;
+  return (validation.score + severityPenalty * BALANCE_RED_LIMIT_PERCENT) * weight;
+}
+
+function validateWeightBalance(container, placed) {
+  const balance = calculateWeightBalance(container, placed);
+  if (!balance.valid) return balance;
+
+  const frontRearDiffPercent = Math.abs(balance.loads.frontPercent - balance.loads.rearPercent);
+  const leftRightDiffPercent = Math.abs(balance.loads.leftPercent - balance.loads.rightPercent);
+  const longitudinalOffsetPercent = Math.abs(balance.offset.longitudinalPercent);
+  const lateralOffsetPercent = Math.abs(balance.offset.lateralPercent);
+  const lateralOffsetCm = Math.abs(balance.offset.lateralCm);
+  const requiresRearMinimum = isFortyFootFlatRack(container);
+  const frontMaxExcess = Math.max(0, balance.loads.frontPercent - FRONT_MAX_PERCENT);
+  const rearMinExcess = requiresRearMinimum ? Math.max(0, REAR_MIN_PERCENT_40FR - balance.loads.rearPercent) : 0;
+  const frontRearExcess = Math.max(0, frontRearDiffPercent - BALANCE_RED_LIMIT_PERCENT);
+  const leftRightExcess = Math.max(0, leftRightDiffPercent - BALANCE_RED_LIMIT_PERCENT);
+  const longitudinalExcess = Math.max(0, longitudinalOffsetPercent - BALANCE_RED_LIMIT_PERCENT);
+  const lateralPercentExcess = Math.max(0, lateralOffsetPercent - BALANCE_RED_LIMIT_PERCENT);
+  const lateralCmExcess = Math.max(0, lateralOffsetCm - LATERAL_OFFSET_LIMIT_CM);
+  const red = frontMaxExcess > EPS
+    || rearMinExcess > EPS
+    || frontRearExcess > EPS
+    || leftRightExcess > EPS
+    || longitudinalExcess > EPS
+    || lateralPercentExcess > EPS
+    || lateralCmExcess > EPS;
+  const warningScore = Math.max(
+    frontRearDiffPercent,
+    leftRightDiffPercent,
+    longitudinalOffsetPercent,
+    lateralOffsetPercent,
+    lateralOffsetCm / LATERAL_OFFSET_LIMIT_CM * BALANCE_RED_LIMIT_PERCENT
+  );
+  const yellow = !red && (
+    warningScore > BALANCE_GREEN_LIMIT_PERCENT + EPS
+    || balance.loads.frontPercent > FRONT_MAX_PERCENT - BALANCE_GREEN_LIMIT_PERCENT
+    || (requiresRearMinimum && balance.loads.rearPercent < REAR_MIN_PERCENT_40FR + BALANCE_GREEN_LIMIT_PERCENT)
+  );
+  const hardExcessScore = frontMaxExcess + rearMinExcess + frontRearExcess + leftRightExcess
+    + longitudinalExcess + lateralPercentExcess + lateralCmExcess / LATERAL_OFFSET_LIMIT_CM * BALANCE_RED_LIMIT_PERCENT;
+
+  return {
+    ...balance,
+    severity: red ? "red" : yellow ? "yellow" : "green",
+    score: warningScore + hardExcessScore * 20,
+    limits: {
+      greenPercent: BALANCE_GREEN_LIMIT_PERCENT,
+      redPercent: BALANCE_RED_LIMIT_PERCENT,
+      frontMaxPercent: FRONT_MAX_PERCENT,
+      rearMinPercent40FR: requiresRearMinimum ? REAR_MIN_PERCENT_40FR : null,
+      lateralOffsetLimitCm: LATERAL_OFFSET_LIMIT_CM
+    },
+    checks: {
+      frontPercent: round(balance.loads.frontPercent),
+      rearPercent: round(balance.loads.rearPercent),
+      frontRearDiffPercent: round(frontRearDiffPercent),
+      leftRightDiffPercent: round(leftRightDiffPercent),
+      longitudinalOffsetPercent: round(longitudinalOffsetPercent),
+      lateralOffsetPercent: round(lateralOffsetPercent),
+      lateralOffsetCm: round(lateralOffsetCm),
+      requiresRearMinimum
+    }
+  };
+}
+
+function calculateWeightBalance(container, placed) {
+  const lengthCm = Number(container?.lengthCm || 0);
+  const widthCm = Number(container?.widthCm || 0);
+  const heightCm = Number(container?.heightCm || 0);
+  const centerX = lengthCm / 2;
+  const centerY = widthCm / 2;
+  const centerZ = heightCm / 2;
+  let totalWeightKg = 0;
+  let weightedX = 0;
+  let weightedY = 0;
+  let weightedZ = 0;
+  const loads = {
+    frontLeftKg: 0,
+    frontRightKg: 0,
+    rearLeftKg: 0,
+    rearRightKg: 0
+  };
+
+  for (const item of placed || []) {
+    const weightKg = Math.max(0, Number(item.weightKg || 0));
+    if (!weightKg) continue;
+    const x = Number(item.x || 0);
+    const y = Number(item.y || 0);
+    const z = Number(item.z || 0);
+    const itemLength = Math.max(0, Number(item.lengthCm || 0));
+    const itemWidth = Math.max(0, Number(item.widthCm || 0));
+    const itemHeight = Math.max(0, Number(item.heightCm || 0));
+    totalWeightKg += weightKg;
+    weightedX += (x + itemLength / 2) * weightKg;
+    weightedY += (y + itemWidth / 2) * weightKg;
+    weightedZ += (z + itemHeight / 2) * weightKg;
+    addSplitLoads(loads, weightKg, x, y, itemLength, itemWidth, centerX, centerY);
+  }
+
+  if (!totalWeightKg) return emptyWeightBalance(container);
+
+  const xCm = weightedX / totalWeightKg;
+  const yCm = weightedY / totalWeightKg;
+  const zCm = weightedZ / totalWeightKg;
+  const frontKg = loads.frontLeftKg + loads.frontRightKg;
+  const rearKg = loads.rearLeftKg + loads.rearRightKg;
+  const leftKg = loads.frontLeftKg + loads.rearLeftKg;
+  const rightKg = loads.frontRightKg + loads.rearRightKg;
+  const offsetXCm = xCm - centerX;
+  const offsetYCm = yCm - centerY;
+  const offsetZCm = zCm - centerZ;
+
+  return {
+    valid: true,
+    totalWeightKg,
+    center: { xCm, yCm, zCm },
+    geometricCenter: { xCm: centerX, yCm: centerY, zCm: centerZ },
+    offset: {
+      xCm: offsetXCm,
+      yCm: offsetYCm,
+      zCm: offsetZCm,
+      longitudinalCm: offsetXCm,
+      lateralCm: offsetYCm,
+      horizontalCm: Math.hypot(offsetXCm, offsetYCm),
+      horizontalPercent: Math.hypot(
+        centerX ? offsetXCm / centerX : 0,
+        centerY ? offsetYCm / centerY : 0
+      ) * 100,
+      xPercent: centerX ? offsetXCm / centerX * 100 : 0,
+      yPercent: centerY ? offsetYCm / centerY * 100 : 0,
+      zPercent: centerZ ? offsetZCm / centerZ * 100 : 0,
+      longitudinalPercent: centerX ? offsetXCm / centerX * 100 : 0,
+      lateralPercent: centerY ? offsetYCm / centerY * 100 : 0
+    },
+    loads: {
+      frontKg,
+      rearKg,
+      leftKg,
+      rightKg,
+      frontPercent: frontKg / totalWeightKg * 100,
+      rearPercent: rearKg / totalWeightKg * 100,
+      leftPercent: leftKg / totalWeightKg * 100,
+      rightPercent: rightKg / totalWeightKg * 100,
+      ...loads,
+      frontLeftPercent: loads.frontLeftKg / totalWeightKg * 100,
+      frontRightPercent: loads.frontRightKg / totalWeightKg * 100,
+      rearLeftPercent: loads.rearLeftKg / totalWeightKg * 100,
+      rearRightPercent: loads.rearRightKg / totalWeightKg * 100
+    }
+  };
+}
+
+function addSplitLoads(loads, weightKg, x, y, lengthCm, widthCm, centerX, centerY) {
+  const area = Math.max(EPS, lengthCm * widthCm);
+  const frontLength = overlapLength(x, x + lengthCm, 0, centerX);
+  const rearLength = overlapLength(x, x + lengthCm, centerX, centerX * 2);
+  const leftWidth = overlapLength(y, y + widthCm, 0, centerY);
+  const rightWidth = overlapLength(y, y + widthCm, centerY, centerY * 2);
+  const portions = [
+    ["frontLeftKg", frontLength * leftWidth],
+    ["frontRightKg", frontLength * rightWidth],
+    ["rearLeftKg", rearLength * leftWidth],
+    ["rearRightKg", rearLength * rightWidth]
+  ];
+  const covered = portions.reduce((sum, [, value]) => sum + value, 0);
+  if (covered <= EPS) {
+    const front = x + lengthCm / 2 <= centerX ? "front" : "rear";
+    const side = y + widthCm / 2 <= centerY ? "LeftKg" : "RightKg";
+    loads[`${front}${side}`] += weightKg;
+    return;
+  }
+  portions.forEach(([key, value]) => {
+    loads[key] += weightKg * value / area;
+  });
+}
+
+function overlapLength(a1, a2, b1, b2) {
+  return Math.max(0, Math.min(a2, b2) - Math.max(a1, b1));
+}
+
+function emptyWeightBalance(container) {
+  const centerX = Number(container?.lengthCm || 0) / 2;
+  const centerY = Number(container?.widthCm || 0) / 2;
+  const centerZ = Number(container?.heightCm || 0) / 2;
+  return {
+    valid: false,
+    severity: "green",
+    score: 0,
+    totalWeightKg: 0,
+    center: { xCm: centerX, yCm: centerY, zCm: centerZ },
+    geometricCenter: { xCm: centerX, yCm: centerY, zCm: centerZ },
+    offset: {
+      xCm: 0,
+      yCm: 0,
+      zCm: 0,
+      longitudinalCm: 0,
+      lateralCm: 0,
+      horizontalCm: 0,
+      horizontalPercent: 0,
+      xPercent: 0,
+      yPercent: 0,
+      zPercent: 0,
+      longitudinalPercent: 0,
+      lateralPercent: 0
+    },
+    loads: {
+      frontKg: 0,
+      rearKg: 0,
+      leftKg: 0,
+      rightKg: 0,
+      frontPercent: 0,
+      rearPercent: 0,
+      leftPercent: 0,
+      rightPercent: 0,
+      frontLeftKg: 0,
+      frontRightKg: 0,
+      rearLeftKg: 0,
+      rearRightKg: 0,
+      frontLeftPercent: 0,
+      frontRightPercent: 0,
+      rearLeftPercent: 0,
+      rearRightPercent: 0
+    }
+  };
+}
+
+function balanceSeverityRank(validation) {
+  if (!validation?.valid) return 0;
+  if (validation.severity === "green") return 0;
+  if (validation.severity === "yellow") return 1;
+  return 2;
+}
+
+function isFortyFootFlatRack(container) {
+  const text = `${container?.name || ""} ${container?.id || ""}`.toLowerCase();
+  return /40\s*fr|40fr|flat\s*rack|flatrack|flat|平板/.test(text);
+}
+
+function zoneSpreadPenalty(container, placed, placement) {
+  const zone = weakestBalanceZone(container, placed);
+  const centerX = Number(container.lengthCm || 0) / 2;
+  const centerY = Number(container.widthCm || 0) / 2;
+  const targetX = zone.startsWith("front")
+    ? centerX - placement.lengthCm / 2
+    : centerX + placement.lengthCm / 2;
+  const targetY = zone.endsWith("Left")
+    ? centerY - placement.widthCm / 2
+    : centerY + placement.widthCm / 2;
+  const unitCenterX = placement.x + placement.lengthCm / 2;
+  const unitCenterY = placement.y + placement.widthCm / 2;
+  return Math.abs(unitCenterX - targetX) + Math.abs(unitCenterY - targetY);
+}
+
+function weakestBalanceZone(container, placed) {
+  const balance = calculateWeightBalance(container, placed);
+  if (!balance.valid) return BALANCE_ZONE_ORDER[0];
+  const loads = {
+    frontLeft: balance.loads.frontLeftKg,
+    frontRight: balance.loads.frontRightKg,
+    rearLeft: balance.loads.rearLeftKg,
+    rearRight: balance.loads.rearRightKg
+  };
+  return BALANCE_ZONE_ORDER.reduce((best, zone) => (loads[zone] < loads[best] - EPS ? zone : best), BALANCE_ZONE_ORDER[0]);
+}
+
+function placementScore(placement, unit, container, strategy, placed = []) {
   const top = placement.z + placement.heightCm;
   const front = placement.y + placement.widthCm;
   const right = placement.x + placement.lengthCm;
   const area = placement.lengthCm * placement.widthCm;
   const supportBonus = unit.nonStack ? 0 : area * Math.max(0, 1 - top / Math.max(1, container.heightCm));
   const verticalPenalty = strategy.blueVertical && shouldPreferVertical(unit) ? -placement.heightCm * 100 : 0;
-  return top * 1_000_000 + front * 1_000 + right - supportBonus + verticalPenalty;
+  const balancePenalty = projectedBalancePenalty(container, placed, unit, placement);
+  const centerX = Number(container.lengthCm || 0) / 2;
+  const centerY = Number(container.widthCm || 0) / 2;
+  const unitCenterX = placement.x + placement.lengthCm / 2;
+  const unitCenterY = placement.y + placement.widthCm / 2;
+  const centerDistance = Math.abs(unitCenterX - centerX) + Math.abs(unitCenterY - centerY);
+  const heavyCenterPenalty = unit.isHeavy ? centerDistance * HEAVY_CENTER_WEIGHT : centerDistance * 12;
+  const spreadPenalty = zoneSpreadPenalty(container, placed, placement) * (unit.isHeavy ? HEAVY_ZONE_WEIGHT : LIGHT_ZONE_WEIGHT);
+  return top * 1_000_000 + balancePenalty + spreadPenalty + front * 1_000 + right + heavyCenterPenalty - supportBonus + verticalPenalty;
 }
 
 function supportSurfaceScore(placed, container) {
@@ -828,6 +1190,16 @@ function buildTrace(container, units, total, multi, metrics) {
     strategies: SEARCH_STRATEGIES.map((strategy) => strategy.name),
     selectedStrategy: firstBox.strategyName || "",
     supportRatioPercent: round(SUPPORT_RATIO * 100),
+    balanceRules: {
+      frontRearAxis: "container length / X",
+      leftRightAxis: "container width / Y",
+      greenLimitPercent: BALANCE_GREEN_LIMIT_PERCENT,
+      redLimitPercent: BALANCE_RED_LIMIT_PERCENT,
+      frontMaxPercent: FRONT_MAX_PERCENT,
+      rearMinPercent40FR: REAR_MIN_PERCENT_40FR,
+      lateralOffsetLimitCm: LATERAL_OFFSET_LIMIT_CM,
+      redAction: "reject current layout and retry another strategy"
+    },
     parameters: {
       utilizationPercent: metrics.utilizationPercent,
       globalGapCm: metrics.globalGapCm,
@@ -869,7 +1241,8 @@ function buildTrace(container, units, total, multi, metrics) {
       solverUnplacedCount: firstBox.unplaced.length,
       maxTopCm: round(maxTop(firstBox.placed)),
       strategyId: firstBox.strategyId || "",
-      strategyName: firstBox.strategyName || ""
+      strategyName: firstBox.strategyName || "",
+      balanceValidation: firstBox.balanceValidation || validateWeightBalance(container, firstBox.placed)
     },
     boxStrategies: multi.packedBoxes.map((box, index) => ({
       boxIndex: index + 1,
@@ -879,7 +1252,10 @@ function buildTrace(container, units, total, multi, metrics) {
       solverPlacedCount: box.placed.length,
       solverUnplacedCount: box.unplaced.length,
       occupiedVolumeM3: round(sumOccupiedVolumeM3(box.placed)),
-      maxTopCm: round(maxTop(box.placed))
+      maxTopCm: round(maxTop(box.placed)),
+      balanceSeverity: box.balanceValidation?.severity || "",
+      balanceScore: round(box.balanceValidation?.score || 0),
+      balanceChecks: box.balanceValidation?.checks || {}
     }))
   };
 }

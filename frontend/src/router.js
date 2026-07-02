@@ -18,8 +18,8 @@ export const router = createRouter({
     { path: "/planner/cargos", name: "planner-cargos", component: PageStub },
     { path: "/planner/results", name: "planner-results", component: PageStub },
     { path: "/algorithm", name: "algorithm", component: PageStub },
-    { path: "/excel", redirect: "/smart-import" },
-    { path: "/smart-import", name: "smart-import", component: PageStub },
+    { path: "/excel", redirect: "/planner/cargos" },
+    { path: "/smart-import", redirect: "/planner/cargos" },
     { path: "/admin", name: "admin", component: PageStub },
     { path: "/:pathMatch(.*)*", redirect: "/home" }
   ]

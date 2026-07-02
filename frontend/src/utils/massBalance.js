@@ -26,10 +26,16 @@ export function calculateMassBalance(container, placements = []) {
     weightedY += itemY * weightKg;
     weightedZ += itemZ * weightKg;
 
-    if (itemY <= centerY && itemX <= centerX) quadrants.frontLeftKg += weightKg;
-    else if (itemY <= centerY && itemX > centerX) quadrants.frontRightKg += weightKg;
-    else if (itemY > centerY && itemX <= centerX) quadrants.rearLeftKg += weightKg;
-    else quadrants.rearRightKg += weightKg;
+    addSplitLoads(
+      quadrants,
+      weightKg,
+      Number(item.xCm || 0),
+      Number(item.yCm || 0),
+      Number(item.lengthCm || 0),
+      Number(item.widthCm || 0),
+      centerX,
+      centerY
+    );
   });
 
   if (!totalWeightKg) return emptyBalance(container);
@@ -40,10 +46,10 @@ export function calculateMassBalance(container, placements = []) {
   const offsetXCm = xCm - centerX;
   const offsetYCm = yCm - centerY;
   const offsetZCm = zCm - centerZ;
-  const leftKg = quadrants.frontLeftKg + quadrants.rearLeftKg;
-  const rightKg = quadrants.frontRightKg + quadrants.rearRightKg;
   const frontKg = quadrants.frontLeftKg + quadrants.frontRightKg;
   const rearKg = quadrants.rearLeftKg + quadrants.rearRightKg;
+  const leftKg = quadrants.frontLeftKg + quadrants.rearLeftKg;
+  const rightKg = quadrants.frontRightKg + quadrants.rearRightKg;
   const horizontalOffsetCm = Math.hypot(offsetXCm, offsetYCm);
   const normalizedX = Math.abs(offsetXCm) / Math.max(1, centerX);
   const normalizedY = Math.abs(offsetYCm) / Math.max(1, centerY);
@@ -62,7 +68,11 @@ export function calculateMassBalance(container, placements = []) {
       horizontalPercent: horizontalOffsetPercent,
       xPercent: centerX ? offsetXCm / centerX * 100 : 0,
       yPercent: centerY ? offsetYCm / centerY * 100 : 0,
-      zPercent: centerZ ? offsetZCm / centerZ * 100 : 0
+      zPercent: centerZ ? offsetZCm / centerZ * 100 : 0,
+      longitudinalCm: offsetXCm,
+      lateralCm: offsetYCm,
+      longitudinalPercent: centerX ? offsetXCm / centerX * 100 : 0,
+      lateralPercent: centerY ? offsetYCm / centerY * 100 : 0
     },
     loads: {
       leftKg,
@@ -82,6 +92,43 @@ export function calculateMassBalance(container, placements = []) {
   };
 }
 
+function addSplitLoads(loads, weightKg, x, y, lengthCm, widthCm, centerX, centerY) {
+  const safeLength = Math.max(0, Number(lengthCm || 0));
+  const safeWidth = Math.max(0, Number(widthCm || 0));
+  const area = safeLength * safeWidth;
+  if (area <= 0) {
+    const front = x <= centerX ? "front" : "rear";
+    const side = y <= centerY ? "LeftKg" : "RightKg";
+    loads[`${front}${side}`] += weightKg;
+    return;
+  }
+
+  const frontLength = overlapLength(x, x + safeLength, 0, centerX);
+  const rearLength = overlapLength(x, x + safeLength, centerX, centerX * 2);
+  const leftWidth = overlapLength(y, y + safeWidth, 0, centerY);
+  const rightWidth = overlapLength(y, y + safeWidth, centerY, centerY * 2);
+  const portions = [
+    ["frontLeftKg", frontLength * leftWidth],
+    ["frontRightKg", frontLength * rightWidth],
+    ["rearLeftKg", rearLength * leftWidth],
+    ["rearRightKg", rearLength * rightWidth]
+  ];
+  const covered = portions.reduce((sum, [, value]) => sum + value, 0);
+  if (covered <= 0) {
+    const front = x + safeLength / 2 <= centerX ? "front" : "rear";
+    const side = y + safeWidth / 2 <= centerY ? "LeftKg" : "RightKg";
+    loads[`${front}${side}`] += weightKg;
+    return;
+  }
+  portions.forEach(([key, value]) => {
+    loads[key] += weightKg * value / area;
+  });
+}
+
+function overlapLength(a1, a2, b1, b2) {
+  return Math.max(0, Math.min(a2, b2) - Math.max(a1, b1));
+}
+
 function emptyBalance(container) {
   const centerX = Number(container?.lengthCm || 0) / 2;
   const centerY = Number(container?.widthCm || 0) / 2;
@@ -99,7 +146,11 @@ function emptyBalance(container) {
       horizontalPercent: 0,
       xPercent: 0,
       yPercent: 0,
-      zPercent: 0
+      zPercent: 0,
+      longitudinalCm: 0,
+      lateralCm: 0,
+      longitudinalPercent: 0,
+      lateralPercent: 0
     },
     loads: {
       leftKg: 0,

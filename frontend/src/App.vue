@@ -20,21 +20,25 @@
           <h1>货代装箱体积规划系统</h1>
         </div>
       </div>
+      <el-breadcrumb separator="/" class="top-breadcrumb">
+        <el-breadcrumb-item>工作台</el-breadcrumb-item>
+        <el-breadcrumb-item>{{ pageTitle }}</el-breadcrumb-item>
+        <el-breadcrumb-item v-if="activePage === 'planner'">{{ activePlannerStepLabel }}</el-breadcrumb-item>
+      </el-breadcrumb>
       <div class="top-user">
-        <span>{{ pageTitle }}</span>
-        <button type="button" @click="profileOpen = true">
+        <el-tag effect="plain" type="primary">{{ pageTitle }}</el-tag>
+        <el-button type="primary" plain class="user-button" @click="profileOpen = true">
           <strong>{{ userDisplayName }}</strong>
           <small>{{ currentUser?.username }}</small>
-        </button>
+        </el-button>
       </div>
     </header>
 
     <div class="app-body" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
       <aside class="app-sidebar">
-        <button class="sidebar-toggle" type="button" @click="sidebarCollapsed = !sidebarCollapsed">
+        <el-button class="sidebar-toggle" :icon="sidebarCollapsed ? Expand : Fold" @click="sidebarCollapsed = !sidebarCollapsed">
           <span>{{ sidebarCollapsed ? "展开" : "收起" }}</span>
-          <b>{{ sidebarCollapsed ? "›" : "‹" }}</b>
-        </button>
+        </el-button>
 
         <div class="side-user-card">
           <span>当前工作区</span>
@@ -42,40 +46,38 @@
           <small>{{ cargos.length }} 类货物 · {{ containers.length }} 个箱型</small>
         </div>
 
-        <nav class="side-nav">
-          <RouterLink to="/home" :class="{ active: activePage === 'home' }">
-            <span class="nav-full">工作台首页</span>
-            <span class="nav-short">首页</span>
-          </RouterLink>
-          <RouterLink to="/planner/config" :class="{ active: activePage === 'planner' }">
-            <span class="nav-full">装箱计算</span>
-            <span class="nav-short">装箱</span>
-          </RouterLink>
-          <div v-if="activePage === 'planner'" class="side-subnav">
-            <button
-              v-for="step in plannerWorkflowSteps"
-              :key="step.key"
-              :class="{ active: plannerMode === step.key }"
-              type="button"
-              :disabled="step.disabled"
-              @click="goPlannerStep(step.key)"
-            >
-              {{ step.no }} {{ step.label }}
-            </button>
-          </div>
-          <RouterLink to="/smart-import" :class="{ active: activePage === 'smart-import' }">
-            <span class="nav-full">智能导入</span>
-            <span class="nav-short">导入</span>
-          </RouterLink>
-          <RouterLink to="/algorithm" :class="{ active: activePage === 'algorithm' }">
-            <span class="nav-full">算法说明</span>
-            <span class="nav-short">算法</span>
-          </RouterLink>
-          <RouterLink v-if="currentUser?.role === 'ADMIN'" to="/admin" :class="{ active: activePage === 'admin' }">
-            <span class="nav-full">管理后台</span>
-            <span class="nav-short">后台</span>
-          </RouterLink>
-        </nav>
+        <el-menu
+          class="side-menu"
+          :collapse="sidebarCollapsed"
+          :default-active="activeMenuIndex"
+          background-color="transparent"
+          text-color="#24415f"
+          active-text-color="#165DFF"
+          @select="handleMenuSelect"
+        >
+          <el-menu-item index="/home">
+            <el-icon><House /></el-icon>
+            <span>工作台首页</span>
+          </el-menu-item>
+          <el-sub-menu index="/planner">
+            <template #title>
+              <el-icon><Box /></el-icon>
+              <span>装箱计算</span>
+            </template>
+            <el-menu-item index="/planner/config">
+              <el-icon><Setting /></el-icon>
+              <span>01 配置与货物管理</span>
+            </el-menu-item>
+            <el-menu-item index="/planner/results" :disabled="!cargos.length">
+              <el-icon><DataAnalysis /></el-icon>
+              <span>02 计算方案</span>
+            </el-menu-item>
+          </el-sub-menu>
+          <el-menu-item index="/algorithm">
+            <el-icon><Document /></el-icon>
+            <span>算法说明</span>
+          </el-menu-item>
+        </el-menu>
 
       </aside>
 
@@ -91,175 +93,231 @@
       :global-gap-cm="globalGapCm"
       @save-settings="applyUserSettings"
     />
-    <main v-else-if="activePage === 'planner'" :key="`planner-${plannerMode}`" class="planner-page">
-      <section class="planner-flow">
-        <button
-          v-for="step in plannerWorkflowSteps"
-          :key="step.key"
-          :class="{ active: plannerMode === step.key, done: step.done }"
-          type="button"
-          :disabled="step.disabled"
-          @click="goPlannerStep(step.key)"
-        >
-          <span>{{ step.no }}</span>
-          <b>{{ step.label }}</b>
-          <small>{{ step.description }}</small>
-        </button>
-      </section>
+    <main v-else-if="activePage === 'planner'" key="planner" class="planner-page">
+      <el-card class="planner-step-card" shadow="never">
+        <el-steps :active="activeStepIndex" finish-status="success" align-center>
+          <el-step
+            v-for="(step, index) in plannerWorkflowSteps"
+            :key="step.key"
+            :status="activePlannerStep === step.key ? 'process' : index < activeStepIndex ? 'success' : 'wait'"
+          >
+            <template #title>
+              <el-button
+                link
+                :type="activePlannerStep === step.key ? 'primary' : 'default'"
+                :disabled="step.disabled"
+                class="step-title-button"
+                @click="goPlannerStep(step.key)"
+              >
+                {{ step.no }} {{ step.label }}
+              </el-button>
+            </template>
+            <template #description>
+              <span class="step-description">{{ step.description }}</span>
+            </template>
+          </el-step>
+        </el-steps>
+      </el-card>
 
-      <section v-if="plannerMode === 'config'" class="planner-section">
-        <div class="planner-page-head">
-          <div>
+      <Transition name="planner-view" mode="out-in">
+      <section v-if="plannerMode === 'config'" key="config-view" class="planner-section">
+        <el-card class="planner-page-head" shadow="never">
+          <div class="page-heading">
             <p>Calculation Setup</p>
             <h2>计算配置</h2>
           </div>
-          <span class="status-pill" :class="{ warn: loading }">{{ apiStatus }}</span>
-        </div>
-        <div v-if="showPackingWorkloadHint" class="calculation-load-hint" :class="packingWorkloadHint.level">
-          <strong>{{ packingWorkloadHint.title }}</strong>
-          <span>{{ packingWorkloadHint.detail }}</span>
-          <em>{{ packingWorkloadHint.advice }}</em>
-        </div>
+          <el-tag :type="loading ? 'warning' : 'primary'" effect="light">{{ apiStatus }}</el-tag>
+        </el-card>
+        <el-alert
+          v-if="showPackingWorkloadHint"
+          class="calculation-load-hint"
+          :class="packingWorkloadHint.level"
+          :title="packingWorkloadHint.title"
+          :description="`${packingWorkloadHint.detail}。${packingWorkloadHint.advice}`"
+          :type="packingWorkloadHint.level === 'heavy' ? 'error' : packingWorkloadHint.level === 'medium' ? 'warning' : 'info'"
+          show-icon
+          :closable="false"
+        />
 
         <div class="planner-config-grid">
-          <article class="planner-card">
-            <div class="step-title">
-              <span>1</span>
-              <strong>装箱参数</strong>
+          <el-card class="planner-card" shadow="hover">
+            <template #header>
+              <div class="card-header-title">
+                <el-icon><Operation /></el-icon>
+                <strong>装箱参数</strong>
+              </div>
+            </template>
+            <div class="slider-form">
+              <div class="slider-row">
+                <div>
+                  <span class="field-label">计划可用率</span>
+                  <el-tag type="primary" effect="light">{{ utilizationPercent }}%</el-tag>
+                </div>
+                <el-slider v-model="utilizationPercent" :min="75" :max="98" />
+              </div>
+              <div class="slider-row">
+                <div>
+                  <span class="field-label">货物间隙</span>
+                  <el-tag type="info" effect="light">{{ globalGapCm }} cm</el-tag>
+                </div>
+                <el-slider v-model="globalGapCm" :min="0" :max="8" />
+              </div>
             </div>
-            <label class="range-row">
-              <span>计划可用率 <b>{{ utilizationPercent }}%</b></span>
-              <input v-model.number="utilizationPercent" type="range" min="75" max="98" />
-            </label>
-            <label class="range-row">
-              <span>货物间隙 <b>{{ globalGapCm }} cm</b></span>
-              <input v-model.number="globalGapCm" type="range" min="0" max="8" />
-            </label>
             <div class="planner-action-row">
-              <button class="primary" type="button" @click="openCargoModal()">手动录入货物</button>
-              <button type="button" @click="goPlannerStep('cargos')">下一步：货物总览</button>
+              <el-button type="primary" :icon="Plus" @click="openCargoModal()">手动录入货物</el-button>
+              <el-button :icon="Tickets" @click="goPlannerStep('cargos')">进入货物总览</el-button>
             </div>
+            <el-divider />
             <div class="config-toolbox">
               <strong>常用工具</strong>
               <div class="config-tool-grid">
-                <button type="button" @click="openContainerModal">添加箱型</button>
-                <button type="button" @click="loadSample">套用示例</button>
-                <button type="button" @click="exportCsv">导出 CSV</button>
-                <label>导入 CSV<input type="file" accept=".csv,text/csv" @change="importCsv" /></label>
-                <button type="button" @click="resetContainers">恢复默认箱型</button>
-                <button class="danger ghost" type="button" @click="clearCargos">清空货物</button>
+                <el-button :icon="Box" @click="openContainerModal">添加箱型</el-button>
+                <el-button :icon="MagicStick" @click="loadSample">套用示例</el-button>
+                <el-button :icon="Download" @click="exportCsv">导出 CSV</el-button>
+                <el-upload :auto-upload="false" :show-file-list="false" accept=".csv,text/csv" :on-change="handleCsvUpload">
+                  <el-button :icon="Upload">导入 CSV</el-button>
+                </el-upload>
+                <el-button :icon="Refresh" @click="resetContainers">恢复默认箱型</el-button>
+                <el-button type="danger" plain :icon="Delete" @click="clearCargos">清空货物</el-button>
               </div>
             </div>
-          </article>
+          </el-card>
 
-          <article class="planner-card">
-            <div class="step-title">
-              <span>2</span>
-              <strong>模板货物栏</strong>
-            </div>
+          <el-card class="planner-card" shadow="hover">
+            <template #header>
+              <div class="card-header-title">
+                <el-icon><Files /></el-icon>
+                <strong>模板货物栏</strong>
+              </div>
+            </template>
             <p class="planner-muted">先提供本机常用货物模板，后续接数据库后可升级为企业 SKU 模板库。</p>
             <div class="template-save-row">
-              <input v-model.trim="templateName" placeholder="模板名称，例如：E-House 项目" />
-              <button type="button" :disabled="!cargos.length" @click="saveCargoTemplate">保存当前为模板</button>
+              <el-input v-model.trim="templateName" placeholder="模板名称，例如：E-House 项目" clearable />
+              <el-button type="primary" :disabled="!cargos.length" @click="saveCargoTemplate">保存当前为模板</el-button>
             </div>
-            <div v-if="cargoTemplates.length" class="template-list">
-              <button
-                v-for="template in cargoTemplates"
-                :key="template.id"
-                type="button"
-                @click="applyCargoTemplate(template.id)"
-              >
-                <b>{{ template.name }}</b>
-                <small>{{ template.cargos.length }} 类 / {{ templateQuantity(template) }} 件</small>
-              </button>
-            </div>
-            <p v-else class="empty">还没有本机货物模板。录入或导入货物后，可以把当前清单保存成模板。</p>
+            <el-table v-if="cargoTemplates.length" :data="cargoTemplates" size="small" class="template-table-lite" max-height="240">
+              <el-table-column prop="name" label="模板名称" min-width="150" />
+              <el-table-column label="规模" width="110">
+                <template #default="{ row }">{{ row.cargos.length }} 类 / {{ templateQuantity(row) }} 件</template>
+              </el-table-column>
+              <el-table-column label="操作" width="96" fixed="right">
+                <template #default="{ row }">
+                  <el-button size="small" type="primary" plain @click="applyCargoTemplate(row.id)">套用</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <el-empty v-else description="还没有本机货物模板" :image-size="72" />
             <div class="template-placeholder-grid">
-              <button type="button" @click="loadSample">套用示例货物</button>
-              <button type="button" :disabled="!cargoTemplates.length" @click="deleteSelectedCargoTemplate">删除最近模板</button>
+              <el-button :icon="MagicStick" @click="loadSample">套用示例货物</el-button>
+              <el-button :icon="Delete" :disabled="!cargoTemplates.length" @click="deleteSelectedCargoTemplate">删除最近模板</el-button>
             </div>
-          </article>
+          </el-card>
         </div>
       </section>
 
-      <section v-else-if="plannerMode === 'cargos'" class="planner-section">
-        <div class="planner-page-head">
-          <div>
+      <section v-else-if="plannerMode === 'cargos'" key="cargo-detail-view" class="planner-section">
+        <el-card class="planner-page-head" shadow="never">
+          <div class="page-heading">
             <p>Cargo Overview</p>
             <h2>货物总览</h2>
           </div>
           <div class="section-actions">
-            <button class="primary" type="button" @click="openCargoModal()">新增货物</button>
-            <button class="danger ghost" type="button" :disabled="!cargos.length" @click="clearCargos">清空全部</button>
+            <el-button :icon="ArrowLeft" @click="goPlannerStep('config')">返回配置</el-button>
           </div>
-        </div>
+        </el-card>
 
         <div class="planner-metrics">
-          <div><span>货物种类</span><strong>{{ cargoTypeCount }}</strong></div>
-          <div><span>总件数</span><strong>{{ cargoTotalQuantity }}</strong></div>
-          <div><span>总质量</span><strong>{{ fmt(cargoTotalWeightKg / 1000, 2) }} t</strong></div>
-          <div><span>总体积</span><strong>{{ fmt(cargoTotalVolumeM3, 2) }} m³</strong></div>
+          <el-card shadow="never"><el-statistic title="货物品类数" :value="cargoTypeCount" /></el-card>
+          <el-card shadow="never"><el-statistic title="总件数" :value="cargoTotalQuantity" /></el-card>
+          <el-card shadow="never"><el-statistic title="总重量" :value="cargoTotalWeightKg / 1000" :precision="2" suffix="t" /></el-card>
+          <el-card shadow="never"><el-statistic title="总体积" :value="cargoTotalVolumeM3" :precision="2" suffix="m³" /></el-card>
         </div>
-        <div v-if="showPackingWorkloadHint" class="calculation-load-hint compact" :class="packingWorkloadHint.level">
-          <strong>{{ packingWorkloadHint.title }}</strong>
-          <span>{{ packingWorkloadHint.detail }}</span>
-          <em>{{ packingWorkloadHint.advice }}</em>
-        </div>
+        <el-alert
+          v-if="showPackingWorkloadHint"
+          class="calculation-load-hint compact"
+          :class="packingWorkloadHint.level"
+          :title="packingWorkloadHint.title"
+          :description="`${packingWorkloadHint.detail}。${packingWorkloadHint.advice}`"
+          :type="packingWorkloadHint.level === 'heavy' ? 'error' : packingWorkloadHint.level === 'medium' ? 'warning' : 'info'"
+          show-icon
+          :closable="false"
+        />
 
-        <section class="panel cargo-overview-panel">
+        <el-card class="panel cargo-overview-panel" shadow="never">
+          <template #header>
           <div class="section-head">
             <div>
               <p>Current Cargo</p>
               <h2>当前货物列表</h2>
             </div>
-            <div class="section-actions">
-              <button type="button" @click="goPlannerStep('config')">上一步：计算配置</button>
-              <button class="primary" type="button" :disabled="!cargos.length" @click="goPlannerStep('results')">下一步：计算方案</button>
+            <div class="section-actions cargo-list-actions">
+              <el-button type="primary" :icon="Plus" @click="openCargoModal()">手动录入</el-button>
+              <el-button :icon="Star" @click="smartImportOpen = !smartImportOpen">{{ smartImportOpen ? "收起智能导入" : "智能导入" }}</el-button>
+              <el-upload :auto-upload="false" :show-file-list="false" accept=".csv,text/csv" :on-change="handleCsvUpload">
+                <el-button :icon="Upload">导入 CSV</el-button>
+              </el-upload>
+              <el-button :icon="Delete" :disabled="!selectedCargoRows.length" @click="deleteSelectedCargos">批量删除</el-button>
+              <el-button type="danger" plain :icon="Delete" :disabled="!cargos.length" @click="clearCargos">清空全部</el-button>
+              <el-button type="primary" :disabled="!cargos.length" @click="goPlannerStep('results')">进入计算方案</el-button>
             </div>
           </div>
-          <div v-if="cargos.length" class="cargo-overview-table-wrap">
-            <table class="cargo-overview-table">
-              <thead>
-                <tr>
-                  <th>货物</th>
-                  <th>型号</th>
-                  <th>尺寸 cm</th>
-                  <th>数量</th>
-                  <th>单重</th>
-                  <th>小计体积</th>
-                  <th>类型</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(cargo, index) in cargos" :key="cargo.id">
-                  <td>
-                    <span class="cargo-name-cell">
-                      <i :style="{ background: cargo.color || systemColorFor(index) }"></i>
-                      <b>{{ cargo.name }}</b>
-                    </span>
-                  </td>
-                  <td>{{ cargo.model || "-" }}</td>
-                  <td>{{ cargo.lengthCm }} × {{ cargo.widthCm }} × {{ cargo.heightCm }}</td>
-                  <td>{{ cargo.quantity }} 件</td>
-                  <td>{{ fmt(cargo.weightKg, 2) }} kg</td>
-                  <td>{{ fmt((cargo.lengthCm * cargo.widthCm * cargo.heightCm * cargo.quantity) / 1000000, 3) }} m³</td>
-                  <td>{{ cargoTypeText(cargo.type) }}</td>
-                  <td>
-                    <div class="table-actions">
-                      <button type="button" @click="openCargoModal(cargo)">详情/编辑</button>
-                      <button class="danger ghost" type="button" @click="deleteCargo(cargo.id, cargo.name)">删除</button>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <p v-else class="empty">还没有录入货物，可以先手动新增，或去智能导入页面导入表格。</p>
-        </section>
+          </template>
+          <el-collapse-transition>
+            <div v-if="smartImportOpen" class="embedded-smart-import">
+              <ExcelTemplatePage key="embedded-smart-import" @import-cargos="importExcelCargos" />
+            </div>
+          </el-collapse-transition>
+          <el-table
+            v-if="cargos.length"
+            :data="cargos"
+            row-key="id"
+            class="cargo-overview-table"
+            size="large"
+            @selection-change="handleCargoSelectionChange"
+          >
+            <el-table-column type="selection" width="44" />
+            <el-table-column label="货物" min-width="180">
+              <template #default="{ row, $index }">
+                <span class="cargo-name-cell">
+                  <i :style="{ background: row.color || systemColorFor($index) }"></i>
+                  <b>{{ row.name }}</b>
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="model" label="型号" min-width="110">
+              <template #default="{ row }">{{ row.model || "-" }}</template>
+            </el-table-column>
+            <el-table-column label="尺寸 cm" min-width="170">
+              <template #default="{ row }">{{ row.lengthCm }} × {{ row.widthCm }} × {{ row.heightCm }}</template>
+            </el-table-column>
+            <el-table-column label="数量" width="150">
+              <template #default="{ row }">
+                <el-input-number v-model="row.quantity" :min="1" :step="1" size="small" controls-position="right" @change="touchCargoList" />
+              </template>
+            </el-table-column>
+            <el-table-column label="单重" width="110">
+              <template #default="{ row }">{{ fmt(row.weightKg, 2) }} kg</template>
+            </el-table-column>
+            <el-table-column label="小计体积" width="130">
+              <template #default="{ row }">{{ fmt((row.lengthCm * row.widthCm * row.heightCm * row.quantity) / 1000000, 3) }} m³</template>
+            </el-table-column>
+            <el-table-column label="类型" width="120">
+              <template #default="{ row }">
+                <el-tag effect="plain">{{ cargoTypeText(row.type) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="150" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="openCargoModal(row)">编辑</el-button>
+                <el-button link type="danger" @click="deleteCargo(row.id, row.name)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-else description="还没有录入货物，可以先手动新增，或使用上方智能导入/CSV 导入表格。" />
+        </el-card>
       </section>
 
-      <section v-else class="planner-section">
+      <section v-else key="results-view" class="planner-section">
         <section class="panel ranking-panel">
           <div class="section-head">
             <div>
@@ -267,30 +325,31 @@
               <h2>推荐箱型对比</h2>
             </div>
             <div class="view-actions">
-              <span class="status-pill" :class="{ warn: loading }">{{ apiStatus }}</span>
-              <button type="button" @click="goPlannerStep('cargos')">返回货物总览</button>
-              <button type="button" @click="recalculate">重新计算</button>
+              <el-tag :type="loading ? 'warning' : 'primary'" effect="light">{{ apiStatus }}</el-tag>
+              <el-button :icon="ArrowLeft" @click="goPlannerStep('cargos')">返回货物总览</el-button>
+              <el-button :icon="Refresh" @click="recalculate">重新计算</el-button>
             </div>
           </div>
           <div class="box-switch" v-if="selectedEvaluation?.packedBoxes?.length > 1">
             <span>{{ boxSwitchLabel }}</span>
-            <button
+            <el-button
               v-for="box in selectedEvaluation.packedBoxes"
               :key="box.index"
               :class="{ active: selectedBoxIndex === box.index }"
-              type="button"
+              size="small"
+              :type="selectedBoxIndex === box.index ? 'primary' : 'default'"
               @click="switchBox(box.index)"
             >
               {{ box.index }}
-            </button>
+            </el-button>
           </div>
           <div class="container-grid">
-            <button
+            <el-button
               v-for="evaluation in sortedEvaluations"
               :key="evaluation.container.id"
               :class="{ active: selectedContainerId === evaluation.container.id, best: result?.bestContainerId === evaluation.container.id }"
               class="container-card"
-              type="button"
+              text
               @click="selectContainer(evaluation.container.id)"
             >
               <span class="container-icon">{{ containerIcon(evaluation.container.name) }}</span>
@@ -298,45 +357,38 @@
               <small>{{ evaluation.container.lengthCm }} × {{ evaluation.container.widthCm }} × {{ evaluation.container.heightCm }} cm</small>
               <b>{{ evaluation.boxes > 0 ? `${evaluation.estimatedBoxes ? "约 " : ""}${evaluation.boxes} 箱` : "不可装" }}</b>
               <em>占用率 {{ fmt(evaluation.firstBoxFillPercent, 1) }}%</em>
-            </button>
+            </el-button>
           </div>
         </section>
 
         <section class="panel visual-panel">
           <div class="section-head">
             <div>
-              <p>物理摆放视图</p>
+              <p>Interactive 3D Packing</p>
               <h2>{{ selectedContainer?.name || "请选择箱型" }} · 第 {{ selectedBoxIndex }} 货舱</h2>
             </div>
-            <div class="view-actions">
-              <label><input v-model="showRemaining" type="checkbox" /> 显示剩余空间</label>
-              <label><input v-model="showMassBalance" type="checkbox" /> 显示重心偏载</label>
-              <button type="button" :disabled="exportingReport || loading || !selectedPlacements.length" @click="exportCurrentReport('png')">导出图片</button>
-              <button type="button" :disabled="exportingReport || loading || !selectedPlacements.length" @click="exportCurrentReport('pdf')">导出 PDF</button>
-              <button type="button" :disabled="exportingReport || loading || !selectedEvaluation?.packedBoxes?.length" @click="exportAllReportsZip">{{ exportZipLabel }}</button>
-            </div>
           </div>
-          <div class="scene-wrap">
-            <ContainerScene
-              :container="selectedContainer"
-              :placements="selectedPlacements"
-              :show-remaining="showRemaining"
-              :show-mass-balance="showMassBalance"
-              :busy="loading"
-            />
-            <div v-if="loading || switchingBox" class="loading-mask">
-              <div class="spinner"></div>
-              <span>{{ switchingBox ? "正在切换货舱视图..." : "正在计算装箱结果..." }}</span>
-            </div>
-          </div>
-        </section>
-
-        <section class="projection-grid">
-          <ProjectionCanvas title="俯视图：长 × 宽" note="看底面铺放" mode="top" :container="selectedContainer" :placements="selectedPlacements" />
-          <ProjectionCanvas title="正视图：长 × 高" note="看长度方向堆叠" mode="front" :container="selectedContainer" :placements="selectedPlacements" />
-          <ProjectionCanvas title="侧视图：宽 × 高" note="看宽度方向堆叠" mode="side" :container="selectedContainer" :placements="selectedPlacements" />
+          <ContainerScene
+            :container="selectedContainer"
+            :placements="selectedPlacements"
+            :evaluation="selectedEvaluation"
+            :selected-box="selectedBox"
+            :balance-validation="selectedBox?.balanceValidation"
+            v-model:show-remaining="showRemaining"
+            v-model:show-mass-balance="showMassBalance"
+            :busy="loading || switchingBox"
+            :exporting="exportingReport"
+            :export-zip-label="exportZipLabel"
+            :can-export="Boolean(selectedPlacements.length)"
+            :can-export-zip="Boolean(selectedEvaluation?.packedBoxes?.length)"
+            @export-image="exportCurrentReport('png')"
+            @export-pdf="exportCurrentReport('pdf')"
+            @export-zip="exportAllReportsZip"
+            @print="printCurrentPlan"
+          />
         </section>
       </section>
+      </Transition>
     </main>
 
     <AlgorithmPage
@@ -344,7 +396,6 @@
       key="algorithm"
       :evaluation="selectedEvaluation"
     />
-    <ExcelTemplatePage v-else-if="activePage === 'smart-import'" key="smart-import" @import-cargos="importExcelCargos" />
     </Transition>
       </section>
     </div>
@@ -356,13 +407,13 @@
         <header class="profile-modal-head">
           <div class="profile-identity">
             <span class="profile-avatar">{{ profileInitial }}</span>
-            <div>
-              <p>Personal Center</p>
-              <h2>{{ userDisplayName }}</h2>
-              <small>{{ currentUser?.username }}</small>
-            </div>
+          <div>
+            <p>Personal Center</p>
+            <h2>{{ userDisplayName }}</h2>
+            <small>{{ currentUser?.username }}</small>
           </div>
-          <button class="icon-button" type="button" @click="profileOpen = false">×</button>
+        </div>
+          <el-button class="icon-button" text @click="profileOpen = false">×</el-button>
         </header>
         <div class="profile-hero">
           <div>
@@ -386,7 +437,7 @@
           <RouterLink to="/planner/config" @click="profileOpen = false">
             <b>装箱计算</b><span>配置参数和箱型</span>
           </RouterLink>
-          <RouterLink to="/smart-import" @click="profileOpen = false">
+          <RouterLink to="/planner/cargos" @click="profileOpen = false">
             <b>智能导入</b><span>Excel 与文本识别</span>
           </RouterLink>
           <RouterLink to="/algorithm" @click="profileOpen = false">
@@ -398,7 +449,7 @@
         </div>
         <div class="profile-footer">
           <span>{{ profileRoleText }} / {{ currentUser?.username }}</span>
-          <button type="button" @click="handleLogout">退出登录</button>
+          <el-button type="danger" plain @click="handleLogout">退出登录</el-button>
         </div>
       </div>
     </div>
@@ -416,9 +467,30 @@
   </Transition>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import type { UploadFile } from "element-plus";
+import {
+  ArrowLeft,
+  Box,
+  DataAnalysis,
+  Delete,
+  Document,
+  Download,
+  Expand,
+  Files,
+  Fold,
+  House,
+  MagicStick,
+  Operation,
+  Plus,
+  Refresh,
+  Setting,
+  Star,
+  Tickets,
+  Upload
+} from "@element-plus/icons-vue";
 import AdminDashboard from "./components/AdminDashboard.vue";
 import AlgorithmPage from "./components/AlgorithmPage.vue";
 import ExcelTemplatePage from "./components/ExcelTemplatePage.vue";
@@ -427,7 +499,6 @@ import LoginPage from "./components/LoginPage.vue";
 import CargoModal from "./components/CargoModal.vue";
 import ContainerModal from "./components/ContainerModal.vue";
 import ContainerScene from "./components/ContainerScene.vue";
-import ProjectionCanvas from "./components/ProjectionCanvas.vue";
 import { exportPackingReportsZip, exportPackingReport } from "./services/exportReport";
 import { assignCargoModels } from "./services/excelImport";
 import { calculatePacking, estimatePackingWorkload } from "./services/packingClient";
@@ -461,11 +532,20 @@ const plannerMode = computed(() => {
   if (routeName.value === "planner-results") return "results";
   return "config";
 });
+const activePlannerStep = computed(() => plannerMode.value === "results" ? "results" : "config");
+const activeStepIndex = computed(() => activePlannerStep.value === "results" ? 1 : 0);
+const activePlannerStepLabel = computed(() =>
+  activePlannerStep.value === "results" ? "计算方案" : "配置与货物管理"
+);
+const activeMenuIndex = computed(() => {
+  if (activePage.value === "planner") return activePlannerStep.value === "results" ? "/planner/results" : "/planner/config";
+  if (activePage.value === "algorithm") return "/algorithm";
+  return "/home";
+});
 const pageTitle = computed(() => ({
   home: "工作台首页",
   planner: "装箱计算",
   algorithm: "算法说明",
-  "smart-import": "智能导入",
   admin: "管理后台"
 }[activePage.value] || "工作台"));
 const userDisplayName = computed(() => {
@@ -497,6 +577,8 @@ const showRemaining = ref(true);
 const showMassBalance = ref(true);
 const cargoModalOpen = ref(false);
 const containerModalOpen = ref(false);
+const smartImportOpen = ref(false);
+const selectedCargoRows = ref<any[]>([]);
 const editingCargo = ref(null);
 const cargoTemplates = ref([]);
 const templateName = ref("");
@@ -557,22 +639,14 @@ const plannerWorkflowSteps = computed(() => [
   {
     key: "config",
     no: "01",
-    label: "确认配置",
-    description: `${utilizationPercent.value}% 可用率 / ${globalGapCm.value}cm 间隙`,
-    done: cargos.value.length > 0,
-    disabled: false
-  },
-  {
-    key: "cargos",
-    no: "02",
-    label: "货物总览",
-    description: `${cargoTypeCount.value} 类 / ${cargoTotalQuantity.value} 件`,
+    label: "配置与货物管理",
+    description: `${utilizationPercent.value}% 可用率 / ${globalGapCm.value}cm 间隙 · ${cargoTypeCount.value} 类货物`,
     done: cargos.value.length > 0,
     disabled: false
   },
   {
     key: "results",
-    no: "03",
+    no: "02",
     label: "计算方案",
     description: selectedEvaluation.value ? `${selectedEvaluation.value.container.name} / ${selectedEvaluation.value.boxes || 0} 箱` : "可视化与导出",
     done: Boolean(selectedEvaluation.value?.packedBoxes?.length),
@@ -734,6 +808,14 @@ function goPlannerStep(stepKey) {
   router.push(routeMap[stepKey] || "/planner/config");
 }
 
+function handleMenuSelect(index) {
+  if (index === "/planner/results") {
+    goPlannerStep("results");
+    return;
+  }
+  router.push(index);
+}
+
 async function recalculate() {
   if (!cargos.value.length || !containers.value.length) return;
   const seq = ++calcSeq;
@@ -810,6 +892,26 @@ function deleteCargo(id, name) {
   cargos.value = cargos.value.filter((item) => item.id !== id);
   if (!cargos.value.length) result.value = null;
   showToast("已删除货物。");
+}
+
+function handleCargoSelectionChange(rows: any[]) {
+  selectedCargoRows.value = rows;
+}
+
+function deleteSelectedCargos() {
+  if (!selectedCargoRows.value.length) return;
+  if (!window.confirm(`确认删除选中的 ${selectedCargoRows.value.length} 类货物吗？`)) return;
+  const ids = new Set(selectedCargoRows.value.map((item) => item.id));
+  cargos.value = cargos.value.filter((item) => !ids.has(item.id));
+  selectedCargoRows.value = [];
+  if (!cargos.value.length) result.value = null;
+  selectedBoxIndex.value = 1;
+  showToast("已批量删除货物。");
+}
+
+function touchCargoList() {
+  result.value = null;
+  selectedBoxIndex.value = 1;
 }
 
 function openContainerModal() {
@@ -968,6 +1070,14 @@ async function exportAllReportsZip() {
   }
 }
 
+function printCurrentPlan() {
+  if (!selectedContainer.value || !selectedPlacements.value.length) {
+    showToast("当前没有可打印的装箱方案。");
+    return;
+  }
+  window.print();
+}
+
 function normalizeEvaluationForExport(evaluation) {
   if (!evaluation) return evaluation;
   return {
@@ -979,9 +1089,20 @@ function normalizeEvaluationForExport(evaluation) {
   };
 }
 
-function importCsv(event) {
-  const file = event.target.files?.[0];
+function handleCsvUpload(uploadFile: UploadFile) {
+  const file = uploadFile.raw;
+  if (file) importCsvFile(file);
+}
+
+function importCsv(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
   if (!file) return;
+  importCsvFile(file);
+  input.value = "";
+}
+
+function importCsvFile(file: Blob) {
   const reader = new FileReader();
   reader.onload = () => {
     const lines = String(reader.result || "").split(/\r?\n/).filter(Boolean);
@@ -1008,7 +1129,6 @@ function importCsv(event) {
     showToast("CSV 已导入。");
   };
   reader.readAsText(file, "utf-8");
-  event.target.value = "";
 }
 
 function containerIcon(name) {

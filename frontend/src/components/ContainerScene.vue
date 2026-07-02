@@ -1,569 +1,378 @@
 <template>
-  <div ref="host" class="scene-host" @pointermove="onPointerMove" @pointerleave="hideTooltip">
-    <div class="scene-tools">
-      <button type="button" @click="resetCamera">重置视角</button>
-      <button type="button" @click="setTopView">俯视</button>
-      <button type="button" @click="setFrontView">正视</button>
-      <button type="button" @click="zoomIn">放大</button>
-      <button type="button" @click="zoomOut">缩小</button>
-    </div>
-    <div class="dimension-card" v-if="container">
-      <strong>{{ container.name }}</strong>
-      <span>长 {{ container.lengthCm }} cm · 宽 {{ container.widthCm }} cm · 高 {{ container.heightCm }} cm</span>
-      <span>载重 {{ (container.payloadKg / 1000).toFixed(2) }} t</span>
-    </div>
-    <div class="balance-card" v-if="showMassBalance && massBalance.valid">
-      <strong>质量重心</strong>
-      <span>总重 {{ formatWeight(massBalance.totalWeightKg) }}</span>
-      <span>X {{ formatSigned(massBalance.offset.xCm) }} cm / Y {{ formatSigned(massBalance.offset.yCm) }} cm</span>
-      <span>水平偏载 {{ massBalance.offset.horizontalPercent.toFixed(1) }}%</span>
-    </div>
-    <div class="balance-map-card" v-if="showMassBalance && massBalance.valid && balanceMap">
-      <div class="balance-map-head">
-        <strong>质量分布俯视图</strong>
-        <span>红点为重心</span>
+  <section ref="shellRef" class="packing-visual-shell" :class="{ fullscreen: isFullscreen }">
+    <el-card class="packing-visual-toolbar" shadow="never">
+      <div class="toolbar-left">
+        <el-button :icon="Refresh" @click="setView('iso')">视角复位</el-button>
+        <el-segmented v-model="viewMode" :options="viewModeOptions" size="default" />
+        <el-button-group>
+          <el-button :type="activeView === 'front' ? 'primary' : 'default'" @click="setView('front')">正视</el-button>
+          <el-button :type="activeView === 'side' ? 'primary' : 'default'" @click="setView('side')">侧视</el-button>
+          <el-button :type="activeView === 'top' ? 'primary' : 'default'" @click="setView('top')">俯视</el-button>
+          <el-button :type="activeView === 'iso' ? 'primary' : 'default'" @click="setView('iso')">轴测</el-button>
+        </el-button-group>
       </div>
-      <svg class="balance-map" :viewBox="balanceMap.viewBox" role="img" aria-label="货舱质量分布俯视图">
-        <rect :x="0" :y="0" :width="balanceMap.width" :height="balanceMap.height" class="map-shell" />
-        <rect :x="0" :y="0" :width="balanceMap.width / 2" :height="balanceMap.height / 2" class="map-zone front-left" />
-        <rect :x="balanceMap.width / 2" :y="0" :width="balanceMap.width / 2" :height="balanceMap.height / 2" class="map-zone front-right" />
-        <rect :x="0" :y="balanceMap.height / 2" :width="balanceMap.width / 2" :height="balanceMap.height / 2" class="map-zone rear-left" />
-        <rect :x="balanceMap.width / 2" :y="balanceMap.height / 2" :width="balanceMap.width / 2" :height="balanceMap.height / 2" class="map-zone rear-right" />
-        <line :x1="balanceMap.width / 2" y1="0" :x2="balanceMap.width / 2" :y2="balanceMap.height" class="map-center-line" />
-        <line x1="0" :y1="balanceMap.height / 2" :x2="balanceMap.width" :y2="balanceMap.height / 2" class="map-center-line" />
-        <rect
-          v-for="item in balanceMap.items"
-          :key="item.key"
-          :x="item.x"
-          :y="item.y"
-          :width="item.width"
-          :height="item.height"
-          :fill="item.color"
-          class="map-cargo"
-        />
-        <line :x1="balanceMap.geo.x" :y1="balanceMap.geo.y" :x2="balanceMap.center.x" :y2="balanceMap.center.y" class="map-offset-line" />
-        <path :d="`M ${balanceMap.geo.x - 14} ${balanceMap.geo.y} L ${balanceMap.geo.x + 14} ${balanceMap.geo.y} M ${balanceMap.geo.x} ${balanceMap.geo.y - 14} L ${balanceMap.geo.x} ${balanceMap.geo.y + 14}`" class="map-geo" />
-        <circle :cx="balanceMap.center.x" :cy="balanceMap.center.y" r="24" class="map-center-halo" />
-        <circle :cx="balanceMap.center.x" :cy="balanceMap.center.y" r="10" class="map-center-dot" />
-      </svg>
-      <div class="balance-quadrants">
-        <span v-for="zone in balanceZones" :key="zone.name">
-          <b>{{ zone.name }}</b>{{ formatWeight(zone.kg) }} · {{ zone.percent.toFixed(1) }}%
-        </span>
+      <div class="toolbar-right">
+        <el-switch v-model="sliceEnabled" active-text="剖切" inactive-text="剖切" />
+        <el-popover placement="bottom-end" trigger="click" width="260">
+          <template #reference>
+            <el-button :icon="Setting">显示选项</el-button>
+          </template>
+          <div class="visual-option-grid">
+            <el-checkbox v-model="showLabels">货号标签</el-checkbox>
+            <el-checkbox v-model="remainingModel">剩余空间</el-checkbox>
+            <el-checkbox v-model="massModel">重心偏载</el-checkbox>
+            <el-checkbox v-model="showGrid">底部网格</el-checkbox>
+            <el-checkbox v-model="showShell">箱体外壳</el-checkbox>
+            <el-checkbox v-model="showCenter">几何中心</el-checkbox>
+            <el-checkbox v-model="translucentCargo">半透明货物</el-checkbox>
+            <el-checkbox v-model="showHeatmap">重量热力</el-checkbox>
+          </div>
+        </el-popover>
+        <el-button :icon="isFullscreen ? Aim : FullScreen" @click="toggleFullscreen">
+          {{ isFullscreen ? "退出全屏" : "全屏" }}
+        </el-button>
       </div>
+    </el-card>
+
+    <el-card v-if="sliceEnabled" class="slice-control-card" shadow="never">
+      <div class="slice-control-row">
+        <span>剖切方向</span>
+        <el-radio-group v-model="sliceAxis" size="small">
+          <el-radio-button value="z">Z 高度</el-radio-button>
+          <el-radio-button value="x">X 前后</el-radio-button>
+          <el-radio-button value="y">Y 左右</el-radio-button>
+        </el-radio-group>
+        <el-slider v-model="slicePercent" :min="0" :max="100" :step="1" />
+        <el-tag effect="plain">{{ sliceLabel }}</el-tag>
+      </div>
+    </el-card>
+
+    <div class="packing-visual-layout">
+      <div class="packing-canvas-panel" @pointermove="handlePointerMove" @pointerleave="handlePointerLeave">
+        <div ref="canvasHost" class="packing-scene-canvas"></div>
+        <div v-if="busy" class="loading-mask visual-loading">
+          <div class="spinner"></div>
+          <span>正在生成 3D 装箱视图...</span>
+        </div>
+        <div v-else-if="emptyStateVisible" class="visual-empty-state">
+          <el-empty :description="emptyStateText" />
+        </div>
+        <div v-if="tooltip.visible" class="scene-tooltip visual-tooltip" :style="{ left: `${tooltip.x}px`, top: `${tooltip.y}px` }">
+          <strong>#{{ tooltip.item.displayNo }} {{ tooltip.item.name }}</strong>
+          <span>尺寸 {{ tooltip.item.lengthCm }} × {{ tooltip.item.widthCm }} × {{ tooltip.item.heightCm }} cm</span>
+          <span>数量 {{ tooltip.item.quantity }} 件 · 重量 {{ formatWeight(tooltip.item.weightKg) }}</span>
+          <span>{{ tooltip.item.orientationLabel || tooltip.item.bottomFaceDetail || "按算法输出坐标摆放" }}</span>
+          <span>坐标 X{{ tooltip.item.xCm }} / Y{{ tooltip.item.yCm }} / Z{{ tooltip.item.zCm }} cm</span>
+        </div>
+      </div>
+
+      <aside class="packing-info-panel">
+        <el-card class="info-panel-card" shadow="never">
+          <template #header>
+            <div class="info-card-head">
+              <strong>{{ sceneData.container?.name || "未选择箱型" }}</strong>
+              <el-tag size="small" effect="plain">{{ viewMode === "3d" ? "3D装箱" : "2D视角" }}</el-tag>
+            </div>
+          </template>
+          <div class="stats-grid compact">
+            <div>
+              <span>总件数</span>
+              <b>{{ sceneData.stats.totalPieces }}</b>
+            </div>
+            <div>
+              <span>总体积</span>
+              <b>{{ sceneData.stats.totalVolumeM3.toFixed(2) }} m³</b>
+            </div>
+            <div>
+              <span>空间利用率</span>
+              <b>{{ sceneData.stats.utilizationPercent.toFixed(1) }}%</b>
+            </div>
+            <div>
+              <span>总毛重</span>
+              <b>{{ formatWeight(sceneData.stats.totalWeightKg) }}</b>
+            </div>
+          </div>
+          <el-alert
+            v-if="sceneData.stats.performanceMode"
+            class="visual-performance-alert"
+            type="warning"
+            title="已启用流畅模式"
+            description="货物超过100件，系统自动关闭标签与热力特效。"
+            show-icon
+            :closable="false"
+          />
+        </el-card>
+
+        <el-card class="info-panel-card" shadow="never">
+          <template #header>
+            <div class="info-card-head">
+              <strong>偏载重心</strong>
+              <el-tag :type="balanceState.tagType" effect="light">{{ balanceState.label }}</el-tag>
+            </div>
+          </template>
+          <div class="balance-summary">
+            <p>{{ balanceState.description }}</p>
+            <div class="balance-metric-list">
+              <span>重心坐标</span>
+              <b>X {{ balanceState.center.xCm.toFixed(1) }} / Y {{ balanceState.center.yCm.toFixed(1) }} / Z {{ balanceState.center.zCm.toFixed(1) }} cm</b>
+              <span>横向偏移 Y</span>
+              <b>{{ formatSigned(balanceState.offset.lateralCm ?? balanceState.offset.yCm) }} cm / {{ formatSigned(balanceState.offset.lateralPercent ?? balanceState.offset.yPercent) }}%</b>
+              <span>纵向偏移 X</span>
+              <b>{{ formatSigned(balanceState.offset.longitudinalCm ?? balanceState.offset.xCm) }} cm / {{ formatSigned(balanceState.offset.longitudinalPercent ?? balanceState.offset.xPercent) }}%</b>
+              <span>重心高度</span>
+              <b>{{ balanceState.center.zCm.toFixed(1) }} cm</b>
+            </div>
+          </div>
+          <div class="balance-zone-bars" v-if="balanceState.valid">
+            <div>
+              <span>前 / 后</span>
+              <el-progress :percentage="frontPercent" :stroke-width="10" :show-text="false" />
+              <small>前 {{ frontPercent.toFixed(1) }}% · 后 {{ rearPercent.toFixed(1) }}%</small>
+            </div>
+            <div>
+              <span>左 / 右</span>
+              <el-progress :percentage="leftPercent" :stroke-width="10" :show-text="false" />
+              <small>左 {{ leftPercent.toFixed(1) }}% · 右 {{ rightPercent.toFixed(1) }}%</small>
+            </div>
+          </div>
+        </el-card>
+
+        <el-card class="info-panel-card legend-card" shadow="never">
+          <template #header>
+            <div class="info-card-head">
+              <strong>货物图例</strong>
+              <el-button v-if="hiddenSkuKeys.size" link type="primary" @click="showAllSku">全部显示</el-button>
+            </div>
+          </template>
+          <el-scrollbar max-height="260">
+            <button
+              v-for="item in sceneData.legend"
+              :key="item.key"
+              class="legend-row"
+              :class="{ muted: hiddenSkuKeys.has(item.key) }"
+              type="button"
+              @click="toggleSku(item.key)"
+            >
+              <i :style="{ background: item.color }"></i>
+              <span>
+                <b>{{ item.label }}</b>
+                <small>{{ item.quantity }} 件 · {{ formatWeight(item.weightKg) }}</small>
+              </span>
+              <em>{{ hiddenSkuKeys.has(item.key) ? "隐藏" : "显示" }}</em>
+            </button>
+          </el-scrollbar>
+        </el-card>
+      </aside>
     </div>
-    <div class="legend interactive" v-if="legend.length">
-      <button
-        v-for="item in legend"
-        :key="item.name"
-        :class="{ muted: isHidden(item.name) }"
-        type="button"
-        @click="toggleLegend(item.name)"
-      >
-        <i :style="{ background: item.color }"></i>
-        <span>{{ item.name }}</span>
-        <em>{{ isHidden(item.name) ? "隐藏" : "显示" }}</em>
-      </button>
-      <button v-if="hiddenNames.length" class="legend-reset" type="button" @click="showAll">全部显示</button>
-      <span v-if="showRemaining"><i class="remain"></i>剩余空间</span>
-      <span v-if="showMassBalance && massBalance.valid"><i class="balance"></i>质量重心</span>
-    </div>
-    <div v-if="tooltip.visible" class="scene-tooltip" :style="{ left: `${tooltip.x}px`, top: `${tooltip.y}px` }">
-      <strong>{{ tooltip.item.name }}</strong>
-      <span>{{ tooltip.item.lengthCm }} × {{ tooltip.item.widthCm }} × {{ tooltip.item.heightCm }} cm</span>
-      <span v-if="tooltip.item.groupQuantity > 1">组合块 {{ tooltip.item.groupQuantity }} 件</span>
-      <span>{{ tooltip.item.bottomFaceDetail || "X向=长 / Y向=宽" }}</span>
-      <span>高度 Z向={{ tooltip.item.zAxis || tooltip.item.heightAxis || "高" }}{{ tooltip.item.zAxisBaseCm ? `${tooltip.item.zAxisBaseCm}cm` : "" }}</span>
-      <span>位置 X{{ tooltip.item.xCm }} / Y{{ tooltip.item.yCm }} / Z{{ tooltip.item.zCm }} cm</span>
-      <span>类型 {{ tooltip.item.type }} · {{ tooltip.item.weightKg }} kg</span>
-    </div>
-  </div>
+
+    <el-card class="packing-bottom-actions" shadow="never">
+      <div>
+        <el-tag :type="balanceState.tagType" effect="light">{{ balanceState.label }}</el-tag>
+        <span>左键旋转 · 右键平移 · 滚轮缩放</span>
+      </div>
+      <div class="bottom-button-group">
+        <el-button :icon="Picture" :disabled="exportDisabled" :loading="exporting" @click="$emit('export-image')">导出可视化截图</el-button>
+        <el-button :icon="Document" :disabled="exportDisabled" :loading="exporting" @click="$emit('export-pdf')">导出装箱方案 PDF</el-button>
+        <el-button type="primary" :icon="Download" :disabled="zipDisabled" :loading="exporting" @click="$emit('export-zip')">{{ exportZipLabel }}</el-button>
+        <el-button :icon="Printer" @click="$emit('print')">打印</el-button>
+      </div>
+    </el-card>
+  </section>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
-import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { calculateMassBalance } from "../utils/massBalance";
+import {
+  Aim,
+  Document,
+  Download,
+  FullScreen,
+  Picture,
+  Printer,
+  Refresh,
+  Setting
+} from "@element-plus/icons-vue";
+import { buildPackingSceneData, formatSigned, formatWeight } from "../visualization/packingSceneData";
+import { resolveBalanceState } from "../visualization/packingSceneBalance";
+import { PackingSceneRenderer } from "../visualization/packingSceneRenderer";
+import type { SceneCargo, SceneViewMode, SceneViewPreset, SliceAxis } from "../visualization/packingSceneTypes";
 
 const props = defineProps({
   container: { type: Object, default: null },
   placements: { type: Array, default: () => [] },
+  evaluation: { type: Object, default: null },
+  selectedBox: { type: Object, default: null },
+  balanceValidation: { type: Object, default: null },
   showRemaining: { type: Boolean, default: true },
   showMassBalance: { type: Boolean, default: true },
-  busy: { type: Boolean, default: false }
+  busy: { type: Boolean, default: false },
+  exporting: { type: Boolean, default: false },
+  exportZipLabel: { type: String, default: "导出整套 ZIP" },
+  canExport: { type: Boolean, default: true },
+  canExportZip: { type: Boolean, default: true },
+  errorMessage: { type: String, default: "" }
 });
 
-const host = ref(null);
-const tooltip = reactive({ visible: false, x: 0, y: 0, item: {} });
-const hiddenNames = ref([]);
-const legend = computed(() => {
-  const map = new Map();
-  props.placements.forEach((item) => {
-    if (!map.has(item.name)) map.set(item.name, item.color || "#4e8fd0");
-  });
-  return [...map.entries()].map(([name, color]) => ({ name, color }));
-});
-const visiblePlacements = computed(() => props.placements.filter((item) => !isHidden(item.name)));
-const massBalance = computed(() => calculateMassBalance(props.container, props.placements));
-const balanceZones = computed(() => {
-  const loads = massBalance.value.loads;
-  return [
-    { name: "前左", kg: loads.frontLeftKg, percent: loads.frontLeftPercent },
-    { name: "前右", kg: loads.frontRightKg, percent: loads.frontRightPercent },
-    { name: "后左", kg: loads.rearLeftKg, percent: loads.rearLeftPercent },
-    { name: "后右", kg: loads.rearRightKg, percent: loads.rearRightPercent }
-  ];
-});
-const balanceMap = computed(() => buildBalanceMap(props.container, props.placements, massBalance.value));
+const emit = defineEmits([
+  "update:showRemaining",
+  "update:showMassBalance",
+  "export-image",
+  "export-pdf",
+  "export-zip",
+  "print"
+]);
 
-let scene;
-let camera;
-let renderer;
-let controls;
-let rootGroup;
-let raycaster;
-let pointer;
-let resizeObserver;
-let frameId;
-let hoverMeshes = [];
+const shellRef = ref<HTMLElement | null>(null);
+const canvasHost = ref<HTMLElement | null>(null);
+const controller = ref<PackingSceneRenderer | null>(null);
+const activeView = ref<SceneViewPreset>("iso");
+const viewMode = ref<SceneViewMode>("3d");
+const sliceEnabled = ref(false);
+const sliceAxis = ref<SliceAxis>("z");
+const slicePercent = ref(100);
+const showLabels = ref(true);
+const showGrid = ref(true);
+const showCenter = ref(true);
+const showShell = ref(true);
+const translucentCargo = ref(false);
+const showHeatmap = ref(false);
+const hiddenSkuKeys = ref<Set<string>>(new Set());
+const isFullscreen = ref(false);
+const tooltip = reactive<{ visible: boolean; x: number; y: number; item: SceneCargo }>({
+  visible: false,
+  x: 0,
+  y: 0,
+  item: {} as SceneCargo
+});
+
+const viewModeOptions = [
+  { label: "3D", value: "3d" },
+  { label: "2D", value: "2d" }
+];
+
+const sceneData = computed(() => buildPackingSceneData({
+  container: props.container as any,
+  placements: props.placements as any[],
+  evaluation: props.evaluation
+}));
+const balanceState = computed(() => resolveBalanceState({
+  container: props.container as any,
+  placements: props.placements as any[],
+  validation: props.balanceValidation || props.selectedBox?.balanceValidation
+}));
+const remainingModel = computed({
+  get: () => props.showRemaining,
+  set: (value: boolean) => emit("update:showRemaining", value)
+});
+const massModel = computed({
+  get: () => props.showMassBalance,
+  set: (value: boolean) => emit("update:showMassBalance", value)
+});
+const renderOptions = computed(() => ({
+  showLabels: showLabels.value && !sceneData.value.stats.performanceMode,
+  showGrid: showGrid.value,
+  showCenter: showCenter.value,
+  showShell: showShell.value,
+  translucentCargo: translucentCargo.value,
+  showHeatmap: showHeatmap.value && !sceneData.value.stats.performanceMode,
+  showRemaining: props.showRemaining,
+  showMassBalance: props.showMassBalance,
+  sliceAxis: sliceEnabled.value ? sliceAxis.value : "none",
+  slicePercent: slicePercent.value,
+  hiddenSkuKeys: hiddenSkuKeys.value,
+  viewMode: viewMode.value
+}));
+const emptyStateVisible = computed(() => !props.busy && (!props.container || !props.placements.length || props.errorMessage));
+const emptyStateText = computed(() => props.errorMessage || (!props.container ? "请选择箱型后查看3D装箱视图" : "当前货舱暂无可渲染货物"));
+const exportDisabled = computed(() => props.exporting || !props.canExport || !props.placements.length);
+const zipDisabled = computed(() => props.exporting || !props.canExportZip);
+const frontPercent = computed(() => Number(balanceState.value.loads.frontPercent || 0));
+const rearPercent = computed(() => Number(balanceState.value.loads.rearPercent || 0));
+const leftPercent = computed(() => Number(balanceState.value.loads.leftPercent || 0));
+const rightPercent = computed(() => Number(balanceState.value.loads.rightPercent || 0));
+const sliceLabel = computed(() => {
+  const container: any = sceneData.value.container;
+  if (!container) return `${slicePercent.value}%`;
+  if (sliceAxis.value === "z") return `高度 ${Math.round(container.heightCm * slicePercent.value / 100)} cm`;
+  if (sliceAxis.value === "x") return `前后 ${Math.round(container.lengthCm * slicePercent.value / 100)} cm`;
+  return `左右 ${Math.round(container.widthCm * slicePercent.value / 100)} cm`;
+});
 
 onMounted(async () => {
   await nextTick();
-  initScene();
-  drawScene();
-  animate();
+  if (!canvasHost.value) return;
+  controller.value = new PackingSceneRenderer(canvasHost.value, {
+    onHover: (payload) => {
+      if (!payload) {
+        tooltip.visible = false;
+        return;
+      }
+      tooltip.visible = true;
+      tooltip.x = payload.clientX + 14;
+      tooltip.y = payload.clientY + 14;
+      tooltip.item = payload.item;
+    }
+  });
+  updateScene();
+  document.addEventListener("fullscreenchange", handleFullscreenChange);
 });
 
 onBeforeUnmount(() => {
-  cancelAnimationFrame(frameId);
-  resizeObserver?.disconnect();
-  controls?.dispose();
-  renderer?.dispose();
+  document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  controller.value?.dispose();
 });
 
-watch(
-  () => [props.container, props.showRemaining, props.showMassBalance, visiblePlacements.value, props.placements],
-  () => drawScene(),
-  { deep: true }
-);
+watch([sceneData, balanceState, renderOptions], updateScene, { deep: true });
+watch(viewMode, (mode) => {
+  if (mode === "2d") setView(activeView.value === "iso" ? "top" : activeView.value);
+  else setView("iso");
+});
+watch(() => sceneData.value.legend.map((item) => item.key).join("|"), () => {
+  const allowed = new Set(sceneData.value.legend.map((item) => item.key));
+  hiddenSkuKeys.value = new Set([...hiddenSkuKeys.value].filter((key) => allowed.has(key)));
+});
 
-function initScene() {
-  scene = new THREE.Scene();
-  scene.background = new THREE.Color("#f8fafc");
-  scene.fog = new THREE.Fog("#f8fafc", 28, 54);
-  camera = new THREE.PerspectiveCamera(40, 1, 0.1, 2000);
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.08;
-  host.value.appendChild(renderer.domElement);
-
-  controls = new OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true;
-  controls.enableZoom = true;
-  controls.enablePan = true;
-  controls.minDistance = 4;
-  controls.maxDistance = 34;
-  controls.rotateSpeed = 0.75;
-  controls.zoomSpeed = 0.85;
-
-  raycaster = new THREE.Raycaster();
-  pointer = new THREE.Vector2();
-  rootGroup = new THREE.Group();
-  scene.add(rootGroup);
-  scene.add(new THREE.HemisphereLight("#ffffff", "#c6d2e0", 1.7));
-  const keyLight = new THREE.DirectionalLight("#ffffff", 2.35);
-  keyLight.position.set(10, 16, 12);
-  keyLight.castShadow = true;
-  keyLight.shadow.mapSize.width = 2048;
-  keyLight.shadow.mapSize.height = 2048;
-  keyLight.shadow.camera.near = 1;
-  keyLight.shadow.camera.far = 80;
-  keyLight.shadow.camera.left = -22;
-  keyLight.shadow.camera.right = 22;
-  keyLight.shadow.camera.top = 22;
-  keyLight.shadow.camera.bottom = -22;
-  scene.add(keyLight);
-  const fillLight = new THREE.DirectionalLight("#dbeafe", 1.05);
-  fillLight.position.set(-12, 10, -10);
-  scene.add(fillLight);
-  const rimLight = new THREE.DirectionalLight("#ffffff", 0.75);
-  rimLight.position.set(-8, 5, 14);
-  scene.add(rimLight);
-
-  resizeObserver = new ResizeObserver(resize);
-  resizeObserver.observe(host.value);
-  resetCamera();
+function updateScene() {
+  controller.value?.update(sceneData.value, balanceState.value, renderOptions.value);
 }
 
-function resize() {
-  const rect = host.value.getBoundingClientRect();
-  renderer.setSize(rect.width, rect.height, false);
-  camera.aspect = rect.width / Math.max(1, rect.height);
-  camera.updateProjectionMatrix();
+function setView(view: SceneViewPreset) {
+  activeView.value = view;
+  controller.value?.setView(view);
 }
 
-function drawScene() {
-  if (!rootGroup || !props.container) return;
-  rootGroup.clear();
-  hoverMeshes = [];
-
-  const c = props.container;
-  const scale = 12 / Math.max(c.lengthCm, c.widthCm, c.heightCm);
-  rootGroup.scale.setScalar(scale);
-
-  const boxGeometry = new THREE.BoxGeometry(c.lengthCm, c.heightCm, c.widthCm);
-  const boxMaterial = new THREE.MeshBasicMaterial({ color: "#d7e5f8", transparent: true, opacity: 0.12, depthWrite: false });
-  const shell = new THREE.Mesh(boxGeometry, boxMaterial);
-  shell.position.set(0, c.heightCm / 2, 0);
-  rootGroup.add(shell);
-
-  const edges = new THREE.LineSegments(
-    new THREE.EdgesGeometry(boxGeometry),
-    new THREE.LineBasicMaterial({ color: "#2f6fad", transparent: true, opacity: 0.9 })
-  );
-  edges.position.copy(shell.position);
-  rootGroup.add(edges);
-
-  if (props.showRemaining) addRemainingSpaces(c);
-
-  visiblePlacements.value.forEach((item, index) => {
-    const cargoUnit = createCargoUnit(item, index);
-    cargoUnit.position.set(
-      item.xCm + item.lengthCm / 2 - c.lengthCm / 2,
-      item.zCm + item.heightCm / 2,
-      item.yCm + item.widthCm / 2 - c.widthCm / 2
-    );
-    rootGroup.add(cargoUnit);
-    hoverMeshes.push(cargoUnit.userData.hitTarget);
-  });
-
-  addAxisFloor(c);
-  if (props.showMassBalance && massBalance.value.valid) addMassBalanceMarker(c, massBalance.value);
-  resetCamera();
-}
-
-function addRemainingSpaces(c) {
-  const spaces = buildRemainingSpaces(c, props.placements);
-  const material = new THREE.MeshBasicMaterial({
-    color: "#8bc36d",
-    transparent: true,
-    opacity: 0.12,
-    depthWrite: false
-  });
-  const edgeMaterial = new THREE.LineBasicMaterial({ color: "#4d8f34", transparent: true, opacity: 0.28 });
-
-  spaces.forEach((space) => {
-    const geometry = new THREE.BoxGeometry(space.lengthCm, space.heightCm, space.widthCm);
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.set(
-      space.xCm + space.lengthCm / 2 - c.lengthCm / 2,
-      space.zCm + space.heightCm / 2,
-      space.yCm + space.widthCm / 2 - c.widthCm / 2
-    );
-    rootGroup.add(mesh);
-
-    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), edgeMaterial);
-    edges.position.copy(mesh.position);
-    rootGroup.add(edges);
-  });
-}
-
-function addMassBalanceMarker(c, balance) {
-  const point = new THREE.Vector3(
-    balance.center.xCm - c.lengthCm / 2,
-    balance.center.zCm,
-    balance.center.yCm - c.widthCm / 2
-  );
-  const geometric = new THREE.Vector3(0, balance.center.zCm, 0);
-  const radius = Math.max(4, Math.max(c.lengthCm, c.widthCm, c.heightCm) * 0.015);
-
-  const marker = new THREE.Mesh(
-    new THREE.SphereGeometry(radius * 1.55, 32, 20),
-    new THREE.MeshBasicMaterial({
-      color: "#e11d48",
-      depthTest: false,
-      depthWrite: false
-    })
-  );
-  marker.position.copy(point);
-  marker.renderOrder = 80;
-  rootGroup.add(marker);
-
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(radius * 3, Math.max(0.8, radius * 0.18), 8, 48),
-    new THREE.MeshBasicMaterial({ color: "#e11d48", transparent: true, opacity: 0.86, depthTest: false, depthWrite: false })
-  );
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.set(point.x, 0.9, point.z);
-  ring.renderOrder = 81;
-  rootGroup.add(ring);
-
-  addLine(point, new THREE.Vector3(point.x, 0.8, point.z), "#e11d48", 0.7);
-  addLine(point, geometric, "#e11d48", 0.46);
-  addLine(new THREE.Vector3(0, 0.9, 0), new THREE.Vector3(point.x, 0.9, point.z), "#e11d48", 0.38);
-}
-
-function addLine(from, to, color, opacity) {
-  const geometry = new THREE.BufferGeometry().setFromPoints([from, to]);
-  const line = new THREE.Line(
-    geometry,
-    new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthTest: false, depthWrite: false })
-  );
-  line.renderOrder = 79;
-  rootGroup.add(line);
-}
-
-function toggleLegend(name) {
-  hiddenNames.value = isHidden(name)
-    ? hiddenNames.value.filter((item) => item !== name)
-    : [...hiddenNames.value, name];
-  hideTooltip();
-}
-
-function isHidden(name) {
-  return hiddenNames.value.includes(name);
-}
-
-function showAll() {
-  hiddenNames.value = [];
-  hideTooltip();
-}
-
-function createCargoUnit(item, index) {
-  const group = new THREE.Group();
-  const geometry = new THREE.BoxGeometry(item.lengthCm, item.heightCm, item.widthCm);
-  const baseColor = new THREE.Color(item.color || "#4e8fd0");
-  const bodyColor = cargoTone(baseColor, index);
-  const edgeColor = baseColor.clone().offsetHSL(0, -0.18, -0.2);
-  const topColor = baseColor.clone().offsetHSL(0, -0.08, 0.22);
-
-  const body = new THREE.Mesh(
-    geometry,
-    new THREE.MeshStandardMaterial({
-      color: bodyColor,
-      roughness: 0.66,
-      metalness: 0.04,
-      transparent: true,
-      opacity: 0.94
-    })
-  );
-  body.castShadow = true;
-  body.receiveShadow = true;
-  body.userData.item = item;
-  group.add(body);
-
-  const edge = new THREE.LineSegments(
-    new THREE.EdgesGeometry(geometry),
-    new THREE.LineBasicMaterial({ color: edgeColor, transparent: true, opacity: 0.48 })
-  );
-  group.add(edge);
-
-  const topHighlight = new THREE.Mesh(
-    new THREE.PlaneGeometry(Math.max(1, item.lengthCm * 0.9), Math.max(1, item.widthCm * 0.9)),
-    new THREE.MeshBasicMaterial({ color: topColor, transparent: true, opacity: 0.22, depthWrite: false })
-  );
-  topHighlight.rotation.x = -Math.PI / 2;
-  topHighlight.position.y = item.heightCm / 2 + 0.08;
-  group.add(topHighlight);
-
-  group.userData.hitTarget = body;
-  return group;
-}
-
-function cargoTone(baseColor, index) {
-  return baseColor.clone().offsetHSL(0, -0.03, (index % 6) * 0.018 - 0.035);
-}
-
-function zoomIn() {
-  dollyCamera(0.82);
-}
-
-function zoomOut() {
-  dollyCamera(1.18);
-}
-
-function dollyCamera(multiplier) {
-  if (!camera || !controls) return;
-  const direction = new THREE.Vector3().subVectors(camera.position, controls.target);
-  const nextLength = THREE.MathUtils.clamp(direction.length() * multiplier, controls.minDistance, controls.maxDistance);
-  direction.setLength(nextLength);
-  camera.position.copy(controls.target).add(direction);
-  controls.update();
-}
-
-function addAxisFloor(c) {
-  const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(c.lengthCm, c.widthCm),
-    new THREE.MeshStandardMaterial({
-      color: "#eef7f3",
-      roughness: 0.88,
-      metalness: 0,
-      transparent: true,
-      opacity: 0.72
-    })
-  );
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.set(0, -0.34, 0);
-  floor.receiveShadow = true;
-  rootGroup.add(floor);
-
-  const grid = new THREE.GridHelper(Math.max(c.lengthCm, c.widthCm), 12, "#9db7d6", "#d7e1ec");
-  grid.position.set(0, -0.28, 0);
-  grid.scale.x = c.lengthCm / Math.max(c.lengthCm, c.widthCm);
-  grid.scale.z = c.widthCm / Math.max(c.lengthCm, c.widthCm);
-  rootGroup.add(grid);
-}
-
-function buildRemainingSpaces(container, placements) {
-  const c = {
-    lengthCm: Number(container.lengthCm || 0),
-    widthCm: Number(container.widthCm || 0),
-    heightCm: Number(container.heightCm || 0)
-  };
-  const xs = uniqueAxis([0, c.lengthCm, ...placements.flatMap((item) => [item.xCm, Number(item.xCm || 0) + Number(item.lengthCm || 0)])], c.lengthCm);
-  const ys = uniqueAxis([0, c.widthCm, ...placements.flatMap((item) => [item.yCm, Number(item.yCm || 0) + Number(item.widthCm || 0)])], c.widthCm);
-  const spaces = [];
-  const minHeight = Math.max(4, c.heightCm * 0.02);
-
-  for (let yi = 0; yi < ys.length - 1; yi += 1) {
-    const y1 = ys[yi];
-    const y2 = ys[yi + 1];
-    let run = null;
-    for (let xi = 0; xi < xs.length - 1; xi += 1) {
-      const x1 = xs[xi];
-      const x2 = xs[xi + 1];
-      const top = occupiedTopAtCell(x1, x2, y1, y2, placements);
-      const height = c.heightCm - top;
-      const cell = height > minHeight
-        ? { xCm: x1, yCm: y1, zCm: top, lengthCm: x2 - x1, widthCm: y2 - y1, heightCm: height }
-        : null;
-
-      if (cell && run && Math.abs(run.zCm - cell.zCm) < 0.1 && Math.abs(run.heightCm - cell.heightCm) < 0.1) {
-        run.lengthCm += cell.lengthCm;
-      } else {
-        if (run) spaces.push(run);
-        run = cell;
-      }
-    }
-    if (run) spaces.push(run);
-  }
-
-  const minVolume = c.lengthCm * c.widthCm * c.heightCm * 0.0008;
-  return spaces
-    .filter((space) => space.lengthCm * space.widthCm * space.heightCm >= minVolume)
-    .sort((a, b) => (b.lengthCm * b.widthCm * b.heightCm) - (a.lengthCm * a.widthCm * a.heightCm))
-    .slice(0, 160);
-}
-
-function buildBalanceMap(container, placements, balance) {
-  if (!container || !balance?.valid) return null;
-  const width = 1000;
-  const height = Math.max(260, Math.round(width * Number(container.widthCm || 1) / Math.max(1, Number(container.lengthCm || 1))));
-  const length = Math.max(1, Number(container.lengthCm || 1));
-  const mapWidth = Math.max(1, Number(container.widthCm || 1));
-  return {
-    width,
-    height,
-    viewBox: `0 0 ${width} ${height}`,
-    geo: { x: width / 2, y: height / 2 },
-    center: {
-      x: balance.center.xCm / length * width,
-      y: balance.center.yCm / mapWidth * height
-    },
-    items: placements.map((item, index) => ({
-      key: item.unitKey || `${item.name}-${index}`,
-      x: Number(item.xCm || 0) / length * width,
-      y: Number(item.yCm || 0) / mapWidth * height,
-      width: Math.max(2, Number(item.lengthCm || 0) / length * width),
-      height: Math.max(2, Number(item.widthCm || 0) / mapWidth * height),
-      color: item.color || "#4e8fd0"
-    }))
-  };
-}
-
-function occupiedTopAtCell(x1, x2, y1, y2, placements) {
-  return placements.reduce((top, item) => {
-    const ix1 = Number(item.xCm || 0);
-    const ix2 = ix1 + Number(item.lengthCm || 0);
-    const iy1 = Number(item.yCm || 0);
-    const iy2 = iy1 + Number(item.widthCm || 0);
-    const overlaps = ix1 < x2 - 0.001 && ix2 > x1 + 0.001 && iy1 < y2 - 0.001 && iy2 > y1 + 0.001;
-    if (!overlaps) return top;
-    return Math.max(top, Number(item.zCm || 0) + Number(item.heightCm || 0));
-  }, 0);
-}
-
-function uniqueAxis(values, max) {
-  return [...new Set(values
-    .map((value) => Math.min(max, Math.max(0, Math.round(Number(value || 0) * 10) / 10)))
-    .filter((value) => Number.isFinite(value)))]
-    .sort((a, b) => a - b)
-    .filter((value, index, all) => index === 0 || value - all[index - 1] > 0.1);
-}
-
-function formatSigned(value) {
-  const rounded = Math.round(Number(value || 0) * 10) / 10;
-  return rounded > 0 ? `+${rounded}` : `${rounded}`;
-}
-
-function formatWeight(value) {
-  if (value >= 1000) return `${(value / 1000).toFixed(2)} t`;
-  return `${Math.round(value)} kg`;
-}
-
-function resetCamera() {
-  if (!camera || !controls || !props.container) return;
-  const c = props.container;
-  const max = Math.max(c.lengthCm, c.widthCm, c.heightCm);
-  const scale = 12 / max;
-  camera.position.set(12, 8, 12);
-  camera.lookAt(0, c.heightCm * scale * 0.35, 0);
-  controls.target.set(0, c.heightCm * scale * 0.35, 0);
-  controls.update();
-  resize();
-}
-
-function setTopView() {
-  camera.position.set(0.01, 18, 0.01);
-  controls.target.set(0, 0, 0);
-  controls.update();
-}
-
-function setFrontView() {
-  camera.position.set(0, 5, 18);
-  controls.target.set(0, 4, 0);
-  controls.update();
-}
-
-function onPointerMove(event) {
-  if (!renderer || !camera || !hoverMeshes.length) return;
-  const rect = renderer.domElement.getBoundingClientRect();
-  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-  raycaster.setFromCamera(pointer, camera);
-  const hit = raycaster.intersectObjects(hoverMeshes, false)[0];
-  if (!hit) {
-    hideTooltip();
-    return;
-  }
-  tooltip.visible = true;
-  tooltip.x = event.clientX - rect.left + 14;
-  tooltip.y = event.clientY - rect.top + 14;
-  tooltip.item = hit.object.userData.item;
-}
-
-function hideTooltip() {
+function toggleSku(key: string) {
+  const next = new Set(hiddenSkuKeys.value);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  hiddenSkuKeys.value = next;
   tooltip.visible = false;
 }
 
-function animate() {
-  frameId = requestAnimationFrame(animate);
-  controls?.update();
-  renderer?.render(scene, camera);
+function showAllSku() {
+  hiddenSkuKeys.value = new Set();
+}
+
+function handlePointerMove(event: PointerEvent) {
+  controller.value?.handlePointerMove(event);
+}
+
+function handlePointerLeave() {
+  controller.value?.handlePointerLeave();
+}
+
+async function toggleFullscreen() {
+  if (!shellRef.value) return;
+  if (document.fullscreenElement) {
+    await document.exitFullscreen();
+  } else {
+    await shellRef.value.requestFullscreen();
+  }
+  window.setTimeout(() => controller.value?.resize(), 80);
+}
+
+function handleFullscreenChange() {
+  isFullscreen.value = Boolean(document.fullscreenElement === shellRef.value);
+  window.setTimeout(() => controller.value?.resize(), 80);
 }
 </script>

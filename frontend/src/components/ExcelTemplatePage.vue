@@ -6,23 +6,33 @@
     </div>
 
     <div class="excel-workspace-layout">
-      <aside class="excel-side-menu">
-        <button type="button" :class="{ active: excelMode === 'manual' }" @click="switchExcelMode('manual')">
-          手动导入
-          <span>本地识别、校验和建议修改</span>
-        </button>
-        <button type="button" :class="{ active: excelMode === 'recognition' }" @click="switchExcelMode('recognition')">
-          <span class="recognition-menu-label">
-            <span class="hollow-star" aria-hidden="true">☆</span>
-            智能识别
-          </span>
-          <span>粘贴货物描述，提取标准规格</span>
-        </button>
-        <button type="button" :class="{ active: excelMode === 'reference' }" @click="switchExcelMode('reference')">
-          字段样板
-          <span>标准字段、规则和示例</span>
-        </button>
-      </aside>
+      <el-menu
+        class="excel-side-menu"
+        :default-active="excelMode"
+        @select="switchExcelMode"
+      >
+        <el-menu-item index="manual">
+          <div class="excel-menu-item">
+            <strong>手动导入</strong>
+            <span>本地识别、校验和建议修改</span>
+          </div>
+        </el-menu-item>
+        <el-menu-item index="recognition">
+          <div class="excel-menu-item">
+            <strong class="recognition-menu-label">
+              <span class="hollow-star" aria-hidden="true">☆</span>
+              智能识别
+            </strong>
+            <span>粘贴货物描述，提取标准规格</span>
+          </div>
+        </el-menu-item>
+        <el-menu-item index="reference">
+          <div class="excel-menu-item">
+            <strong>字段样板</strong>
+            <span>标准字段、规则和示例</span>
+          </div>
+        </el-menu-item>
+      </el-menu>
 
       <div class="excel-main-pane">
       <div v-if="excelMode === 'manual'" class="excel-manual-card">
@@ -32,11 +42,10 @@
             <p>浏览器直接识别表头、单位和规则，导入前先预览并标记异常行。</p>
           </div>
           <div class="excel-import-actions">
-            <label class="primary file-button">
-              选择文件
-              <input type="file" accept=".xlsx,.xls,.csv,.tsv,text/csv" @change="handleFile" />
-            </label>
-            <button type="button" @click="downloadTemplate">下载样板</button>
+            <el-upload :auto-upload="false" :show-file-list="false" accept=".xlsx,.xls,.csv,.tsv,text/csv" :on-change="handleWorkbookUpload">
+              <el-button type="primary">选择文件</el-button>
+            </el-upload>
+            <el-button @click="downloadTemplate">下载样板</el-button>
           </div>
         </div>
 
@@ -74,23 +83,24 @@
           <p>直接粘贴聊天记录、报价明细或邮件里的货物描述；系统会交给后端智能识别流程提取标准规格并返回可导入清单。</p>
         </div>
         <div class="recognition-actions">
-          <button type="button" @click="fillRecognitionSample">套用示例</button>
-          <button type="button" @click="clearRecognition">清空</button>
-          <button class="primary" type="button" :disabled="!recognitionText.trim() || recognitionAgentBusy" @click="submitTextRecognitionTask">
+          <el-button @click="fillRecognitionSample">套用示例</el-button>
+          <el-button @click="clearRecognition">清空</el-button>
+          <el-button type="primary" :disabled="!recognitionText.trim() || recognitionAgentBusy" :loading="recognitionAgentBusy" @click="submitTextRecognitionTask">
             <span class="hollow-star button-star" aria-hidden="true">☆</span>
             {{ recognitionAgentBusy ? "智能识别中..." : "智能识别" }}
-          </button>
+          </el-button>
         </div>
       </div>
-      <textarea
+      <el-input
         v-model="recognitionText"
+        type="textarea"
         @input="resetRecognitionResult"
-        rows="10"
+        :rows="10"
         placeholder="例如：
 蝶阀100 110*45*82cm 8件 单重180kg 木箱
 纸箱B 60*40*35cm 30件 单重12kg
 易碎品C 55×45×30cm 12件 单重18kg 不可重压"
-      ></textarea>
+      />
 
       <div v-if="recognitionAgentBusy" class="recognition-loading-panel">
         <span class="recognition-loader"></span>
@@ -131,22 +141,21 @@
 
         <div v-if="recognitionAgentTask" class="agent-status-row text-agent-status">
           <span>{{ recognitionAgentTask.taskNo }} · {{ recognitionAgentTask.agentNotes }}</span>
-          <button type="button" :disabled="!recognitionAgentTask.id" @click="downloadRecognitionAgentResult">
+          <el-button :disabled="!recognitionAgentTask.id" @click="downloadRecognitionAgentResult">
             下载识别结果 Excel
-          </button>
+          </el-button>
         </div>
 
         <div class="recognition-import-row">
-          <label>
-            <span>导入方式</span>
-            <select v-model="importMode">
-              <option value="replace">替换当前货物</option>
-              <option value="append">追加到当前货物</option>
-            </select>
-          </label>
-          <button class="primary" type="button" :disabled="!recognitionRows.length" @click="importRecognitionRows">
+          <el-form-item label="导入方式">
+            <el-select v-model="importMode">
+              <el-option label="替换当前货物" value="replace" />
+              <el-option label="追加到当前货物" value="append" />
+            </el-select>
+          </el-form-item>
+          <el-button type="primary" :disabled="!recognitionRows.length" @click="importRecognitionRows">
             导入 {{ recognitionRows.length }} 类 / {{ recognitionQuantity }} 件货物
-          </button>
+          </el-button>
         </div>
 
         <div v-if="recognitionRows.length" class="template-table-wrap">
@@ -173,7 +182,7 @@
                 <td>{{ typeText(cargo.type) }}</td>
                 <td>{{ cargo.remark || "-" }}</td>
                 <td>
-                  <button type="button" @click="openRecognitionEdit(cargo, index)">编辑</button>
+                  <el-button link type="primary" @click="openRecognitionEdit(cargo, index)">编辑</el-button>
                 </td>
               </tr>
             </tbody>
@@ -208,52 +217,50 @@
       <article class="algorithm-note">
         <strong>工作表与单位</strong>
         <div class="excel-control-grid">
-          <label>
-            <span>工作表</span>
-            <select v-model="selectedSheetName" @change="selectSheet">
-              <option v-for="sheet in workbook.sheets" :key="sheet.name" :value="sheet.name">
-                {{ sheet.name }} / {{ sheet.rows.length }} 行
-              </option>
-            </select>
-          </label>
-          <label>
-            <span>尺寸单位</span>
-            <select v-model="options.dimensionUnit" @change="refreshPreview">
-              <option value="auto">自动识别</option>
-              <option value="cm">cm</option>
-              <option value="mm">mm</option>
-              <option value="m">m</option>
-            </select>
-          </label>
-          <label>
-            <span>重量单位</span>
-            <select v-model="options.weightUnit" @change="refreshPreview">
-              <option value="auto">自动识别</option>
-              <option value="kg">kg</option>
-              <option value="g">g</option>
-              <option value="t">t</option>
-            </select>
-          </label>
-          <label>
-            <span>导入方式</span>
-            <select v-model="importMode">
-              <option value="replace">替换当前货物</option>
-              <option value="append">追加到当前货物</option>
-            </select>
-          </label>
+          <el-form-item label="工作表">
+            <el-select v-model="selectedSheetName" @change="selectSheet">
+              <el-option
+                v-for="sheet in workbook.sheets"
+                :key="sheet.name"
+                :label="`${sheet.name} / ${sheet.rows.length} 行`"
+                :value="sheet.name"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="尺寸单位">
+            <el-select v-model="options.dimensionUnit" @change="refreshPreview">
+              <el-option label="自动识别" value="auto" />
+              <el-option label="cm" value="cm" />
+              <el-option label="mm" value="mm" />
+              <el-option label="m" value="m" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="重量单位">
+            <el-select v-model="options.weightUnit" @change="refreshPreview">
+              <el-option label="自动识别" value="auto" />
+              <el-option label="kg" value="kg" />
+              <el-option label="g" value="g" />
+              <el-option label="t" value="t" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="导入方式">
+            <el-select v-model="importMode">
+              <el-option label="替换当前货物" value="replace" />
+              <el-option label="追加到当前货物" value="append" />
+            </el-select>
+          </el-form-item>
         </div>
       </article>
 
       <article class="algorithm-note">
         <strong>字段自动映射</strong>
         <div class="mapping-grid">
-          <label v-for="field in visibleMappingFields" :key="field.key">
-            <span>{{ field.label }}<b v-if="field.required">*</b></span>
-            <select v-model="mapping[field.key]" @change="refreshPreview">
-              <option value="">未映射</option>
-              <option v-for="header in activeSheet.headers" :key="header" :value="header">{{ header }}</option>
-            </select>
-          </label>
+          <el-form-item v-for="field in visibleMappingFields" :key="field.key" :label="field.required ? `${field.label}*` : field.label">
+            <el-select v-model="mapping[field.key]" @change="refreshPreview">
+              <el-option label="未映射" value="" />
+              <el-option v-for="header in activeSheet.headers" :key="header" :label="header" :value="header" />
+            </el-select>
+          </el-form-item>
         </div>
       </article>
     </div>
@@ -263,9 +270,9 @@
         有 {{ unresolvedInvalidRows.length }} 行未通过校验，导入时会跳过这些行。
       </p>
       <p v-else class="excel-ok">全部行已通过校验。</p>
-      <button class="primary" type="button" :disabled="!approvedAggregated.length" @click="importPreview">
+      <el-button type="primary" :disabled="!approvedAggregated.length" @click="importPreview">
         导入 {{ approvedAggregated.length }} 类 / {{ approvedQuantity }} 件货物
-      </button>
+      </el-button>
     </div>
 
     <div v-if="excelMode === 'manual' && preview" class="template-grid">
@@ -319,7 +326,7 @@
                 <td>{{ row.rowNumber }}</td>
                 <td>{{ row.errors.join("；") }}</td>
                 <td>{{ row.cargo.name || "-" }}</td>
-                <td><button type="button" @click="openSuggestion(row)">建议修改</button></td>
+                <td><el-button link type="primary" @click="openSuggestion(row)">建议修改</el-button></td>
               </tr>
               <tr v-if="!unresolvedInvalidRows.length">
                 <td colspan="4">暂无异常行</td>
@@ -396,15 +403,21 @@
       </p>
     </div>
 
-    <div v-if="suggestionRow" class="modal-backdrop">
-      <div class="modal suggestion-modal">
-        <header>
-          <div>
-            <p>第 {{ suggestionRow.rowNumber }} 行</p>
-            <h2>建议修改为标准货物</h2>
-          </div>
-          <button type="button" @click="closeSuggestion">×</button>
-        </header>
+    <el-dialog
+      v-if="suggestionRow"
+      :model-value="true"
+      class="planner-dialog"
+      width="720px"
+      align-center
+      destroy-on-close
+      @close="closeSuggestion"
+    >
+      <template #header>
+        <div class="dialog-title">
+          <p>第 {{ suggestionRow.rowNumber }} 行</p>
+          <h2>建议修改为标准货物</h2>
+        </div>
+      </template>
 
         <div class="suggestion-summary">
           <strong>{{ suggestionSummary }}</strong>
@@ -414,70 +427,66 @@
           </ul>
         </div>
 
-        <div class="suggestion-form-grid">
-          <label>
-            <span>货物名称</span>
-            <input v-model.trim="suggestionForm.name" />
-          </label>
-          <label>
-            <span>型号/规格</span>
-            <input v-model.trim="suggestionForm.model" />
-          </label>
-          <label>
-            <span>长度 cm</span>
-            <input v-model.number="suggestionForm.lengthCm" type="number" min="0" step="0.01" />
-          </label>
-          <label>
-            <span>宽度 cm</span>
-            <input v-model.number="suggestionForm.widthCm" type="number" min="0" step="0.01" />
-          </label>
-          <label>
-            <span>高度 cm</span>
-            <input v-model.number="suggestionForm.heightCm" type="number" min="0" step="0.01" />
-          </label>
-          <label>
-            <span>数量</span>
-            <input v-model.number="suggestionForm.quantity" type="number" min="1" step="1" />
-          </label>
-          <label>
-            <span>单件重量 kg</span>
-            <input v-model.number="suggestionForm.weightKg" type="number" min="0" step="0.01" />
-          </label>
-          <label>
-            <span>类型</span>
-            <select v-model="suggestionForm.type">
-              <option value="normal">普通货物</option>
-              <option value="upright">保持朝上</option>
-              <option value="nonstack">不可重压</option>
-              <option value="pallet">托盘/木箱</option>
-            </select>
-          </label>
-          <label>
-            <span>备注</span>
-            <input v-model.trim="suggestionForm.remark" />
-          </label>
-        </div>
+        <el-form :model="suggestionForm" label-position="top" class="suggestion-form-grid">
+          <el-form-item label="货物名称">
+            <el-input v-model.trim="suggestionForm.name" />
+          </el-form-item>
+          <el-form-item label="型号/规格">
+            <el-input v-model.trim="suggestionForm.model" />
+          </el-form-item>
+          <el-form-item label="长度 cm">
+            <el-input-number v-model="suggestionForm.lengthCm" :min="0" :step="0.01" :precision="2" controls-position="right" />
+          </el-form-item>
+          <el-form-item label="宽度 cm">
+            <el-input-number v-model="suggestionForm.widthCm" :min="0" :step="0.01" :precision="2" controls-position="right" />
+          </el-form-item>
+          <el-form-item label="高度 cm">
+            <el-input-number v-model="suggestionForm.heightCm" :min="0" :step="0.01" :precision="2" controls-position="right" />
+          </el-form-item>
+          <el-form-item label="数量">
+            <el-input-number v-model="suggestionForm.quantity" :min="1" :step="1" :precision="0" controls-position="right" />
+          </el-form-item>
+          <el-form-item label="单件重量 kg">
+            <el-input-number v-model="suggestionForm.weightKg" :min="0" :step="0.01" :precision="2" controls-position="right" />
+          </el-form-item>
+          <el-form-item label="类型">
+            <el-select v-model="suggestionForm.type">
+              <el-option label="普通货物" value="normal" />
+              <el-option label="保持朝上" value="upright" />
+              <el-option label="不可重压" value="nonstack" />
+              <el-option label="托盘/木箱" value="pallet" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="备注">
+            <el-input v-model.trim="suggestionForm.remark" />
+          </el-form-item>
+        </el-form>
 
         <p v-if="suggestionErrors.length" class="excel-warning suggestion-error">
           还需要修改：{{ suggestionErrors.join("；") }}
         </p>
 
-        <div class="modal-actions">
-          <button type="button" @click="closeSuggestion">取消</button>
-          <button class="primary" type="button" @click="applySuggestion">应用到导入预览</button>
-        </div>
-      </div>
-    </div>
+      <template #footer>
+        <el-button @click="closeSuggestion">取消</el-button>
+        <el-button type="primary" @click="applySuggestion">应用到导入预览</el-button>
+      </template>
+    </el-dialog>
 
-    <div v-if="recognitionEditIndex >= 0" class="modal-backdrop">
-      <div class="modal suggestion-modal recognition-edit-modal">
-        <header>
-          <div>
-            <p>识别结果第 {{ recognitionEditIndex + 1 }} 条</p>
-            <h2>编辑识别货物</h2>
-          </div>
-          <button type="button" @click="closeRecognitionEdit">×</button>
-        </header>
+    <el-dialog
+      v-if="recognitionEditIndex >= 0"
+      :model-value="true"
+      class="planner-dialog"
+      width="720px"
+      align-center
+      destroy-on-close
+      @close="closeRecognitionEdit"
+    >
+      <template #header>
+        <div class="dialog-title">
+          <p>识别结果第 {{ recognitionEditIndex + 1 }} 条</p>
+          <h2>编辑识别货物</h2>
+        </div>
+      </template>
 
         <div class="suggestion-summary">
           <strong>{{ recognitionEditSummary }}</strong>
@@ -487,60 +496,50 @@
           </ul>
         </div>
 
-        <div class="suggestion-form-grid">
-          <label>
-            <span>货物名称</span>
-            <input v-model.trim="recognitionEditForm.name" />
-          </label>
-          <label>
-            <span>型号/规格</span>
-            <input v-model.trim="recognitionEditForm.model" />
-          </label>
-          <label>
-            <span>长度 cm</span>
-            <input v-model.number="recognitionEditForm.lengthCm" type="number" min="0" step="0.01" />
-          </label>
-          <label>
-            <span>宽度 cm</span>
-            <input v-model.number="recognitionEditForm.widthCm" type="number" min="0" step="0.01" />
-          </label>
-          <label>
-            <span>高度 cm</span>
-            <input v-model.number="recognitionEditForm.heightCm" type="number" min="0" step="0.01" />
-          </label>
-          <label>
-            <span>数量</span>
-            <input v-model.number="recognitionEditForm.quantity" type="number" min="1" step="1" />
-          </label>
-          <label>
-            <span>单件重量 kg</span>
-            <input v-model.number="recognitionEditForm.weightKg" type="number" min="0" step="0.01" />
-          </label>
-          <label>
-            <span>类型</span>
-            <select v-model="recognitionEditForm.type">
-              <option value="normal">普通货物</option>
-              <option value="upright">保持朝上</option>
-              <option value="nonstack">不可重压</option>
-              <option value="pallet">托盘/木箱</option>
-            </select>
-          </label>
-          <label>
-            <span>备注</span>
-            <input v-model.trim="recognitionEditForm.remark" />
-          </label>
-        </div>
+        <el-form :model="recognitionEditForm" label-position="top" class="suggestion-form-grid">
+          <el-form-item label="货物名称">
+            <el-input v-model.trim="recognitionEditForm.name" />
+          </el-form-item>
+          <el-form-item label="型号/规格">
+            <el-input v-model.trim="recognitionEditForm.model" />
+          </el-form-item>
+          <el-form-item label="长度 cm">
+            <el-input-number v-model="recognitionEditForm.lengthCm" :min="0" :step="0.01" :precision="2" controls-position="right" />
+          </el-form-item>
+          <el-form-item label="宽度 cm">
+            <el-input-number v-model="recognitionEditForm.widthCm" :min="0" :step="0.01" :precision="2" controls-position="right" />
+          </el-form-item>
+          <el-form-item label="高度 cm">
+            <el-input-number v-model="recognitionEditForm.heightCm" :min="0" :step="0.01" :precision="2" controls-position="right" />
+          </el-form-item>
+          <el-form-item label="数量">
+            <el-input-number v-model="recognitionEditForm.quantity" :min="1" :step="1" :precision="0" controls-position="right" />
+          </el-form-item>
+          <el-form-item label="单件重量 kg">
+            <el-input-number v-model="recognitionEditForm.weightKg" :min="0" :step="0.01" :precision="2" controls-position="right" />
+          </el-form-item>
+          <el-form-item label="类型">
+            <el-select v-model="recognitionEditForm.type">
+              <el-option label="普通货物" value="normal" />
+              <el-option label="保持朝上" value="upright" />
+              <el-option label="不可重压" value="nonstack" />
+              <el-option label="托盘/木箱" value="pallet" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="备注">
+            <el-input v-model.trim="recognitionEditForm.remark" />
+          </el-form-item>
+        </el-form>
 
         <p v-if="recognitionEditErrors.length" class="excel-warning suggestion-error">
           还需要修改：{{ recognitionEditErrors.join("；") }}
         </p>
 
-        <div class="modal-actions">
-          <button type="button" @click="closeRecognitionEdit">取消</button>
-          <button class="primary" type="button" @click="applyRecognitionEdit">保存到识别结果</button>
-        </div>
-      </div>
-    </div>
+      <template #footer>
+        <el-button @click="closeRecognitionEdit">取消</el-button>
+        <el-button type="primary" @click="applyRecognitionEdit">保存到识别结果</el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>
 
@@ -663,10 +662,18 @@ const sampleRows = [
   { id: 3, name: "易碎品 C", model: "", lengthCm: 55, widthCm: 45, heightCm: 30, quantity: 12, weightKg: 18, type: "nonstack", color: "#8b5cf6", remark: "不可重压" }
 ];
 
+async function handleWorkbookUpload(uploadFile) {
+  if (uploadFile.raw) await loadWorkbookFile(uploadFile.raw);
+}
+
 async function handleFile(event) {
   const file = event.target.files?.[0];
   event.target.value = "";
   if (!file) return;
+  await loadWorkbookFile(file);
+}
+
+async function loadWorkbookFile(file) {
   workbook.value = await readWorkbook(file);
   selectedSheetName.value = workbook.value.sheets[0]?.name || "";
   selectSheet();

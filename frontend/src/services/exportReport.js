@@ -265,6 +265,12 @@ function drawBalanceZones(ctx, ox, oy, width, height, balance) {
     { label: "后左", kg: balance.loads.rearLeftKg, percent: balance.loads.rearLeftPercent, x: ox, y: oy + height / 2, color: "rgba(245, 158, 11, 0.1)" },
     { label: "后右", kg: balance.loads.rearRightKg, percent: balance.loads.rearRightPercent, x: ox + width / 2, y: oy + height / 2, color: "rgba(139, 92, 246, 0.12)" }
   ];
+  if (zones[1] && zones[2]) {
+    zones[1].x = ox;
+    zones[1].y = oy + height / 2;
+    zones[2].x = ox + width / 2;
+    zones[2].y = oy;
+  }
   zones.forEach((zone) => {
     ctx.fillStyle = zone.color;
     ctx.fillRect(zone.x, zone.y, width / 2, height / 2);
