@@ -750,6 +750,54 @@ select {
   gap: 18px;
 }
 
+.balance-settings-box {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #dbe7f5;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.balance-settings-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.balance-settings-head small {
+  display: block;
+  margin-top: 4px;
+  color: #708399;
+  font-size: 13px;
+}
+
+.balance-setting-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.mini-slider-row {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #e2ebf6;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.mini-slider-row > span {
+  display: inline-flex;
+  margin-right: 8px;
+  color: #334b66;
+  font-weight: 700;
+}
+
+.mini-slider-row .el-slider {
+  margin-top: 4px;
+}
+
 .slider-row {
   display: grid;
   gap: 8px;
@@ -950,6 +998,11 @@ select {
   border: 1px solid #d7e1ee;
   border-radius: 8px;
   background: #f8fbff;
+}
+
+.config-embedded-import {
+  margin-top: 16px;
+  margin-bottom: 0;
 }
 
 .embedded-smart-import .algorithm-page {
@@ -1456,6 +1509,61 @@ select {
   display: grid;
   grid-template-columns: repeat(4, minmax(180px, 1fr));
   gap: 10px;
+}
+
+.result-summary-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.result-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.summary-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid #d8e4f2;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.summary-card span {
+  color: #60738a;
+  font-size: 13px;
+}
+
+.summary-card b {
+  color: #102033;
+  font-size: 26px;
+  line-height: 1.1;
+}
+
+.summary-card small {
+  color: #75869a;
+}
+
+.summary-card.success {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.summary-card.warning {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.summary-card.danger {
+  border-color: #fecaca;
+  background: #fff1f2;
+}
+
+.summary-card.primary {
+  border-color: #bfdbfe;
+  background: #eff6ff;
 }
 
 .container-card.el-button {
@@ -3009,6 +3117,18 @@ select {
   margin-top: 14px;
 }
 
+.excel-import-status {
+  margin-top: 14px;
+}
+
+.excel-import-skeleton {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #e1eaf5;
+  border-radius: 10px;
+  background: #f8fbff;
+}
+
 .excel-summary-grid div {
   padding: 14px;
   border: 1px solid #d7e1ee;
@@ -3501,6 +3621,7 @@ select {
   .algorithm-grid,
   .template-grid,
   .planner-config-grid,
+  .balance-setting-grid,
   .excel-entry-grid,
   .excel-workspace-layout,
   .admin-grid {
@@ -3516,6 +3637,10 @@ select {
   }
 
   .planner-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .result-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -3605,6 +3730,10 @@ select {
   }
 
   .planner-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .result-summary-grid {
     grid-template-columns: 1fr;
   }
 

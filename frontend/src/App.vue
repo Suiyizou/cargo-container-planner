@@ -162,6 +162,47 @@
                 </div>
                 <el-slider v-model="globalGapCm" :min="0" :max="8" />
               </div>
+              <div class="balance-settings-box">
+                <div class="balance-settings-head">
+                  <div>
+                    <span class="field-label">偏载约束</span>
+                    <small>作为合规拦截阈值参与每次装箱计算</small>
+                  </div>
+                  <el-radio-group v-model="activeBalancePreset" size="small" @change="applyBalancePreset">
+                    <el-radio-button label="strict">严格</el-radio-button>
+                    <el-radio-button label="standard">标准</el-radio-button>
+                    <el-radio-button label="loose">宽松</el-radio-button>
+                    <el-radio-button label="custom">自定义</el-radio-button>
+                  </el-radio-group>
+                </div>
+                <div class="balance-setting-grid">
+                  <div class="mini-slider-row">
+                    <span>绿灯阈值</span>
+                    <el-tag size="small" effect="plain">{{ balanceSettings.greenLimitPercent }}%</el-tag>
+                    <el-slider v-model="balanceSettings.greenLimitPercent" :min="1" :max="5" :step="0.5" @change="markBalanceCustom" />
+                  </div>
+                  <div class="mini-slider-row">
+                    <span>红色拦截</span>
+                    <el-tag size="small" type="danger" effect="plain">{{ balanceSettings.redLimitPercent }}%</el-tag>
+                    <el-slider v-model="balanceSettings.redLimitPercent" :min="3" :max="12" :step="0.5" @change="markBalanceCustom" />
+                  </div>
+                  <div class="mini-slider-row">
+                    <span>左右偏移</span>
+                    <el-tag size="small" type="warning" effect="plain">≤ {{ balanceSettings.lateralOffsetLimitCm * 10 }} mm</el-tag>
+                    <el-slider v-model="balanceSettings.lateralOffsetLimitCm" :min="4" :max="20" :step="1" @change="markBalanceCustom" />
+                  </div>
+                  <div class="mini-slider-row">
+                    <span>前半最大</span>
+                    <el-tag size="small" effect="plain">≤ {{ balanceSettings.frontMaxPercent }}%</el-tag>
+                    <el-slider v-model="balanceSettings.frontMaxPercent" :min="55" :max="70" :step="1" @change="markBalanceCustom" />
+                  </div>
+                  <div class="mini-slider-row">
+                    <span>40FR 后半最低</span>
+                    <el-tag size="small" effect="plain">≥ {{ balanceSettings.rearMinPercent40FR }}%</el-tag>
+                    <el-slider v-model="balanceSettings.rearMinPercent40FR" :min="20" :max="45" :step="1" @change="markBalanceCustom" />
+                  </div>
+                </div>
+              </div>
             </div>
             <div class="planner-action-row">
               <el-button type="primary" :icon="Plus" @click="openCargoModal()">手动录入货物</el-button>
@@ -171,11 +212,15 @@
             <div class="config-toolbox">
               <strong>常用工具</strong>
               <div class="config-tool-grid">
+                <el-button :icon="Star" @click="smartImportOpen = !smartImportOpen">{{ smartImportOpen ? "收起智能导入" : "智能/Excel 导入" }}</el-button>
+                <el-upload :auto-upload="false" :show-file-list="false" accept=".xlsx,.xls,.csv,.tsv,text/csv" :disabled="fileImporting" :on-change="handleWorkbookQuickUpload">
+                  <el-button :icon="Upload" :loading="fileImporting">导入 Excel</el-button>
+                </el-upload>
                 <el-button :icon="Box" @click="openContainerModal">添加箱型</el-button>
                 <el-button :icon="MagicStick" @click="loadSample">套用示例</el-button>
                 <el-button :icon="Download" @click="exportCsv">导出 CSV</el-button>
-                <el-upload :auto-upload="false" :show-file-list="false" accept=".csv,text/csv" :on-change="handleCsvUpload">
-                  <el-button :icon="Upload">导入 CSV</el-button>
+                <el-upload :auto-upload="false" :show-file-list="false" accept=".csv,.tsv,text/csv,text/tab-separated-values" :disabled="fileImporting" :on-change="handleCsvUpload">
+                  <el-button :icon="Upload" :loading="fileImporting">导入 CSV</el-button>
                 </el-upload>
                 <el-button :icon="Refresh" @click="resetContainers">恢复默认箱型</el-button>
                 <el-button type="danger" plain :icon="Delete" @click="clearCargos">清空货物</el-button>
@@ -213,6 +258,11 @@
             </div>
           </el-card>
         </div>
+        <el-collapse-transition>
+          <div v-if="smartImportOpen" class="embedded-smart-import config-embedded-import">
+            <ExcelTemplatePage key="config-smart-import" @import-cargos="importExcelCargos" />
+          </div>
+        </el-collapse-transition>
       </section>
 
       <section v-else-if="plannerMode === 'cargos'" key="cargo-detail-view" class="planner-section">
@@ -253,8 +303,8 @@
             <div class="section-actions cargo-list-actions">
               <el-button type="primary" :icon="Plus" @click="openCargoModal()">手动录入</el-button>
               <el-button :icon="Star" @click="smartImportOpen = !smartImportOpen">{{ smartImportOpen ? "收起智能导入" : "智能导入" }}</el-button>
-              <el-upload :auto-upload="false" :show-file-list="false" accept=".csv,text/csv" :on-change="handleCsvUpload">
-                <el-button :icon="Upload">导入 CSV</el-button>
+              <el-upload :auto-upload="false" :show-file-list="false" accept=".csv,.tsv,text/csv,text/tab-separated-values" :disabled="fileImporting" :on-change="handleCsvUpload">
+                <el-button :icon="Upload" :loading="fileImporting">导入 CSV</el-button>
               </el-upload>
               <el-button :icon="Delete" :disabled="!selectedCargoRows.length" @click="deleteSelectedCargos">批量删除</el-button>
               <el-button type="danger" plain :icon="Delete" :disabled="!cargos.length" @click="clearCargos">清空全部</el-button>
@@ -318,6 +368,44 @@
       </section>
 
       <section v-else key="results-view" class="planner-section">
+        <section class="panel result-summary-panel">
+          <div class="section-head">
+            <div>
+              <p>Calculation Summary</p>
+              <h2>计算结论</h2>
+            </div>
+            <el-tag :type="resultSummary.red ? 'danger' : resultSummary.yellow ? 'warning' : 'success'" effect="light">
+              {{ resultSummary.recommendationText }}
+            </el-tag>
+          </div>
+          <div class="result-summary-grid">
+            <div class="summary-card success">
+              <span>绿色合格</span>
+              <b>{{ resultSummary.green }}</b>
+              <small>可直接输出</small>
+            </div>
+            <div class="summary-card warning">
+              <span>黄色预警</span>
+              <b>{{ resultSummary.yellow }}</b>
+              <small>允许微调</small>
+            </div>
+            <div class="summary-card danger">
+              <span>红色拦截</span>
+              <b>{{ resultSummary.red }}</b>
+              <small>不可输出</small>
+            </div>
+            <div class="summary-card muted">
+              <span>不可装</span>
+              <b>{{ resultSummary.oversize }}</b>
+              <small>尺寸/承载失败</small>
+            </div>
+            <div class="summary-card primary">
+              <span>推荐箱数</span>
+              <b>{{ resultSummary.boxesText }}</b>
+              <small>{{ resultSummary.containerName }}</small>
+            </div>
+          </div>
+        </section>
         <section class="panel ranking-panel">
           <div class="section-head">
             <div>
@@ -508,6 +596,7 @@ import ContainerModal from "./components/ContainerModal.vue";
 import ContainerScene from "./components/ContainerScene.vue";
 import { exportPackingReportsZip, exportPackingReport } from "./services/exportReport";
 import { assignCargoModels } from "./services/excelImport";
+import { buildPreviewInWorker, readWorkbookInWorker } from "./services/excelImportClient";
 import { calculatePacking, estimatePackingWorkload } from "./services/packingClient";
 import { cloneDefaultContainers, mergeDefaultContainers } from "./services/localData";
 import { fetchAdminMe, logoutAdmin } from "./services/adminApi";
@@ -517,6 +606,30 @@ import { cargoLabel, fmt, shortType, uid } from "./utils/format";
 const STORAGE_KEY = "cargo-planner-vue-state";
 const TEMPLATE_STORAGE_KEY = "cargo-planner-cargo-templates";
 const colors = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3", "#ca8a04", "#475569"];
+const DEFAULT_BALANCE_SETTINGS = {
+  greenLimitPercent: 2.5,
+  redLimitPercent: 5,
+  frontMaxPercent: 60,
+  rearMinPercent40FR: 30,
+  lateralOffsetLimitCm: 8
+};
+const BALANCE_PRESETS = {
+  strict: {
+    greenLimitPercent: 2,
+    redLimitPercent: 4,
+    frontMaxPercent: 58,
+    rearMinPercent40FR: 35,
+    lateralOffsetLimitCm: 6
+  },
+  standard: DEFAULT_BALANCE_SETTINGS,
+  loose: {
+    greenLimitPercent: 4,
+    redLimitPercent: 8,
+    frontMaxPercent: 65,
+    rearMinPercent40FR: 25,
+    lateralOffsetLimitCm: 12
+  }
+};
 
 const route = useRoute();
 const router = useRouter();
@@ -578,7 +691,10 @@ const selectedContainerId = ref("");
 const selectedBoxIndex = ref(1);
 const utilizationPercent = ref(90);
 const globalGapCm = ref(1);
+const balanceSettings = ref(normalizeBalanceSettings());
+const activeBalancePreset = ref("standard");
 const loading = ref(false);
+const fileImporting = ref(false);
 const switchingBox = ref(false);
 const showRemaining = ref(true);
 const showMassBalance = ref(true);
@@ -622,6 +738,24 @@ const exportZipLabel = computed(() => hasUndetailedBoxes.value ? "导出已详�
 const selectedPlanExportable = computed(() =>
   Boolean(selectedPlacements.value.length && isEvaluationExportable(selectedEvaluation.value))
 );
+const resultSummary = computed(() => {
+  const evaluations = sortedEvaluations.value || [];
+  const counts = evaluations.reduce((acc, evaluation) => {
+    const level = evaluationBalanceLevel(evaluation);
+    acc[level] += 1;
+    return acc;
+  }, { green: 0, yellow: 0, red: 0, oversize: 0 });
+  const best = evaluations[0] || null;
+  const boxes = Number(best?.boxes || 0);
+  return {
+    ...counts,
+    boxesText: boxes > 0 ? `${best?.estimatedBoxes ? "约 " : ""}${boxes} 箱` : "-",
+    containerName: best?.container?.name || "暂无推荐",
+    recommendationText: best
+      ? `${best.container.name} / ${evaluationFitText(best)}`
+      : "暂无计算结果"
+  };
+});
 const cargoTypeCount = computed(() => cargos.value.length);
 const cargoTotalQuantity = computed(() =>
   cargos.value.reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0)
@@ -638,7 +772,8 @@ const packingWorkloadHint = computed(() => estimatePackingWorkload({
   cargos: cargos.value,
   containers: containers.value,
   utilizationPercent: utilizationPercent.value,
-  globalGapCm: globalGapCm.value
+  globalGapCm: globalGapCm.value,
+  balanceSettings: balanceSettings.value
 }));
 const showPackingWorkloadHint = computed(() =>
   packingWorkloadHint.value.rawUnitCount >= 120
@@ -681,7 +816,7 @@ onUnmounted(() => {
   window.removeEventListener("auth-expired", handleAuthExpired);
 });
 
-watch([cargos, containers, utilizationPercent, globalGapCm], () => {
+watch([cargos, containers, utilizationPercent, globalGapCm, balanceSettings], () => {
   persistState();
   window.clearTimeout(timer);
   timer = window.setTimeout(recalculate, 400);
@@ -767,6 +902,8 @@ function restoreState() {
     containers.value = mergeDefaultContainers(saved.containers || []);
     utilizationPercent.value = saved.utilizationPercent || 90;
     globalGapCm.value = saved.globalGapCm ?? 1;
+    balanceSettings.value = normalizeBalanceSettings(saved.balanceSettings);
+    activeBalancePreset.value = saved.balancePreset || detectBalancePreset(balanceSettings.value);
     showRemaining.value = saved.showRemaining ?? true;
     showMassBalance.value = saved.showMassBalance ?? true;
     selectedContainerId.value = saved.selectedContainerId || "";
@@ -782,6 +919,8 @@ function persistState() {
     containers: containers.value,
     utilizationPercent: utilizationPercent.value,
     globalGapCm: globalGapCm.value,
+    balanceSettings: balanceSettings.value,
+    balancePreset: activeBalancePreset.value,
     showRemaining: showRemaining.value,
     showMassBalance: showMassBalance.value,
     selectedContainerId: selectedContainerId.value
@@ -833,7 +972,8 @@ async function recalculate() {
     cargos: cargos.value,
     containers: containers.value,
     utilizationPercent: utilizationPercent.value,
-    globalGapCm: globalGapCm.value
+    globalGapCm: globalGapCm.value,
+    balanceSettings: balanceSettings.value
   });
   loading.value = true;
   apiStatus.value = workload.seconds >= 20 ? `预计 ${workload.durationLabel}` : "正在计算";
@@ -842,7 +982,8 @@ async function recalculate() {
       cargos: cargos.value,
       containers: containers.value,
       utilizationPercent: utilizationPercent.value,
-      globalGapCm: globalGapCm.value
+      globalGapCm: globalGapCm.value,
+      balanceSettings: balanceSettings.value
     });
     if (seq !== calcSeq) return;
     result.value = normalizeResult(nextResult);
@@ -951,6 +1092,45 @@ function resetContainers() {
   containers.value = cloneDefaultContainers();
   selectedContainerId.value = containers.value[0]?.id || "";
   showToast("已恢复默认箱型。");
+}
+
+function applyBalancePreset(value) {
+  if (value === "custom") return;
+  const preset = BALANCE_PRESETS[value] || BALANCE_PRESETS.standard;
+  balanceSettings.value = normalizeBalanceSettings(preset);
+}
+
+function markBalanceCustom() {
+  balanceSettings.value = normalizeBalanceSettings(balanceSettings.value);
+  activeBalancePreset.value = detectBalancePreset(balanceSettings.value);
+}
+
+function normalizeBalanceSettings(settings = DEFAULT_BALANCE_SETTINGS) {
+  const raw = { ...DEFAULT_BALANCE_SETTINGS, ...(settings || {}) };
+  const redLimitPercent = clampNumber(raw.redLimitPercent, 3, 12, DEFAULT_BALANCE_SETTINGS.redLimitPercent);
+  return {
+    greenLimitPercent: Math.min(
+      redLimitPercent,
+      clampNumber(raw.greenLimitPercent, 1, 5, DEFAULT_BALANCE_SETTINGS.greenLimitPercent)
+    ),
+    redLimitPercent,
+    frontMaxPercent: clampNumber(raw.frontMaxPercent, 55, 70, DEFAULT_BALANCE_SETTINGS.frontMaxPercent),
+    rearMinPercent40FR: clampNumber(raw.rearMinPercent40FR, 20, 45, DEFAULT_BALANCE_SETTINGS.rearMinPercent40FR),
+    lateralOffsetLimitCm: clampNumber(raw.lateralOffsetLimitCm, 4, 20, DEFAULT_BALANCE_SETTINGS.lateralOffsetLimitCm)
+  };
+}
+
+function detectBalancePreset(settings) {
+  const normalized = normalizeBalanceSettings(settings);
+  return Object.entries(BALANCE_PRESETS).find(([, preset]) =>
+    Object.keys(DEFAULT_BALANCE_SETTINGS).every((key) => Number(preset[key]) === Number(normalized[key]))
+  )?.[0] || "custom";
+}
+
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
 }
 
 function applyUserSettings(settings) {
@@ -1126,14 +1306,19 @@ function normalizeEvaluationForExport(evaluation) {
 
 function handleCsvUpload(uploadFile: UploadFile) {
   const file = uploadFile.raw;
-  if (file) importCsvFile(file);
+  if (file) importStructuredCargoFile(file, "CSV");
+}
+
+function handleWorkbookQuickUpload(uploadFile: UploadFile) {
+  const file = uploadFile.raw;
+  if (file) importStructuredCargoFile(file, "Excel");
 }
 
 function importCsv(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   if (!file) return;
-  importCsvFile(file);
+  importStructuredCargoFile(file, "CSV");
   input.value = "";
 }
 
@@ -1166,6 +1351,32 @@ function importCsvFile(file: Blob) {
   reader.readAsText(file, "utf-8");
 }
 
+async function importStructuredCargoFile(file: File, label = "文件") {
+  if (fileImporting.value) return;
+  fileImporting.value = true;
+  showToast(`正在解析${label}，大文件会在后台处理...`);
+  try {
+    const workbook = await readWorkbookInWorker(file);
+    const sheet = workbook?.sheets?.[0];
+    if (!sheet) throw new Error("没有找到可导入的工作表。");
+    const preview = await buildPreviewInWorker(sheet, sheet.mapping || {}, { dimensionUnit: "auto", weightUnit: "auto" });
+    const imported = preview.aggregated || [];
+    if (!imported.length) {
+      showToast(`未识别到有效货物，已发现 ${preview.invalidRows?.length || 0} 行异常，请打开智能/Excel 导入查看明细。`);
+      smartImportOpen.value = true;
+      return;
+    }
+    cargos.value = normalizeCargoModels(imported);
+    result.value = null;
+    selectedBoxIndex.value = 1;
+    showToast(`已导入 ${imported.length} 类 / ${preview.importedQuantity || 0} 件货物${preview.invalidRows?.length ? `，跳过 ${preview.invalidRows.length} 行异常` : ""}。`);
+  } catch (error) {
+    showToast(error?.message || `${label} 导入失败，请检查文件格式。`);
+  } finally {
+    fileImporting.value = false;
+  }
+}
+
 function containerIcon(name) {
   if (name.includes("FR") || name.includes("平板")) return "FR";
   if (name.includes("RF") || name.includes("冷藏")) return "RF";
@@ -1184,9 +1395,7 @@ function evaluationFitText(evaluation) {
 
 function evaluationCostText(evaluation) {
   const recommendation = evaluation?.recommendation || {};
-  const cost = Number(recommendation.costFactor || 0);
-  const costText = cost > 0 ? `×${cost.toFixed(2)}` : "";
-  return `${priceTierText(recommendation.priceTier)}${costText ? ` ${costText}` : ""}`;
+  return `成本：${priceTierText(recommendation.priceTier)}`;
 }
 
 function evaluationRecommendationText(evaluation) {
@@ -1203,14 +1412,14 @@ function evaluationHint(evaluation) {
   const recommendation = evaluation?.recommendation || {};
   const score = Number(recommendation.score || 0);
   const scoreText = score > 0 ? `；综合评分 ${score.toFixed(0)}，分数越低越优` : "";
-  return `状态：${evaluationRecommendationText(evaluation)}；参考费用：${evaluationCostText(evaluation)}；占用率 ${fmt(evaluation?.firstBoxFillPercent || 0, 1)}%${scoreText}`;
+  return `状态：${evaluationRecommendationText(evaluation)}；${evaluationCostText(evaluation)}；占用率 ${fmt(evaluation?.firstBoxFillPercent || 0, 1)}%${scoreText}`;
 }
 
 function priceTierText(tier) {
   return {
-    economy: "经济档",
-    standard: "标准档",
-    high: "较高档",
+    economy: "经济",
+    standard: "标准",
+    high: "较高",
     special: "特种高价"
   }[tier] || tier || "参考价";
 }
@@ -1239,6 +1448,15 @@ function evaluationStatusRank(evaluation) {
   if (evaluation?.fitStatus === "fit") return 0;
   if (evaluation?.fitStatus === "balance-blocked") return 1;
   return 2;
+}
+
+function evaluationBalanceLevel(evaluation) {
+  if (!evaluation || evaluation.fitStatus === "oversize") return "oversize";
+  if (evaluation.fitStatus === "balance-blocked") return "red";
+  const severities = (evaluation.packedBoxes || []).map((box) => box.balanceValidation?.severity).filter(Boolean);
+  if (severities.includes("red")) return "red";
+  if (severities.includes("yellow")) return "yellow";
+  return "green";
 }
 
 function normalizedEvaluationBoxes(evaluation) {

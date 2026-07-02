@@ -20,8 +20,8 @@ const REAR_MIN_PERCENT_40FR = 30;
 const LATERAL_OFFSET_LIMIT_CM = 8;
 const HEAVY_TOP_FRACTION = 0.35;
 const BALANCE_SCORE_WEIGHT = 250000;
-const EARLY_BALANCE_SCORE_WEIGHT = 0;
-const HEAVY_CENTER_WEIGHT = 900;
+const EARLY_BALANCE_SCORE_WEIGHT = 65000;
+const HEAVY_CENTER_WEIGHT = 1600;
 const HEAVY_ZONE_WEIGHT = 4200;
 const LIGHT_ZONE_WEIGHT = 650;
 const BALANCE_ZONE_ORDER = ["frontLeft", "rearRight", "frontRight", "rearLeft"];
@@ -60,11 +60,14 @@ export function calculate(request = {}) {
   const cargos = request.cargos || [];
   const total = totals(request.cargos || []);
   const utilization = safeUtilizationPercent(request.utilizationPercent);
+  const balanceSettings = normalizeBalanceSettings(request.balanceSettings);
   const evaluations = [];
 
   for (const container of request.containers || []) {
-    const units = buildUnits(cargos, globalGapCm, container, total);
-    const evaluation = evaluateContainer(container, units, total, utilization, globalGapCm);
+    const runtimeContainer = { ...container, balanceSettings };
+    const units = buildUnits(cargos, globalGapCm, runtimeContainer, total);
+    const evaluation = evaluateContainer(runtimeContainer, units, total, utilization, globalGapCm);
+    evaluation.container = { ...container };
     evaluations.push(evaluation);
   }
 
@@ -412,6 +415,7 @@ function packContainer(container, units) {
     if (attempt.unplaced.length) {
       attempt = repairWithLocalSearch(container, attempt, ordered, strategy);
     }
+    attempt = centerPackedLayout(container, attempt, strategy);
     attempt = withBalanceValidation(container, attempt, rejectedByBalance);
     if (attempt.balanceValidation?.severity === "red") rejectedByBalance += 1;
     attempts.push(attempt);
@@ -562,6 +566,47 @@ function validateAllPlacements(container, placed) {
     if (current.nonStack && hasAnyBoxAbove(current, below)) return false;
   }
   return true;
+}
+
+function centerPackedLayout(container, attempt, strategy) {
+  if (!attempt?.placed?.length) return attempt;
+  const balance = calculateWeightBalance(container, attempt.placed);
+  if (!balance.valid) return attempt;
+  const bounds = placementBounds(attempt.placed);
+  const centerX = Number(container.lengthCm || 0) / 2;
+  const centerY = Number(container.widthCm || 0) / 2;
+  const shiftX = clamp(centerX - balance.center.xCm, -bounds.minX, Number(container.lengthCm || 0) - bounds.maxX);
+  const shiftY = clamp(centerY - balance.center.yCm, -bounds.minY, Number(container.widthCm || 0) - bounds.maxY);
+  if (Math.abs(shiftX) < EPS && Math.abs(shiftY) < EPS) return attempt;
+
+  const shifted = attempt.placed.map((unit) => ({
+    ...unit,
+    x: round3(Number(unit.x || 0) + shiftX),
+    y: round3(Number(unit.y || 0) + shiftY)
+  }));
+  if (!validateAllPlacements(container, shifted)) return attempt;
+
+  return makePackedBox(shifted, attempt.unplaced.map(copyUnit), {
+    id: attempt.strategyId || strategy.id,
+    name: attempt.strategyName || strategy.name
+  }, {
+    ...(attempt.strategySummary || {}),
+    centeredShiftX: shiftX,
+    centeredShiftY: shiftY
+  });
+}
+
+function placementBounds(placed) {
+  return placed.reduce((bounds, unit) => ({
+    minX: Math.min(bounds.minX, Number(unit.x || 0)),
+    minY: Math.min(bounds.minY, Number(unit.y || 0)),
+    maxX: Math.max(bounds.maxX, Number(unit.x || 0) + Number(unit.lengthCm || 0)),
+    maxY: Math.max(bounds.maxY, Number(unit.y || 0) + Number(unit.widthCm || 0))
+  }), { minX: Infinity, minY: Infinity, maxX: 0, maxY: 0 });
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function pickLayerSeedIndex(units, container, placed, strategy) {
@@ -763,15 +808,17 @@ function projectedBalancePenalty(container, placed, unit, placement) {
     heightCm: placement.heightCm
   };
   const validation = validateWeightBalance(container, [...placed, candidate]);
+  const rules = balanceRuleSettings(container);
   const isEarlySpread = placed.length < Math.min(3, BALANCE_ZONE_ORDER.length - 1);
   const severityPenalty = isEarlySpread ? 0 : validation.severity === "red" ? 3 : validation.severity === "yellow" ? 1 : 0;
   const weight = isEarlySpread ? EARLY_BALANCE_SCORE_WEIGHT : BALANCE_SCORE_WEIGHT;
-  return (validation.score + severityPenalty * BALANCE_RED_LIMIT_PERCENT) * weight;
+  return (validation.score + severityPenalty * rules.redLimitPercent) * weight;
 }
 
 function validateWeightBalance(container, placed) {
   const balance = calculateWeightBalance(container, placed);
   if (!balance.valid) return balance;
+  const rules = balanceRuleSettings(container);
 
   const frontRearDiffPercent = Math.abs(balance.loads.frontPercent - balance.loads.rearPercent);
   const leftRightDiffPercent = Math.abs(balance.loads.leftPercent - balance.loads.rightPercent);
@@ -779,13 +826,13 @@ function validateWeightBalance(container, placed) {
   const lateralOffsetPercent = Math.abs(balance.offset.lateralPercent);
   const lateralOffsetCm = Math.abs(balance.offset.lateralCm);
   const requiresRearMinimum = isFortyFootFlatRack(container);
-  const frontMaxExcess = Math.max(0, balance.loads.frontPercent - FRONT_MAX_PERCENT);
-  const rearMinExcess = requiresRearMinimum ? Math.max(0, REAR_MIN_PERCENT_40FR - balance.loads.rearPercent) : 0;
-  const frontRearExcess = Math.max(0, frontRearDiffPercent - BALANCE_RED_LIMIT_PERCENT);
-  const leftRightExcess = Math.max(0, leftRightDiffPercent - BALANCE_RED_LIMIT_PERCENT);
-  const longitudinalExcess = Math.max(0, longitudinalOffsetPercent - BALANCE_RED_LIMIT_PERCENT);
-  const lateralPercentExcess = Math.max(0, lateralOffsetPercent - BALANCE_RED_LIMIT_PERCENT);
-  const lateralCmExcess = Math.max(0, lateralOffsetCm - LATERAL_OFFSET_LIMIT_CM);
+  const frontMaxExcess = Math.max(0, balance.loads.frontPercent - rules.frontMaxPercent);
+  const rearMinExcess = requiresRearMinimum ? Math.max(0, rules.rearMinPercent40FR - balance.loads.rearPercent) : 0;
+  const frontRearExcess = Math.max(0, frontRearDiffPercent - rules.redLimitPercent);
+  const leftRightExcess = Math.max(0, leftRightDiffPercent - rules.redLimitPercent);
+  const longitudinalExcess = Math.max(0, longitudinalOffsetPercent - rules.redLimitPercent);
+  const lateralPercentExcess = Math.max(0, lateralOffsetPercent - rules.redLimitPercent);
+  const lateralCmExcess = Math.max(0, lateralOffsetCm - rules.lateralOffsetLimitCm);
   const red = frontMaxExcess > EPS
     || rearMinExcess > EPS
     || frontRearExcess > EPS
@@ -798,26 +845,26 @@ function validateWeightBalance(container, placed) {
     leftRightDiffPercent,
     longitudinalOffsetPercent,
     lateralOffsetPercent,
-    lateralOffsetCm / LATERAL_OFFSET_LIMIT_CM * BALANCE_RED_LIMIT_PERCENT
+    lateralOffsetCm / rules.lateralOffsetLimitCm * rules.redLimitPercent
   );
   const yellow = !red && (
-    warningScore > BALANCE_GREEN_LIMIT_PERCENT + EPS
-    || balance.loads.frontPercent > FRONT_MAX_PERCENT - BALANCE_GREEN_LIMIT_PERCENT
-    || (requiresRearMinimum && balance.loads.rearPercent < REAR_MIN_PERCENT_40FR + BALANCE_GREEN_LIMIT_PERCENT)
+    warningScore > rules.greenLimitPercent + EPS
+    || balance.loads.frontPercent > rules.frontMaxPercent - rules.greenLimitPercent
+    || (requiresRearMinimum && balance.loads.rearPercent < rules.rearMinPercent40FR + rules.greenLimitPercent)
   );
   const hardExcessScore = frontMaxExcess + rearMinExcess + frontRearExcess + leftRightExcess
-    + longitudinalExcess + lateralPercentExcess + lateralCmExcess / LATERAL_OFFSET_LIMIT_CM * BALANCE_RED_LIMIT_PERCENT;
+    + longitudinalExcess + lateralPercentExcess + lateralCmExcess / rules.lateralOffsetLimitCm * rules.redLimitPercent;
 
   return {
     ...balance,
     severity: red ? "red" : yellow ? "yellow" : "green",
     score: warningScore + hardExcessScore * 20,
     limits: {
-      greenPercent: BALANCE_GREEN_LIMIT_PERCENT,
-      redPercent: BALANCE_RED_LIMIT_PERCENT,
-      frontMaxPercent: FRONT_MAX_PERCENT,
-      rearMinPercent40FR: requiresRearMinimum ? REAR_MIN_PERCENT_40FR : null,
-      lateralOffsetLimitCm: LATERAL_OFFSET_LIMIT_CM
+      greenPercent: rules.greenLimitPercent,
+      redPercent: rules.redLimitPercent,
+      frontMaxPercent: rules.frontMaxPercent,
+      rearMinPercent40FR: requiresRearMinimum ? rules.rearMinPercent40FR : null,
+      lateralOffsetLimitCm: rules.lateralOffsetLimitCm
     },
     checks: {
       frontPercent: round(balance.loads.frontPercent),
@@ -1005,7 +1052,10 @@ function isFortyFootFlatRack(container) {
   return /40\s*fr|40fr|flat\s*rack|flatrack|flat|平板/.test(text);
 }
 
-function zoneSpreadPenalty(container, placed, placement) {
+function zoneSpreadPenalty(container, placed, placement, unit = null) {
+  if (!placed.length || (unit?.isHeavy && placed.length < 3)) {
+    return centerDistancePenalty(container, placement);
+  }
   const zone = weakestBalanceZone(container, placed);
   const centerX = Number(container.lengthCm || 0) / 2;
   const centerY = Number(container.widthCm || 0) / 2;
@@ -1018,6 +1068,14 @@ function zoneSpreadPenalty(container, placed, placement) {
   const unitCenterX = placement.x + placement.lengthCm / 2;
   const unitCenterY = placement.y + placement.widthCm / 2;
   return Math.abs(unitCenterX - targetX) + Math.abs(unitCenterY - targetY);
+}
+
+function centerDistancePenalty(container, placement) {
+  const centerX = Number(container.lengthCm || 0) / 2;
+  const centerY = Number(container.widthCm || 0) / 2;
+  const unitCenterX = placement.x + placement.lengthCm / 2;
+  const unitCenterY = placement.y + placement.widthCm / 2;
+  return Math.abs(unitCenterX - centerX) + Math.abs(unitCenterY - centerY);
 }
 
 function weakestBalanceZone(container, placed) {
@@ -1034,8 +1092,8 @@ function weakestBalanceZone(container, placed) {
 
 function placementScore(placement, unit, container, strategy, placed = []) {
   const top = placement.z + placement.heightCm;
-  const front = placement.y + placement.widthCm;
-  const right = placement.x + placement.lengthCm;
+  const front = placement.x + placement.lengthCm;
+  const right = placement.y + placement.widthCm;
   const area = placement.lengthCm * placement.widthCm;
   const supportBonus = unit.nonStack ? 0 : area * Math.max(0, 1 - top / Math.max(1, container.heightCm));
   const verticalPenalty = strategy.blueVertical && shouldPreferVertical(unit) ? -placement.heightCm * 100 : 0;
@@ -1046,7 +1104,7 @@ function placementScore(placement, unit, container, strategy, placed = []) {
   const unitCenterY = placement.y + placement.widthCm / 2;
   const centerDistance = Math.abs(unitCenterX - centerX) + Math.abs(unitCenterY - centerY);
   const heavyCenterPenalty = unit.isHeavy ? centerDistance * HEAVY_CENTER_WEIGHT : centerDistance * 12;
-  const spreadPenalty = zoneSpreadPenalty(container, placed, placement) * (unit.isHeavy ? HEAVY_ZONE_WEIGHT : LIGHT_ZONE_WEIGHT);
+  const spreadPenalty = zoneSpreadPenalty(container, placed, placement, unit) * (unit.isHeavy ? HEAVY_ZONE_WEIGHT : LIGHT_ZONE_WEIGHT);
   return top * 1_000_000 + balancePenalty + spreadPenalty + front * 1_000 + right + heavyCenterPenalty - supportBonus + verticalPenalty;
 }
 
@@ -1336,6 +1394,7 @@ function utilizationBand(fillPercent) {
 function buildTrace(container, units, total, multi, metrics) {
   const firstBox = multi.firstBox || { placed: [], unplaced: [] };
   const containerVolume = volumeM3(container);
+  const rules = balanceRuleSettings(container);
   return {
     worker: "frontend/src/workers/packingWorker.js",
     mode: "Browser WebWorker 本机计算",
@@ -1356,11 +1415,11 @@ function buildTrace(container, units, total, multi, metrics) {
     balanceRules: {
       frontRearAxis: "container length / X",
       leftRightAxis: "container width / Y",
-      greenLimitPercent: BALANCE_GREEN_LIMIT_PERCENT,
-      redLimitPercent: BALANCE_RED_LIMIT_PERCENT,
-      frontMaxPercent: FRONT_MAX_PERCENT,
-      rearMinPercent40FR: REAR_MIN_PERCENT_40FR,
-      lateralOffsetLimitCm: LATERAL_OFFSET_LIMIT_CM,
+      greenLimitPercent: rules.greenLimitPercent,
+      redLimitPercent: rules.redLimitPercent,
+      frontMaxPercent: rules.frontMaxPercent,
+      rearMinPercent40FR: rules.rearMinPercent40FR,
+      lateralOffsetLimitCm: rules.lateralOffsetLimitCm,
       redAction: "reject current layout and retry another strategy"
     },
     parameters: {
@@ -1483,6 +1542,27 @@ function safeUtilizationPercent(value) {
 
 function safeGlobalGapCm(value) {
   return Math.max(0, Number(value || 0));
+}
+
+function normalizeBalanceSettings(settings = {}) {
+  const redLimitPercent = clampNumber(settings.redLimitPercent, 3, 12, BALANCE_RED_LIMIT_PERCENT);
+  return {
+    greenLimitPercent: Math.min(redLimitPercent, clampNumber(settings.greenLimitPercent, 1, 5, BALANCE_GREEN_LIMIT_PERCENT)),
+    redLimitPercent,
+    frontMaxPercent: clampNumber(settings.frontMaxPercent, 55, 70, FRONT_MAX_PERCENT),
+    rearMinPercent40FR: clampNumber(settings.rearMinPercent40FR, 20, 45, REAR_MIN_PERCENT_40FR),
+    lateralOffsetLimitCm: clampNumber(settings.lateralOffsetLimitCm, 4, 20, LATERAL_OFFSET_LIMIT_CM)
+  };
+}
+
+function balanceRuleSettings(container = {}) {
+  return normalizeBalanceSettings(container.balanceSettings || {});
+}
+
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
 }
 
 function uniqueSorted(values, first) {

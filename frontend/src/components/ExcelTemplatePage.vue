@@ -42,12 +42,22 @@
             <p>浏览器直接识别表头、单位和规则，导入前先预览并标记异常行。</p>
           </div>
           <div class="excel-import-actions">
-            <el-upload :auto-upload="false" :show-file-list="false" accept=".xlsx,.xls,.csv,.tsv,text/csv" :on-change="handleWorkbookUpload">
-              <el-button type="primary">选择文件</el-button>
+            <el-upload :auto-upload="false" :show-file-list="false" accept=".xlsx,.xls,.csv,.tsv,text/csv" :disabled="manualImportBusy" :on-change="handleWorkbookUpload">
+              <el-button type="primary" :loading="manualImportBusy">选择文件</el-button>
             </el-upload>
             <el-button @click="downloadTemplate">下载样板</el-button>
           </div>
         </div>
+
+        <el-alert
+          v-if="manualImportMessage"
+          class="excel-import-status"
+          :type="manualImportMessageType"
+          :title="manualImportMessage"
+          show-icon
+          :closable="false"
+        />
+        <el-skeleton v-if="manualImportBusy || previewBusy" class="excel-import-skeleton" :rows="3" animated />
 
         <div class="excel-summary-grid">
           <div>
@@ -547,12 +557,11 @@
 import { computed, reactive, ref } from "vue";
 import {
   aggregateCargos,
-  buildPreview,
   downloadTemplateWorkbook,
   importFields,
-  readWorkbook,
   validateCargo
 } from "../services/excelImport";
+import { buildPreviewInWorker, readWorkbookInWorker } from "../services/excelImportClient";
 import {
   createTextRecognitionTask,
   downloadTextRecognitionExcel,
@@ -573,6 +582,10 @@ const recognitionPreview = ref(null);
 const recognitionMessage = ref("");
 const recognitionMessageType = ref("ok");
 const recognitionAgentBusy = ref(false);
+const manualImportBusy = ref(false);
+const previewBusy = ref(false);
+const manualImportMessage = ref("");
+const manualImportMessageType = ref("info");
 const recognitionAgentTask = ref(null);
 const recognitionEditIndex = ref(-1);
 const recognitionEditErrors = ref([]);
@@ -662,6 +675,8 @@ const sampleRows = [
   { id: 3, name: "易碎品 C", model: "", lengthCm: 55, widthCm: 45, heightCm: 30, quantity: 12, weightKg: 18, type: "nonstack", color: "#8b5cf6", remark: "不可重压" }
 ];
 
+let previewSeq = 0;
+
 async function handleWorkbookUpload(uploadFile) {
   if (uploadFile.raw) await loadWorkbookFile(uploadFile.raw);
 }
@@ -674,24 +689,64 @@ async function handleFile(event) {
 }
 
 async function loadWorkbookFile(file) {
-  workbook.value = await readWorkbook(file);
-  selectedSheetName.value = workbook.value.sheets[0]?.name || "";
-  selectSheet();
+  manualImportBusy.value = true;
+  manualImportMessageType.value = "info";
+  manualImportMessage.value = "正在解析文件，请稍候。大文件会在后台线程处理，页面不会被阻塞。";
+  try {
+    workbook.value = await readWorkbookInWorker(file);
+    selectedSheetName.value = workbook.value.sheets[0]?.name || "";
+    manualCorrections.value = [];
+    await selectSheet();
+    manualImportMessageType.value = "success";
+    manualImportMessage.value = `已读取 ${workbook.value.sheets.length} 个工作表，请确认字段映射后导入。`;
+  } catch (error) {
+    workbook.value = null;
+    activeSheet.value = null;
+    preview.value = null;
+    manualImportMessageType.value = "error";
+    manualImportMessage.value = error?.message || "文件解析失败，请检查 Excel/CSV 格式。";
+  } finally {
+    manualImportBusy.value = false;
+  }
 }
 
 function switchExcelMode(mode) {
   excelMode.value = mode === "agent" ? "recognition" : mode;
 }
 
-function selectSheet() {
+async function selectSheet() {
   activeSheet.value = workbook.value?.sheets.find((sheet) => sheet.name === selectedSheetName.value) || null;
   Object.keys(mapping).forEach((key) => delete mapping[key]);
   Object.assign(mapping, activeSheet.value?.mapping || {});
-  refreshPreview();
+  await refreshPreview();
 }
 
-function refreshPreview() {
-  preview.value = activeSheet.value ? buildPreview(activeSheet.value, mapping, options) : null;
+async function refreshPreview() {
+  const sheet = activeSheet.value;
+  if (!sheet) {
+    preview.value = null;
+    return;
+  }
+  const seq = ++previewSeq;
+  previewBusy.value = true;
+  manualImportMessageType.value = "info";
+  manualImportMessage.value = "正在校验行数据与字段映射...";
+  try {
+    const nextPreview = await buildPreviewInWorker(sheet, { ...mapping }, { ...options });
+    if (seq !== previewSeq) return;
+    preview.value = nextPreview;
+    manualImportMessageType.value = nextPreview.invalidRows.length ? "warning" : "success";
+    manualImportMessage.value = nextPreview.invalidRows.length
+      ? `已完成预览：${nextPreview.validRows.length} 行有效，${nextPreview.invalidRows.length} 行需要确认。`
+      : `已完成预览：${nextPreview.validRows.length} 行全部通过校验。`;
+  } catch (error) {
+    if (seq !== previewSeq) return;
+    preview.value = null;
+    manualImportMessageType.value = "error";
+    manualImportMessage.value = error?.message || "预览校验失败，请检查字段映射。";
+  } finally {
+    if (seq === previewSeq) previewBusy.value = false;
+  }
   manualCorrections.value = [];
   closeSuggestion();
 }
