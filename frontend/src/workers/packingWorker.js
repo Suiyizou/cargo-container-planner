@@ -13,6 +13,7 @@ const LOCAL_SEARCH_PASSES = 5;
 const GROUPING_MIN_TOTAL_UNITS = 120;
 const GROUPING_MIN_CARGO_QUANTITY = 24;
 const GROUPING_MAX_BLOCK_QUANTITY = 16;
+const MIXED_PLAN_MAX_SOLVER_UNITS = 120;
 const BALANCE_GREEN_LIMIT_PERCENT = 2.5;
 const BALANCE_RED_LIMIT_PERCENT = 5;
 const FRONT_MAX_PERCENT = 60;
@@ -72,7 +73,7 @@ export function calculate(request = {}) {
     evaluations.push(evaluation);
   }
 
-  const mixedEvaluation = buildMixedContainerEvaluation(request.containers || [], cargos, total, utilization, globalGapCm, balanceSettings);
+  const mixedEvaluation = safeBuildMixedContainerEvaluation(request.containers || [], cargos, total, utilization, globalGapCm, balanceSettings);
   if (mixedEvaluation) evaluations.push(mixedEvaluation);
 
   evaluations.sort(compareEvaluation);
@@ -244,11 +245,20 @@ function packMultiple(container, allUnits) {
   };
 }
 
+function safeBuildMixedContainerEvaluation(containers, cargos, total, utilizationPercent, globalGapCm, balanceSettings) {
+  try {
+    return buildMixedContainerEvaluation(containers, cargos, total, utilizationPercent, globalGapCm, balanceSettings);
+  } catch (error) {
+    return null;
+  }
+}
+
 function buildMixedContainerEvaluation(containers, cargos, total, utilizationPercent, globalGapCm, balanceSettings) {
   if (!Array.isArray(containers) || containers.length < 2 || !total.totalQuantity) return null;
-  if (total.totalQuantity > 260) return null;
   const runtimeContainers = containers.map((container) => ({ ...container, balanceSettings }));
-  let remaining = buildUnits(cargos, globalGapCm, null, total).map(copyUnit);
+  const seedContainer = pickMixedSeedContainer(runtimeContainers);
+  let remaining = buildUnits(cargos, globalGapCm, seedContainer, total).map(copyUnit);
+  if (remaining.length > MIXED_PLAN_MAX_SOLVER_UNITS) return null;
   if (!remaining.length) return null;
 
   const packedBoxes = [];
@@ -372,6 +382,18 @@ function mixedPlanSummary(packedBoxes) {
     counts.set(name, (counts.get(name) || 0) + 1);
   });
   return [...counts.entries()].map(([name, count]) => count > 1 ? `${name}×${count}` : name).join(" + ");
+}
+
+function pickMixedSeedContainer(containers) {
+  return [...containers].sort((a, b) => {
+    const metaA = equipmentMeta(a);
+    const metaB = equipmentMeta(b);
+    const classPenaltyA = metaA.equipmentClass === "FR" || metaA.equipmentClass === "RF" ? 1000 : 0;
+    const classPenaltyB = metaB.equipmentClass === "FR" || metaB.equipmentClass === "RF" ? 1000 : 0;
+    const scoreA = classPenaltyA - volumeM3(a);
+    const scoreB = classPenaltyB - volumeM3(b);
+    return scoreA - scoreB;
+  })[0] || containers[0] || null;
 }
 
 function buildUnits(cargos, globalGapCm, container = null, total = null) {

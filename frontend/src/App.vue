@@ -213,12 +213,6 @@
                 </div>
               </div>
             </div>
-            <div class="planner-action-row planner-action-row-prominent">
-              <el-button class="overview-cta" type="primary" size="large" :icon="Tickets" @click="goPlannerStep('cargos')">
-                进入货物总览
-              </el-button>
-              <el-button size="large" :icon="Plus" @click="openCargoModal()">手动录入货物</el-button>
-            </div>
             <el-divider />
             <div class="config-toolbox">
               <strong>常用工具</strong>
@@ -236,6 +230,11 @@
                 <el-button :icon="Refresh" @click="resetContainers">恢复默认箱型</el-button>
                 <el-button type="danger" plain :icon="Delete" @click="clearCargos">清空货物</el-button>
               </div>
+            </div>
+            <div class="planner-action-row planner-action-row-prominent">
+              <el-button class="overview-cta" type="primary" size="large" :icon="Tickets" @click="goPlannerStep('cargos')">
+                进入货物总览
+              </el-button>
             </div>
           </el-card>
 
