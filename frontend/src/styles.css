@@ -5,10 +5,25 @@
   --el-color-primary-light-7: #b8ccff;
   --el-color-primary-light-9: #eef4ff;
   --el-color-primary-dark-2: #0f49cc;
+  --el-bg-color-page: #f8fafc;
+  --el-font-size-base: 15px;
+  --el-font-size-small: 13px;
+  --el-font-size-extra-small: 13px;
+  --el-border-radius-base: 10px;
+  --el-border-radius-small: 8px;
+  --app-bg: #f8fafc;
+  --app-primary: #165DFF;
+  --app-primary-hover: #3d7cff;
+  --app-primary-dark: #0f49cc;
+  --app-card-radius: 12px;
+  --app-control-radius: 10px;
+  --app-card-shadow: 0 12px 30px rgba(20, 34, 52, 0.06);
+  --app-card-shadow-hover: 0 18px 44px rgba(20, 34, 52, 0.1);
+  --app-border: #d8e4f2;
   color: #172235;
-  background: #f4f7fb;
+  background: var(--app-bg);
   font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
-  font-size: 16px;
+  font-size: 15px;
 }
 
 * {
@@ -18,7 +33,10 @@
 body {
   margin: 0;
   min-width: 0;
-  background: #f4f7fb;
+  background: var(--app-bg);
+  color: #172235;
+  font-size: 15px;
+  line-height: 1.55;
 }
 
 button,
@@ -3621,6 +3639,492 @@ select {
   }
 
   .agent-task-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Global B-end visual polish: reusable as a SCSS token layer if the app later migrates styles. */
+html,
+body,
+#app {
+  min-height: 100%;
+  background: var(--app-bg);
+}
+
+:where(
+  .el-button,
+  .el-card,
+  .el-input__wrapper,
+  .el-textarea__inner,
+  .el-select__wrapper,
+  .el-input-number,
+  .el-table,
+  .el-menu-item,
+  .el-sub-menu__title,
+  .el-tag,
+  .legend-row,
+  .container-card,
+  .side-nav a,
+  button:not(.el-button),
+  input:not(.el-input__inner),
+  select
+) {
+  transition: all 0.2s ease;
+}
+
+.el-button {
+  min-height: 38px;
+  border-radius: var(--app-control-radius);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.el-button--small {
+  min-height: 32px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.el-button--primary:not(.is-plain):not(.is-link):not(.is-text) {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--app-primary) 0%, #2f7bff 100%);
+  box-shadow: 0 10px 20px rgba(22, 93, 255, 0.18);
+}
+
+.el-button--primary:not(.is-plain):not(.is-link):not(.is-text):hover {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--app-primary-hover) 0%, #5a95ff 100%);
+  box-shadow: 0 14px 26px rgba(22, 93, 255, 0.24);
+  transform: translateY(-1px);
+}
+
+.el-button:not(.is-disabled):not(.is-link):not(.is-text):hover {
+  transform: translateY(-1px);
+}
+
+.el-button.is-disabled {
+  transform: none;
+  box-shadow: none;
+}
+
+button:not(.el-button) {
+  border-radius: var(--app-control-radius);
+}
+
+button:not(.el-button).primary,
+button:not(.el-button).active {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--app-primary) 0%, #2f7bff 100%);
+}
+
+input:not(.el-input__inner),
+select,
+.admin-form-grid input {
+  border-radius: var(--app-control-radius);
+  font-size: 15px;
+}
+
+.el-input__wrapper,
+.el-select__wrapper,
+.el-textarea__inner {
+  border-radius: var(--app-control-radius);
+  font-size: 15px;
+  box-shadow: 0 0 0 1px var(--app-border) inset;
+}
+
+.el-input__wrapper:hover,
+.el-select__wrapper:hover,
+.el-textarea__inner:hover {
+  box-shadow: 0 0 0 1px #b7caf0 inset;
+}
+
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused,
+.el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--app-primary) inset, 0 0 0 3px rgba(22, 93, 255, 0.1);
+}
+
+.el-input-number,
+.el-input-number .el-input__wrapper {
+  border-radius: var(--app-control-radius);
+}
+
+.el-card,
+.planner-step-card,
+.planner-page-head,
+.planner-card,
+.cargo-overview-panel.el-card,
+.packing-visual-toolbar,
+.slice-control-card,
+.packing-bottom-actions,
+.info-panel-card,
+.smart-recognition-card,
+.admin-panel {
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-card-radius);
+  background: #fff;
+  box-shadow: var(--app-card-shadow);
+}
+
+.el-card:hover,
+.planner-card:hover,
+.container-card.el-button:hover,
+.stats-grid.compact div:hover {
+  box-shadow: var(--app-card-shadow-hover);
+}
+
+.el-card__body,
+.planner-card .el-card__body,
+.planner-page-head .el-card__body,
+.planner-step-card .el-card__body,
+.cargo-overview-panel .el-card__body,
+.info-panel-card .el-card__body {
+  padding: 20px;
+}
+
+.el-card__header,
+.planner-card .el-card__header,
+.cargo-overview-panel .el-card__header,
+.info-panel-card .el-card__header {
+  padding: 16px 20px;
+  border-bottom-color: #e4edf7;
+}
+
+.card-header-title,
+.planner-page-head h2,
+.info-card-head strong,
+.recognition-title,
+.section-head h2,
+.admin-panel-head h2 {
+  color: #132033;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.planner-page-head p,
+.step-description,
+.side-user-card span,
+.side-user-card small,
+.config-toolbox strong,
+.stats-grid.compact span,
+.balance-metric-list span,
+.balance-zone-bars span,
+.balance-zone-bars small,
+.legend-row small,
+.legend-row em,
+.packing-bottom-actions .el-card__body > div:first-child,
+.recognition-placeholder span,
+.agent-note-text,
+.admin-hint,
+.top-user small {
+  font-size: 13px;
+}
+
+.topbar {
+  height: 78px;
+  background: rgba(255, 255, 255, 0.98);
+  border-bottom-color: #e1eaf5;
+  box-shadow: 0 10px 28px rgba(20, 34, 52, 0.06);
+}
+
+.app-body {
+  min-height: calc(100vh - 78px);
+}
+
+.app-sidebar {
+  top: 78px;
+  height: calc(100vh - 78px);
+  gap: 16px;
+  padding: 18px 16px;
+  border-right-color: #dbe7f5;
+  background: #fff;
+}
+
+.side-user-card {
+  padding: 16px;
+  border-radius: var(--app-card-radius);
+  background: #f8fbff;
+}
+
+.side-menu .el-menu-item,
+.side-menu .el-sub-menu__title {
+  height: 48px;
+  margin: 5px 0;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.side-menu .el-menu-item.is-active {
+  color: var(--app-primary);
+  background: #eef4ff;
+  box-shadow: inset 4px 0 0 var(--app-primary);
+}
+
+.planner-page {
+  gap: 16px;
+  padding: 16px;
+  background: var(--app-bg);
+}
+
+.planner-section,
+.planner-config-grid,
+.planner-flow,
+.packing-visual-shell,
+.packing-info-panel {
+  gap: 16px;
+}
+
+.planner-step-card .el-step__head.is-process,
+.planner-step-card .el-step__head.is-success,
+.planner-step-card .el-step__title.is-process,
+.planner-step-card .el-step__title.is-success {
+  color: var(--app-primary);
+  border-color: var(--app-primary);
+}
+
+.step-title-button.el-button {
+  font-size: 17px;
+}
+
+.slider-row {
+  gap: 10px;
+}
+
+.el-slider__runway {
+  height: 8px;
+  border-radius: 999px;
+  background-color: #e8eef7;
+}
+
+.el-slider__bar {
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--app-primary), #4f91ff);
+}
+
+.el-slider__button {
+  width: 18px;
+  height: 18px;
+  border: 3px solid var(--app-primary);
+  box-shadow: 0 4px 12px rgba(22, 93, 255, 0.22);
+}
+
+.el-tag {
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.planner-metrics,
+.stats-grid.compact,
+.recognition-summary-grid,
+.admin-metrics,
+.admin-metrics.compact {
+  gap: 16px;
+}
+
+.planner-metrics .el-card,
+.stats-grid.compact div,
+.recognition-summary-grid > div,
+.admin-metric-card {
+  border-radius: var(--app-card-radius);
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(20, 34, 52, 0.05);
+}
+
+.el-statistic__head {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.el-statistic__content,
+.planner-metrics b,
+.stats-grid.compact b,
+.recognition-summary-grid strong,
+.admin-metric-card strong {
+  color: #0f172a;
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1.15;
+}
+
+.el-table {
+  overflow: hidden;
+  border-radius: var(--app-card-radius);
+  font-size: 15px;
+}
+
+.el-table th.el-table__cell {
+  background: #f2f6fc;
+  color: #24415f;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.el-table .cell {
+  line-height: 1.55;
+}
+
+.template-table-wrap table {
+  border-radius: var(--app-card-radius);
+  font-size: 15px;
+}
+
+.template-table-wrap th {
+  background: #f2f6fc;
+  font-size: 15px;
+}
+
+.smart-recognition-card {
+  padding: 20px;
+}
+
+.recognition-placeholder {
+  border-radius: var(--app-card-radius);
+  font-size: 15px;
+}
+
+.recognition-loading-panel,
+.el-skeleton__item {
+  border-radius: var(--app-card-radius);
+}
+
+.visual-loading {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 14px;
+  padding: 24px;
+  background: rgba(248, 250, 252, 0.88);
+  backdrop-filter: blur(8px);
+}
+
+.visual-loading::before {
+  content: "";
+  width: min(520px, 72%);
+  aspect-ratio: 16 / 9;
+  border-radius: 14px;
+  background:
+    linear-gradient(100deg, rgba(232, 240, 252, 0.7) 20%, rgba(255, 255, 255, 0.9) 38%, rgba(232, 240, 252, 0.7) 56%) 0 0 / 220% 100%,
+    #e8f0fc;
+  box-shadow: 0 14px 36px rgba(20, 34, 52, 0.08);
+  animation: skeletonShimmer 1.2s ease-in-out infinite;
+}
+
+.visual-loading span {
+  color: #24415f;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+@keyframes skeletonShimmer {
+  to {
+    background-position: -220% 0;
+  }
+}
+
+.packing-visual-shell.fullscreen {
+  background: var(--app-bg);
+}
+
+.packing-visual-toolbar .el-card__body,
+.packing-bottom-actions .el-card__body {
+  padding: 14px 16px;
+}
+
+.packing-visual-toolbar {
+  position: relative;
+  z-index: 2;
+}
+
+.packing-visual-layout {
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 16px;
+  min-height: clamp(620px, calc(100vh - 270px), 760px);
+}
+
+.packing-canvas-panel,
+.scene-wrap {
+  min-height: clamp(620px, calc(100vh - 270px), 760px);
+  border: 1px solid #c9d9ef;
+  border-radius: 14px;
+  background: #f8fbff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 12px 30px rgba(20, 34, 52, 0.06);
+}
+
+.packing-scene-canvas {
+  border-radius: inherit;
+}
+
+.info-panel-card .el-card__body {
+  padding: 16px;
+}
+
+.stats-grid.compact div {
+  padding: 14px;
+}
+
+.stats-grid.compact b {
+  font-size: 22px;
+}
+
+.balance-summary p,
+.balance-metric-list b {
+  font-size: 15px;
+}
+
+.legend-card .el-card__body {
+  padding: 10px;
+}
+
+.legend-row {
+  min-height: 56px;
+  padding: 10px;
+  border-radius: 10px;
+}
+
+.legend-row:hover {
+  background: #eef4ff;
+  transform: translateX(2px);
+}
+
+.visual-tooltip {
+  border-radius: 10px;
+  font-size: 15px;
+}
+
+.toolbar-left,
+.toolbar-right,
+.bottom-button-group {
+  gap: 10px;
+}
+
+@media (max-width: 1180px) {
+  .packing-visual-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .packing-info-panel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .planner-page {
+    padding: 12px;
+  }
+
+  .el-card__body,
+  .planner-card .el-card__body,
+  .planner-page-head .el-card__body,
+  .planner-step-card .el-card__body,
+  .cargo-overview-panel .el-card__body,
+  .info-panel-card .el-card__body {
+    padding: 16px;
+  }
+
+  .packing-info-panel {
     grid-template-columns: 1fr;
   }
 }

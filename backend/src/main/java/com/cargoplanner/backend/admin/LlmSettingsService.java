@@ -18,6 +18,7 @@ public class LlmSettingsService {
   private static final String KEY_BASE_URL = "llm.base_url";
   private static final String KEY_MODEL = "llm.model";
   private static final String KEY_API_KEY = "llm.api_key";
+  private static final String DEFAULT_MODEL = "deepseek-v4-flash";
 
   private final JdbcTemplate jdbcTemplate;
   private final String defaultBaseUrl;
@@ -28,7 +29,7 @@ public class LlmSettingsService {
   public LlmSettingsService(
       JdbcTemplate jdbcTemplate,
       @Value("${spring.ai.openai.base-url:https://api.deepseek.com}") String defaultBaseUrl,
-      @Value("${spring.ai.openai.chat.options.model:deepseekv4-flash}") String defaultModel,
+      @Value("${spring.ai.openai.chat.options.model:deepseek-v4-flash}") String defaultModel,
       @Value("${spring.ai.openai.api-key:}") String defaultApiKey
   ) {
     this.jdbcTemplate = jdbcTemplate;
@@ -45,7 +46,7 @@ public class LlmSettingsService {
     result.put("model", settings.model());
     result.put("apiKeyConfigured", settings.hasApiKey());
     result.put("apiKeyPreview", apiKeyPreview(settings.apiKey()));
-    result.put("provider", "Spring AI OpenAI-compatible");
+    result.put("provider", "OpenAI-compatible HTTP");
     return result;
   }
 
@@ -56,7 +57,7 @@ public class LlmSettingsService {
     return new LlmRuntimeSettings(
         Boolean.parseBoolean(firstNonBlank(values.get(KEY_ENABLED), "true")),
         firstNonBlank(values.get(KEY_BASE_URL), defaultBaseUrl, "https://api.deepseek.com"),
-        firstNonBlank(values.get(KEY_MODEL), defaultModel, "deepseekv4-flash"),
+        normalizeModel(firstNonBlank(values.get(KEY_MODEL), defaultModel, DEFAULT_MODEL)),
         apiKey
     );
   }
@@ -78,7 +79,7 @@ public class LlmSettingsService {
       upsert(KEY_BASE_URL, baseUrl.replaceAll("/+$", ""), admin.id());
     }
     if (request.model() != null) {
-      String model = clean(request.model());
+      String model = normalizeModel(request.model());
       if (model.isBlank()) {
         throw new ApiException(HttpStatus.BAD_REQUEST, "Model is required");
       }
@@ -118,7 +119,7 @@ public class LlmSettingsService {
   private void seedDefaults() {
     upsertIfMissing(KEY_ENABLED, "true", "Whether text recognition should call the configured LLM first");
     upsertIfMissing(KEY_BASE_URL, firstNonBlank(defaultBaseUrl, "https://api.deepseek.com"), "OpenAI-compatible base URL for text recognition");
-    upsertIfMissing(KEY_MODEL, firstNonBlank(defaultModel, "deepseekv4-flash"), "LLM model name for text recognition");
+    upsertIfMissing(KEY_MODEL, normalizeModel(firstNonBlank(defaultModel, DEFAULT_MODEL)), "LLM model name for text recognition");
     upsertIfMissing(KEY_API_KEY, firstNonBlank(defaultApiKey, ""), "API key for the configured OpenAI-compatible LLM provider");
   }
 
@@ -186,6 +187,14 @@ public class LlmSettingsService {
     if (value.isBlank()) return "";
     if (value.length() <= 8) return "****";
     return value.substring(0, 4) + "..." + value.substring(value.length() - 4);
+  }
+
+  private String normalizeModel(Object value) {
+    String model = clean(value);
+    if ("deepseekv4-flash".equalsIgnoreCase(model)) {
+      return DEFAULT_MODEL;
+    }
+    return model;
   }
 
   private String firstNonBlank(String... values) {

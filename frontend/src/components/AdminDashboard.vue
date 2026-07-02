@@ -331,7 +331,7 @@
             </label>
             <label>
               <span>模型名称</span>
-              <input v-model.trim="llmForm.model" placeholder="deepseekv4-flash" />
+              <input v-model.trim="llmForm.model" placeholder="deepseek-v4-flash" />
             </label>
             <label>
               <span>API Key</span>
@@ -342,7 +342,7 @@
               <input v-model="llmForm.clearApiKey" type="checkbox" />
             </label>
             <div class="admin-setting-list llm-current-settings">
-              <span><b>当前提供方</b>{{ llmSettings?.provider || "Spring AI OpenAI-compatible" }}</span>
+              <span><b>当前提供方</b>{{ llmSettings?.provider || "OpenAI-compatible HTTP" }}</span>
               <span><b>当前模型</b>{{ llmSettings?.model || "-" }}</span>
               <span><b>Key 状态</b>{{ llmSettings?.apiKeyConfigured ? `已配置 ${llmSettings.apiKeyPreview}` : "未配置" }}</span>
               <span><b>默认行为</b>开启但无 Key 时自动使用规则兜底</span>
@@ -516,7 +516,7 @@ const employeeForm = reactive({ username: "", displayName: "", password: "", rol
 const llmForm = reactive({
   enabled: true,
   baseUrl: "https://api.deepseek.com",
-  model: "deepseekv4-flash",
+  model: "deepseek-v4-flash",
   apiKey: "",
   clearApiKey: false
 });
@@ -683,7 +683,7 @@ async function handleUpdateLlmSettings() {
 function syncLlmForm(settings) {
   llmForm.enabled = settings?.enabled ?? true;
   llmForm.baseUrl = settings?.baseUrl || "https://api.deepseek.com";
-  llmForm.model = settings?.model || "deepseekv4-flash";
+  llmForm.model = settings?.model || "deepseek-v4-flash";
   llmForm.apiKey = "";
   llmForm.clearApiKey = false;
 }

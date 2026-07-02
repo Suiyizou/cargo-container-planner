@@ -8,6 +8,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.net.URI;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -26,19 +27,19 @@ import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.springframework.ai.chat.messages.SystemMessage;
-import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.openai.OpenAiChatModel;
-import org.springframework.ai.openai.OpenAiChatOptions;
-import org.springframework.ai.openai.api.OpenAiApi;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestTemplate;
 
 @Service
 public class TextRecognitionService {
@@ -62,10 +63,23 @@ public class TextRecognitionService {
   private static final Pattern MODEL_PATTERN = Pattern.compile("(?i)(?:型号|model|spec)\\s*[:：]?\\s*([A-Za-z0-9._\\-\\/]+)");
   private static final Pattern HAS_DATA_PATTERN = Pattern.compile("(?i)(\\d+\\s*[x×*]\\s*\\d+)|(kg|kgs|cm|mm|skid|pallet|pcs|件|箱|尺寸|长|宽|高)");
   private static final Pattern HAS_LETTER_OR_HAN = Pattern.compile(".*[\\p{IsHan}A-Za-z].*");
+  private static final Pattern FLEX_DIMENSION_PATTERN = Pattern.compile(
+      "(?i)(?:长|length|l)?\\s*(?<length>[0-9][0-9.,]*)\\s*(?<unit1>cm|mm|m|厘米|毫米|米)?\\s*[xX×*]\\s*"
+          + "(?:宽|width|w)?\\s*(?<width>[0-9][0-9.,]*)\\s*(?<unit2>cm|mm|m|厘米|毫米|米)?\\s*[xX×*]\\s*"
+          + "(?:高|height|h)?\\s*(?<height>[0-9][0-9.,]*)\\s*(?<unit3>cm|mm|m|厘米|毫米|米)?"
+  );
+  private static final Pattern CSV_SPLIT_PATTERN = Pattern.compile("\\s*[,，\\t]\\s*");
+  private static final Pattern FLEX_QUANTITY_PATTERN = Pattern.compile(
+      "(?i)(?:数量|qty|quantity)?\\s*(\\d+)\\s*(?:件|个|箱|盒|pcs?|pieces?|cartons?|boxes?|双|套|只|台|包|袋|页|片|张)"
+  );
+  private static final Pattern FLEX_WEIGHT_PATTERN = Pattern.compile(
+      "(?i)(?:单重|每件|单箱毛重|毛重|净重|unit\\s*weight|each|weight|wt)?\\s*([0-9][0-9.,]*)\\s*(kg|kgs|公斤|千克|g|克|t|吨)"
+  );
 
   private final JdbcTemplate jdbcTemplate;
   private final ObjectMapper objectMapper;
   private final LlmSettingsService llmSettingsService;
+  private final RestTemplate restTemplate = new RestTemplate();
   private volatile boolean tableReady = false;
 
   public TextRecognitionService(
@@ -276,7 +290,7 @@ public class TextRecognitionService {
     if (settings.enabled()) {
       if (settings.hasApiKey()) {
         try {
-          return recognizeWithSpringAi(settings, text, languageHint);
+          return recognizeWithOpenAiCompatible(settings, text, languageHint);
         } catch (Exception error) {
           RecognitionResult fallback = recognizeWithRules(text);
           return fallback.withNotes("LLM 识别失败，已自动切换到规则兜底：" + trim(error.getMessage(), 160));
@@ -289,24 +303,8 @@ public class TextRecognitionService {
     return fallback.withNotes("管理员已关闭 LLM 识别，当前使用规则兜底。");
   }
 
-  private RecognitionResult recognizeWithSpringAi(LlmRuntimeSettings settings, String text, String languageHint) throws JsonProcessingException {
-    OpenAiApi openAiApi = OpenAiApi.builder()
-        .baseUrl(settings.baseUrl())
-        .apiKey(settings.apiKey())
-        .build();
-    OpenAiChatOptions options = OpenAiChatOptions.builder()
-        .model(settings.model())
-        .temperature(0.1)
-        .build();
-    OpenAiChatModel chatModel = OpenAiChatModel.builder()
-        .openAiApi(openAiApi)
-        .defaultOptions(options)
-        .build();
-    ChatResponse response = chatModel.call(new Prompt(List.of(
-        new SystemMessage(systemPrompt()),
-        new UserMessage(userPrompt(text, languageHint))
-    )));
-    String content = response.getResult().getOutput().getText();
+  private RecognitionResult recognizeWithOpenAiCompatible(LlmRuntimeSettings settings, String text, String languageHint) throws JsonProcessingException {
+    String content = callOpenAiCompatibleChat(settings, text, languageHint);
     Map<String, Object> payload = objectMapper.readValue(extractJsonObject(content), new TypeReference<Map<String, Object>>() {});
     List<Map<String, Object>> rawRows = mapList(payload.get("rows"));
     List<Map<String, Object>> modelIssues = mapList(payload.get("issues"));
@@ -349,6 +347,119 @@ public class TextRecognitionService {
     return new RecognitionResult(Math.max(rawRows.size() + modelIssues.size(), textRows(text).size()), validRows.size(), issues.size(), cleanedRows, issues, notes);
   }
 
+  private String callOpenAiCompatibleChat(LlmRuntimeSettings settings, String text, String languageHint) {
+    HttpHeaders headers = new HttpHeaders();
+    headers.setContentType(MediaType.APPLICATION_JSON);
+    headers.setBearerAuth(settings.apiKey());
+
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("model", settings.model());
+    body.put("temperature", 0.1);
+    body.put("stream", false);
+    body.put("response_format", Map.of("type", "json_object"));
+    body.put("messages", List.of(
+        Map.of("role", "system", "content", systemPrompt()),
+        Map.of("role", "user", "content", userPrompt(text, languageHint))
+    ));
+    if (settings.baseUrl().toLowerCase(Locale.ROOT).contains("deepseek.com")) {
+      body.put("thinking", Map.of("type", "disabled"));
+    }
+
+    try {
+      ResponseEntity<Map> response = restTemplate.postForEntity(
+          URI.create(chatCompletionsUrl(settings.baseUrl())),
+          new HttpEntity<>(body, headers),
+          Map.class
+      );
+      Object responseBody = response.getBody();
+      if (!(responseBody instanceof Map<?, ?> payload)) {
+        throw new IllegalStateException("LLM returned empty response body");
+      }
+      return extractAssistantContent(payload);
+    } catch (HttpStatusCodeException error) {
+      String message = providerErrorMessage(error.getResponseBodyAsString());
+      throw new IllegalStateException("LLM HTTP " + error.getStatusCode().value() + ": " + message, error);
+    } catch (RestClientException error) {
+      throw new IllegalStateException("LLM request failed: " + error.getMessage(), error);
+    }
+  }
+
+  private String chatCompletionsUrl(String baseUrl) {
+    String url = cleanCell(baseUrl).replaceAll("/+$", "");
+    if (url.isBlank()) {
+      url = "https://api.deepseek.com";
+    }
+    if (url.endsWith("/chat/completions")) {
+      return url;
+    }
+    if (url.toLowerCase(Locale.ROOT).contains("deepseek.com")) {
+      return url.endsWith("/v1") ? url + "/chat/completions" : url + "/chat/completions";
+    }
+    if (url.endsWith("/v1")) {
+      return url + "/chat/completions";
+    }
+    return url + "/v1/chat/completions";
+  }
+
+  private String extractAssistantContent(Map<?, ?> payload) {
+    Object error = payload.get("error");
+    if (error != null) {
+      throw new IllegalStateException(providerErrorMessage(error));
+    }
+    Object choicesValue = payload.get("choices");
+    if (choicesValue instanceof List<?> choices && !choices.isEmpty()) {
+      Object first = choices.get(0);
+      if (first instanceof Map<?, ?> choice) {
+        String content = contentText(choice.get("message"));
+        if (content.isBlank()) content = contentText(choice.get("delta"));
+        if (content.isBlank()) content = contentText(choice.get("text"));
+        if (!content.isBlank()) return content;
+      }
+    }
+    String content = contentText(payload.get("output_text"));
+    if (content.isBlank()) content = contentText(payload.get("text"));
+    if (!content.isBlank()) return content;
+    throw new IllegalStateException("LLM response did not contain assistant content");
+  }
+
+  private String contentText(Object value) {
+    if (value == null) return "";
+    if (value instanceof String text) return cleanCell(text);
+    if (value instanceof Map<?, ?> map) {
+      String content = contentText(map.get("content"));
+      if (content.isBlank()) content = contentText(map.get("text"));
+      return content;
+    }
+    if (value instanceof List<?> list) {
+      StringBuilder builder = new StringBuilder();
+      for (Object item : list) {
+        String part = contentText(item);
+        if (!part.isBlank()) builder.append(part);
+      }
+      return cleanCell(builder.toString());
+    }
+    return cleanCell(value);
+  }
+
+  private String providerErrorMessage(Object value) {
+    if (value == null) return "unknown provider error";
+    if (value instanceof Map<?, ?> map) {
+      String message = firstNonBlank(map.get("message"), map.get("msg"), map.get("type"), map.get("code"));
+      if (!message.isBlank()) return message;
+      Object nested = map.get("error");
+      if (nested != null && nested != value) return providerErrorMessage(nested);
+    }
+    String text = cleanCell(value);
+    if (text.startsWith("{")) {
+      try {
+        return providerErrorMessage(objectMapper.readValue(text, new TypeReference<Map<String, Object>>() {}));
+      } catch (Exception ignored) {
+        return trim(text, 300);
+      }
+    }
+    return trim(text, 300);
+  }
+
   private RecognitionResult recognizeWithRules(String text) {
     List<String> lines = textRows(text);
     List<Map<String, Object>> validRows = new ArrayList<>();
@@ -389,7 +500,58 @@ public class TextRecognitionService {
     return new RecognitionResult(lines.size(), validRows.size(), issues.size(), cleanedRows, issues, notes);
   }
 
+  private ParsedCargo parseDelimitedLine(String line, String currentName, int rowNumber) {
+    if (!line.contains(",") && !line.contains("，") && !line.contains("\t")) {
+      return new ParsedCargo(false, line, Map.of(), List.of());
+    }
+    DimensionParts dimensions = extractDimensions(line);
+    if (dimensions == null) {
+      return new ParsedCargo(false, line, Map.of(), List.of());
+    }
+
+    List<String> tokens = CSV_SPLIT_PATTERN.splitAsStream(line)
+        .map(this::cleanCell)
+        .filter(token -> !token.isBlank())
+        .toList();
+    int startIndex = (!tokens.isEmpty() && tokens.get(0).matches("\\d+")) ? 1 : 0;
+    String name = "";
+    String model = "";
+    for (int i = startIndex; i < tokens.size(); i++) {
+      String token = tokens.get(i);
+      if (isMeasurementToken(token)) continue;
+      if (name.isBlank()) {
+        name = token;
+      } else if (model.isBlank()) {
+        model = token;
+        break;
+      }
+    }
+    Integer quantity = firstDelimitedQuantity(tokens);
+    Double weightKg = firstDelimitedWeight(tokens);
+
+    Map<String, Object> cargo = cargoMap(
+        firstNonBlank(name, currentName, inferNameFromLine(line, rowNumber)),
+        model,
+        dimensions.lengthCm(),
+        dimensions.widthCm(),
+        dimensions.heightCm(),
+        quantity == null ? 1 : quantity,
+        weightKg == null ? 0 : weightKg,
+        normalizeType(line),
+        "",
+        "",
+        line
+    );
+    List<String> errors = validateCargo(cargo);
+    return new ParsedCargo(true, line, cargo, errors);
+  }
+
   private ParsedCargo parseLine(String line, String currentName, int rowNumber) {
+    ParsedCargo delimited = parseDelimitedLine(line, currentName, rowNumber);
+    if (delimited.matched()) {
+      return delimited;
+    }
+
     Matcher skid = SKID_LINE_PATTERN.matcher(line);
     if (skid.matches()) {
       String pack = cleanCell(skid.group("pack")).toLowerCase(Locale.ROOT);
@@ -440,6 +602,62 @@ public class TextRecognitionService {
     }
 
     return new ParsedCargo(false, line, Map.of(), List.of());
+  }
+
+  private DimensionParts extractDimensions(String text) {
+    Matcher matcher = FLEX_DIMENSION_PATTERN.matcher(cleanCell(text));
+    if (!matcher.find()) return null;
+    String unit = firstNonBlank(matcher.group("unit1"), matcher.group("unit2"), matcher.group("unit3"), "cm");
+    return new DimensionParts(
+        convertFlexDimension(parseFlexibleNumber(matcher.group("length")), unit),
+        convertFlexDimension(parseFlexibleNumber(matcher.group("width")), unit),
+        convertFlexDimension(parseFlexibleNumber(matcher.group("height")), unit)
+    );
+  }
+
+  private double convertFlexDimension(double value, String unit) {
+    String normalized = cleanCell(unit).toLowerCase(Locale.ROOT);
+    if ("mm".equals(normalized) || "毫米".equals(normalized)) return value / 10;
+    if ("m".equals(normalized) || "米".equals(normalized)) return value * 100;
+    return value;
+  }
+
+  private Integer firstDelimitedQuantity(List<String> tokens) {
+    for (String token : tokens) {
+      if (isDimensionToken(token) || FLEX_WEIGHT_PATTERN.matcher(token).find()) continue;
+      Matcher matcher = FLEX_QUANTITY_PATTERN.matcher(token);
+      if (matcher.find()) {
+        return intValue(matcher.group(1), 0);
+      }
+    }
+    return null;
+  }
+
+  private Double firstDelimitedWeight(List<String> tokens) {
+    for (String token : tokens) {
+      if (isDimensionToken(token)) continue;
+      Matcher matcher = FLEX_WEIGHT_PATTERN.matcher(token);
+      if (matcher.find()) {
+        double value = parseFlexibleNumber(matcher.group(1));
+        String unit = cleanCell(matcher.group(2)).toLowerCase(Locale.ROOT);
+        if ("g".equals(unit) || "克".equals(unit)) return value / 1000;
+        if ("t".equals(unit) || "吨".equals(unit)) return value * 1000;
+        return value;
+      }
+    }
+    return null;
+  }
+
+  private boolean isMeasurementToken(String token) {
+    String text = cleanCell(token);
+    if (text.matches("\\d+")) return true;
+    return isDimensionToken(text)
+        || FLEX_QUANTITY_PATTERN.matcher(text).matches()
+        || FLEX_WEIGHT_PATTERN.matcher(text).matches();
+  }
+
+  private boolean isDimensionToken(String token) {
+    return FLEX_DIMENSION_PATTERN.matcher(cleanCell(token)).find();
   }
 
   private ParsedCargo normalizeCargo(Map<String, Object> row, int rowNumber, String sourceText) {
@@ -929,6 +1147,12 @@ public class TextRecognitionService {
       String text,
       Map<String, Object> cargo,
       List<String> errors
+  ) {}
+
+  private record DimensionParts(
+      double lengthCm,
+      double widthCm,
+      double heightCm
   ) {}
 
   private record RecognitionResult(

@@ -133,7 +133,7 @@ SELECT 'llm.base_url', 'https://api.deepseek.com', 'OpenAI-compatible base URL f
 WHERE NOT EXISTS (SELECT 1 FROM cp_system_settings WHERE setting_key = 'llm.base_url');
 
 INSERT INTO cp_system_settings (setting_key, setting_value, description)
-SELECT 'llm.model', 'deepseekv4-flash', 'LLM model name for text recognition'
+SELECT 'llm.model', 'deepseek-v4-flash', 'LLM model name for text recognition'
 WHERE NOT EXISTS (SELECT 1 FROM cp_system_settings WHERE setting_key = 'llm.model');
 
 INSERT INTO cp_system_settings (setting_key, setting_value, description)

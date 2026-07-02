@@ -45,7 +45,7 @@ location / {
 
 ## LLM 文本识别
 
-智能导入里的“交给 Agent 识别”由后台“系统管理”控制，默认启用 LLM，默认模型为 `deepseekv4-flash`。如果尚未配置 API Key，会自动使用规则兜底。
+智能导入里的“交给 Agent 识别”由后台“系统管理”控制，默认启用 LLM，默认模型为 `deepseek-v4-flash`。如果尚未配置 API Key，会自动使用规则兜底。
 
 推荐操作：
 
@@ -59,7 +59,7 @@ location / {
 SPRING_AI_CHAT_MODEL=none
 SPRING_AI_OPENAI_API_KEY=你的_API_Key
 SPRING_AI_OPENAI_BASE_URL=https://api.deepseek.com
-SPRING_AI_OPENAI_MODEL=deepseekv4-flash
+SPRING_AI_OPENAI_MODEL=deepseek-v4-flash
 ```
 
 说明：后台保存后的配置存入 MySQL，修改 LLM 开关、API Key、Base URL、模型名后不需要重新打包。更新镜像或配置后可重启后端：

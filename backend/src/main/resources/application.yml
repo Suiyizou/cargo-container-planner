@@ -12,7 +12,7 @@ spring:
       api-key: ${SPRING_AI_OPENAI_API_KEY:}
       chat:
         options:
-          model: ${SPRING_AI_OPENAI_MODEL:deepseekv4-flash}
+          model: ${SPRING_AI_OPENAI_MODEL:deepseek-v4-flash}
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://127.0.0.1:3306/cargo_planner?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${SPRING_DATASOURCE_USERNAME:cargo_planner}

@@ -43,7 +43,7 @@ backend/sql/schema.sql
 
 ## LLM 文本识别
 
-默认启用 LLM 开关，默认模型为 `deepseekv4-flash`，默认 Base URL 为 `https://api.deepseek.com`。如果管理员尚未配置 API Key，文本识别会自动使用规则兜底，不影响系统使用。
+默认启用 LLM 开关，默认模型为 `deepseek-v4-flash`，默认 Base URL 为 `https://api.deepseek.com`。如果管理员尚未配置 API Key，文本识别会自动使用规则兜底，不影响系统使用。
 
 管理员登录后台后，可在“系统管理”中修改：
 
@@ -60,10 +60,10 @@ Base URL
 SPRING_AI_CHAT_MODEL=none
 SPRING_AI_OPENAI_API_KEY=你的_API_Key
 SPRING_AI_OPENAI_BASE_URL=https://api.deepseek.com
-SPRING_AI_OPENAI_MODEL=deepseekv4-flash
+SPRING_AI_OPENAI_MODEL=deepseek-v4-flash
 ```
 
-说明：`SPRING_AI_CHAT_MODEL=none` 用于避免后端启动阶段强制创建模型 Bean；文本识别任务会按后台数据库配置动态创建 OpenAI-compatible 调用。
+说明：`SPRING_AI_CHAT_MODEL=none` 用于避免后端启动阶段强制创建模型 Bean；文本识别任务会按后台数据库配置动态创建 OpenAI-compatible HTTP 调用。
 
 对应接口：
 
