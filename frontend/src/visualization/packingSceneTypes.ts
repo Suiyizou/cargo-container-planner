@@ -1,6 +1,6 @@
 import type * as THREE from "three";
 
-export type BalanceSeverity = "green" | "yellow" | "red";
+export type BalanceSeverity = "green" | "yellow" | "red" | "exempt";
 export type SceneViewPreset = "iso" | "top" | "front" | "side";
 export type SceneViewMode = "3d" | "2d";
 export type SliceAxis = "none" | "x" | "y" | "z";

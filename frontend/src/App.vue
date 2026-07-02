@@ -196,7 +196,7 @@
                     <el-slider v-model="balanceSettings.lateralOffsetLimitCm" :min="4" :max="20" :step="1" @change="markBalanceCustom" />
                   </div>
                   <div class="mini-slider-row">
-                    <span>轻载填充优先</span>
+                    <span>轻载不拦截</span>
                     <el-tag size="small" type="info" effect="plain">≤ {{ formatTons(balanceSettings.skipBelowWeightKg) }}</el-tag>
                     <el-slider v-model="balanceSettings.skipBelowWeightKg" :min="0" :max="30000" :step="1000" @change="markBalanceCustom" />
                   </div>

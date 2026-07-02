@@ -9,6 +9,13 @@ const SEVERITY_META = {
     sphereColor: "#16a34a",
     description: "重心与前后/左右分布处于合规区间。"
   },
+  exempt: {
+    label: "轻载豁免",
+    tagType: "info",
+    color: "#2563eb",
+    sphereColor: "#3b82f6",
+    description: "单箱总重低于用户设置阈值，不参与偏载拦截，优先装满。"
+  },
   yellow: {
     label: "黄色预警",
     tagType: "warning",
@@ -69,16 +76,16 @@ export function resolveBalanceState(options: {
     loads: source.loads || {},
     checks: source.checks || buildChecks(source),
     limits: source.limits || { greenPercent: 2.5, redPercent: 5, lateralOffsetLimitCm: 80 },
-    hotZones: severity === "green" ? [] : findHotZones(source)
+    hotZones: severity === "green" || severity === "exempt" ? [] : findHotZones(source)
   };
 }
 
 export function balanceSeverityRank(severity: BalanceSeverity) {
-  return { green: 0, yellow: 1, red: 2 }[severity] || 0;
+  return { exempt: 0, green: 0, yellow: 1, red: 2 }[severity] || 0;
 }
 
 function normalizeSeverity(value: string): BalanceSeverity {
-  if (value === "red" || value === "yellow" || value === "green") return value;
+  if (value === "red" || value === "yellow" || value === "green" || value === "exempt") return value;
   return "green";
 }
 
@@ -111,6 +118,7 @@ function buildChecks(balance: any) {
 }
 
 function buildDescription(balance: any, severity: BalanceSeverity, fallback: string) {
+  if (severity === "exempt") return balance.message || fallback;
   const checks = balance.checks || buildChecks(balance);
   if (severity === "green") return fallback;
   const parts = [

@@ -825,6 +825,34 @@ function validateWeightBalance(container, placed) {
   if (!balance.valid) return balance;
   const rules = balanceRuleSettings(container);
   const lightLoadSearchMode = balance.totalWeightKg <= rules.skipBelowWeightKg + EPS;
+  if (lightLoadSearchMode) {
+    return {
+      ...balance,
+      severity: "exempt",
+      score: 0,
+      balanceExempt: true,
+      message: `单箱总重 ${round(balance.totalWeightKg / 1000)}t 低于轻载不拦截阈值 ${round(rules.skipBelowWeightKg / 1000)}t，按业务设置跳过偏载拦截，优先装满。`,
+      limits: {
+        greenPercent: rules.greenLimitPercent,
+        redPercent: rules.redLimitPercent,
+        frontMaxPercent: rules.frontMaxPercent,
+        rearMinPercent40FR: null,
+        lateralOffsetLimitCm: rules.lateralOffsetLimitCm,
+        skipBelowWeightKg: rules.skipBelowWeightKg
+      },
+      checks: {
+        frontPercent: round(balance.loads.frontPercent),
+        rearPercent: round(balance.loads.rearPercent),
+        frontRearDiffPercent: round(Math.abs(balance.loads.frontPercent - balance.loads.rearPercent)),
+        leftRightDiffPercent: round(Math.abs(balance.loads.leftPercent - balance.loads.rightPercent)),
+        longitudinalOffsetPercent: round(Math.abs(balance.offset.longitudinalPercent)),
+        lateralOffsetPercent: round(Math.abs(balance.offset.lateralPercent)),
+        lateralOffsetCm: round(Math.abs(balance.offset.lateralCm)),
+        requiresRearMinimum: false,
+        lightLoadSearchMode: true
+      }
+    };
+  }
 
   const frontRearDiffPercent = Math.abs(balance.loads.frontPercent - balance.loads.rearPercent);
   const leftRightDiffPercent = Math.abs(balance.loads.leftPercent - balance.loads.rightPercent);
