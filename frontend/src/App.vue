@@ -464,19 +464,6 @@
               <el-button :icon="Refresh" @click="recalculate">重新计算</el-button>
             </div>
           </div>
-          <div class="box-switch" v-if="selectedEvaluation?.packedBoxes?.length > 1">
-            <span>{{ boxSwitchLabel }}</span>
-            <el-button
-              v-for="box in selectedEvaluation.packedBoxes"
-              :key="box.index"
-              :class="{ active: selectedBoxIndex === box.index }"
-              size="small"
-              :type="selectedBoxIndex === box.index ? 'primary' : 'default'"
-              @click="switchBox(box.index)"
-            >
-              {{ boxTabLabel(box) }}
-            </el-button>
-          </div>
           <div class="container-grid">
             <el-button
               v-for="evaluation in sortedEvaluations"
@@ -506,6 +493,19 @@
             <div>
               <p>Interactive 3D Packing</p>
               <h2>{{ selectedContainer?.name || "请选择箱型" }} · 第 {{ selectedBoxIndex }} 货舱</h2>
+            </div>
+            <div class="box-switch visual-box-switch" v-if="selectedEvaluation?.packedBoxes?.length > 1">
+              <span>{{ boxSwitchLabel }}</span>
+              <el-button
+                v-for="box in selectedEvaluation.packedBoxes"
+                :key="box.index"
+                :class="{ active: selectedBoxIndex === box.index }"
+                size="small"
+                :type="selectedBoxIndex === box.index ? 'primary' : 'default'"
+                @click="switchBox(box.index)"
+              >
+                {{ boxTabLabel(box) }}
+              </el-button>
             </div>
           </div>
           <ContainerScene
@@ -1088,7 +1088,7 @@ function compareEvaluationForUi(a, b) {
   if (costDiff) return costDiff;
   const boxDiff = normalizedEvaluationBoxes(a) - normalizedEvaluationBoxes(b);
   if (boxDiff) return boxDiff;
-  return Math.abs(Number(a?.firstBoxFillPercent || 0) - 82) - Math.abs(Number(b?.firstBoxFillPercent || 0) - 82);
+  return Math.abs(evaluationAverageFill(a) - 72) - Math.abs(evaluationAverageFill(b) - 72);
 }
 
 function selectContainer(id) {
@@ -1520,7 +1520,8 @@ function evaluationCardSubtitle(evaluation) {
 }
 
 function evaluationCardMetric(evaluation) {
-  return `空间利用率 ${fmt(evaluation?.firstBoxFillPercent || 0, 1)}%`;
+  const fill = evaluationAverageFill(evaluation);
+  return `${Number(evaluation?.boxes || 0) > 1 || evaluation?.isMixedPlan ? "平均" : "空间"}利用率 ${fmt(fill, 1)}%`;
 }
 
 function evaluationCardStatus(evaluation) {
@@ -1576,6 +1577,15 @@ function evaluationHint(evaluation) {
   const score = Number(recommendation.score || 0);
   const scoreText = score > 0 ? `；综合评分 ${score.toFixed(0)}，分数越低越优` : "";
   return `${evaluation?.container?.name || "方案"}；${evaluationCardSubtitle(evaluation)}；${evaluationCardMetric(evaluation)}${scoreText}`;
+}
+
+function evaluationAverageFill(evaluation) {
+  const recommendationFill = Number(evaluation?.recommendation?.averageFillPercent);
+  if (Number.isFinite(recommendationFill) && recommendationFill > 0) return recommendationFill;
+  const average = Number(evaluation?.averageFillPercent);
+  if (Number.isFinite(average) && average > 0) return average;
+  const first = Number(evaluation?.firstBoxFillPercent);
+  return Number.isFinite(first) ? first : 0;
 }
 
 function priceTierText(tier) {

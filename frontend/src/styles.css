@@ -1542,6 +1542,19 @@ select {
   margin-top: 14px;
 }
 
+.visual-box-switch {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #d8e5f7;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.visual-box-switch span {
+  color: #34516f;
+  font-weight: 700;
+}
+
 .content {
   display: grid;
   gap: 14px;

@@ -32,9 +32,11 @@ const FIT_STATUS = {
   BALANCE_BLOCKED: "balance-blocked",
   OVERSIZE: "oversize"
 };
-const UTILIZATION_TARGET_PERCENT = 82;
 const UTILIZATION_LOW_WARN_PERCENT = 55;
 const UTILIZATION_HIGH_WARN_PERCENT = 92;
+const RECOMMENDATION_TARGET_FILL_PERCENT = 72;
+const RECOMMENDATION_COST_WEIGHT = 520;
+const RECOMMENDATION_BOX_WEIGHT = 110;
 
 const SEARCH_STRATEGIES = [
   { id: "laff-footprint", name: "LAFF 大底面积优先", unitOrder: "footprint", pointOrder: "low-wide", blueVertical: false },
@@ -110,6 +112,7 @@ function buildEvaluation(container, units, total, utilizationPercent, globalGapC
   const usableVolume = volumeM3(container) * utilizationPercent / 100;
   const firstPackedRawVolume = multi.firstBox.placed.reduce((sum, unit) => sum + unit.volumeM3, 0);
   const firstPackedOccupiedVolume = multi.firstBox.placed.reduce((sum, unit) => sum + occupiedVolumeM3(unit), 0);
+  const detailedPackedOccupiedVolume = multi.packedBoxes.reduce((sum, box) => sum + sumOccupiedVolumeM3(box.placed), 0);
   const fillPercent = usableVolume > 0 ? firstPackedOccupiedVolume / usableVolume * 100 : 0;
   const rawFillPercent = usableVolume > 0 ? firstPackedRawVolume / usableVolume * 100 : 0;
   const remainingVolume = usableVolume - firstPackedOccupiedVolume;
@@ -127,6 +130,9 @@ function buildEvaluation(container, units, total, utilizationPercent, globalGapC
     : balanceBlocked
       ? FIT_STATUS.BALANCE_BLOCKED
       : FIT_STATUS.FIT;
+  const averageFillPercent = geometryFeasible && boxes > 0 && usableVolume > 0
+    ? detailedPackedOccupiedVolume / Math.max(EPS, usableVolume * boxes) * 100
+    : 0;
 
   const evaluation = {
     container,
@@ -146,6 +152,7 @@ function buildEvaluation(container, units, total, utilizationPercent, globalGapC
     totalWeightKg: round(total.totalWeightKg),
     firstBoxFillPercent: round(fillPercent),
     firstBoxRawFillPercent: round(rawFillPercent),
+    averageFillPercent: round(averageFillPercent),
     firstBoxOccupiedVolumeM3: round(firstPackedOccupiedVolume),
     firstBoxRemainingVolumeM3: round(Math.max(0, remainingVolume)),
     estimatedBoxes: multi.estimated,
@@ -338,6 +345,7 @@ function buildMixedContainerEvaluation(containers, cargos, total, utilizationPer
   evaluation.firstBoxRemainingVolumeM3 = round(Math.max(0, totalUsableVolume - totalOccupiedVolume));
   evaluation.firstBoxFillPercent = totalUsableVolume > 0 ? round(totalOccupiedVolume / totalUsableVolume * 100) : 0;
   evaluation.firstBoxRawFillPercent = evaluation.firstBoxFillPercent;
+  evaluation.averageFillPercent = evaluation.firstBoxFillPercent;
   evaluation.mixedPlan = {
     summary: mixedPlanSummary(packedBoxes),
     boxes: packedBoxes.map((box, index) => ({
@@ -360,15 +368,17 @@ function mixedBoxCandidateScore(container, packed, remaining, utilizationPercent
   const meta = equipmentMeta(container);
   const placedRatio = placedQuantity / totalQuantity;
   const completesAll = placedQuantity >= totalQuantity;
-  const underfillPenalty = completesAll ? Math.max(0, 55 - fillPercent) * 2 : Math.max(0, 35 - fillPercent);
-  const specialPenalty = meta.equipmentClass === "FR" ? 3.6 : meta.equipmentClass === "RF" ? 2.6 : meta.equipmentClass === "45HQ" ? 0.45 : 0;
+  const underfillPenalty = completesAll ? Math.max(0, 60 - fillPercent) * 0.12 : Math.max(0, 48 - fillPercent) * 0.05;
+  const specialPenalty = meta.equipmentClass === "FR" ? 4.2 : meta.equipmentClass === "RF" ? 3.2 : meta.equipmentClass === "45HQ" ? 0.9 : 0;
   const blockedPenalty = fitStatus === FIT_STATUS.BALANCE_BLOCKED ? 500 : 0;
+  const fillReward = Math.min(fillPercent, 88) / 100 * 1.4;
   return blockedPenalty
     + meta.costFactor
     + specialPenalty
-    + underfillPenalty / 100
-    - placedRatio * 2.5
-    - placedVolume / Math.max(EPS, meta.costFactor) * 0.05;
+    + underfillPenalty
+    - fillReward
+    - placedRatio * 1.25
+    - placedVolume / Math.max(EPS, meta.costFactor) * 0.02;
 }
 
 function mixedPlanCost(packedBoxes) {
@@ -1493,7 +1503,7 @@ function compareEvaluation(a, b) {
   if (Math.abs(costDiff) > EPS) return costDiff;
   const boxDiff = normalizedBoxCount(a) - normalizedBoxCount(b);
   if (boxDiff) return boxDiff;
-  const targetDiff = Math.abs(a.firstBoxFillPercent - UTILIZATION_TARGET_PERCENT) - Math.abs(b.firstBoxFillPercent - UTILIZATION_TARGET_PERCENT);
+  const targetDiff = Math.abs(recommendationFillPercent(a) - RECOMMENDATION_TARGET_FILL_PERCENT) - Math.abs(recommendationFillPercent(b) - RECOMMENDATION_TARGET_FILL_PERCENT);
   if (Math.abs(targetDiff) > EPS) return targetDiff;
   return volumeM3(a.container) - volumeM3(b.container);
 }
@@ -1505,11 +1515,13 @@ function buildRecommendation(evaluation) {
   const cost = evaluation.isMixedPlan || evaluation.container?.mixedPlan
     ? Number(evaluation.container?.costFactor || 9999)
     : boxes >= 9999 ? 9999 : boxes * meta.costFactor;
-  const fill = Number(evaluation.firstBoxFillPercent || 0);
-  const underusePenalty = Math.max(0, UTILIZATION_LOW_WARN_PERCENT - fill) * 4;
-  const tightPenalty = Math.max(0, fill - UTILIZATION_HIGH_WARN_PERCENT) * 2;
-  const targetPenalty = Math.abs(fill - UTILIZATION_TARGET_PERCENT) * 0.8;
-  const specialEquipmentPenalty = meta.equipmentClass === "MIX" ? 0 : meta.equipmentClass === "FR" ? 3600 : meta.equipmentClass === "RF" ? 2600 : meta.equipmentClass === "45HQ" ? 450 : 0;
+  const fill = recommendationFillPercent(evaluation);
+  const underusePenalty = Math.max(0, UTILIZATION_LOW_WARN_PERCENT - fill) * 42;
+  const severeUnderusePenalty = Math.pow(Math.max(0, 45 - fill), 2) * 4;
+  const tightPenalty = Math.max(0, fill - UTILIZATION_HIGH_WARN_PERCENT) * 8;
+  const targetPenalty = Math.abs(fill - RECOMMENDATION_TARGET_FILL_PERCENT) * 5;
+  const lowUseLargeBoxPenalty = fill < 60 && ["45HQ", "FR", "RF"].includes(meta.equipmentClass) ? (60 - fill) * 55 : 0;
+  const specialEquipmentPenalty = meta.equipmentClass === "MIX" ? 0 : meta.equipmentClass === "FR" ? 4200 : meta.equipmentClass === "RF" ? 3200 : meta.equipmentClass === "45HQ" ? 900 : 0;
   const balancePenalty = evaluation.fitStatus === FIT_STATUS.BALANCE_BLOCKED
     ? 50000
     : evaluation.packedBoxes?.some((box) => box.balanceValidation?.severity === "yellow")
@@ -1517,13 +1529,16 @@ function buildRecommendation(evaluation) {
       : 0;
   const oversizePenalty = evaluation.fitStatus === FIT_STATUS.OVERSIZE ? 1000000 : 0;
   const statusPenalty = statusRank * 1000;
-  const volumePenalty = volumeM3(evaluation.container) * 2;
+  const volumePenalty = volumeM3(evaluation.container) * 1.5;
   const score = oversizePenalty
     + balancePenalty
     + statusPenalty
-    + cost * 1000
+    + cost * RECOMMENDATION_COST_WEIGHT
+    + boxes * RECOMMENDATION_BOX_WEIGHT
     + specialEquipmentPenalty
+    + lowUseLargeBoxPenalty
     + underusePenalty
+    + severeUnderusePenalty
     + tightPenalty
     + targetPenalty
     + volumePenalty;
@@ -1535,6 +1550,7 @@ function buildRecommendation(evaluation) {
     priceTier: meta.priceTier,
     equipmentClass: meta.equipmentClass,
     utilizationBand: utilizationBand(fill),
+    averageFillPercent: round(fill),
     statusRank
   };
 }
@@ -1542,6 +1558,13 @@ function buildRecommendation(evaluation) {
 function recommendationScoreValue(evaluation) {
   const score = Number(evaluation?.recommendation?.score);
   return Number.isFinite(score) ? score : buildRecommendation(evaluation).score;
+}
+
+function recommendationFillPercent(evaluation) {
+  const average = Number(evaluation?.averageFillPercent);
+  if (Number.isFinite(average) && average > 0) return average;
+  const first = Number(evaluation?.firstBoxFillPercent);
+  return Number.isFinite(first) ? first : 0;
 }
 
 function fitStatusRank(status) {
@@ -1673,6 +1696,7 @@ function buildTrace(container, units, total, multi, metrics) {
       firstBoxRemainingVolumeM3: round(Math.max(0, metrics.remainingVolume)),
       firstBoxFillPercent: round(metrics.fillPercent),
       firstBoxRawFillPercent: round(metrics.rawFillPercent),
+      averageFillPercent: round(multi.packedBoxes?.length ? multi.packedBoxes.reduce((sum, box) => sum + sumOccupiedVolumeM3(box.placed), 0) / Math.max(EPS, metrics.usableVolume * Math.max(1, metrics.boxes)) * 100 : metrics.fillPercent),
       geometryBoxes: multi.boxes,
       weightBoxes: metrics.weightBoxes,
       finalBoxes: metrics.boxes,
