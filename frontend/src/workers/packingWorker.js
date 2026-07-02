@@ -25,6 +25,14 @@ const HEAVY_CENTER_WEIGHT = 900;
 const HEAVY_ZONE_WEIGHT = 4200;
 const LIGHT_ZONE_WEIGHT = 650;
 const BALANCE_ZONE_ORDER = ["frontLeft", "rearRight", "frontRight", "rearLeft"];
+const FIT_STATUS = {
+  FIT: "fit",
+  BALANCE_BLOCKED: "balance-blocked",
+  OVERSIZE: "oversize"
+};
+const UTILIZATION_TARGET_PERCENT = 82;
+const UTILIZATION_LOW_WARN_PERCENT = 55;
+const UTILIZATION_HIGH_WARN_PERCENT = 92;
 
 const SEARCH_STRATEGIES = [
   { id: "laff-footprint", name: "LAFF 大底面积优先", unitOrder: "footprint", pointOrder: "low-wide", blueVertical: false },
@@ -98,12 +106,28 @@ function buildEvaluation(container, units, total, utilizationPercent, globalGapC
   const rawFillPercent = usableVolume > 0 ? firstPackedRawVolume / usableVolume * 100 : 0;
   const remainingVolume = usableVolume - firstPackedOccupiedVolume;
   const weightBoxes = container.payloadKg > 0 ? Math.ceil(total.totalWeightKg / container.payloadKg) : 0;
-  const boxes = multi.fatalOversize ? -1 : Math.max(multi.boxes, weightBoxes);
+  const packedBoxBalances = multi.packedBoxes.map((box) => box.balanceValidation || validateWeightBalance(container, box.placed));
+  const balanceBlocked = Boolean(
+    multi.balanceBlocked
+    || packedBoxBalances.some((validation) => validation?.severity === "red")
+    || multi.firstBox?.strategySummary?.complianceBlocked
+  );
+  const geometryFeasible = multi.boxes > 0 && multi.firstBox?.placed?.length > 0;
+  const boxes = geometryFeasible ? Math.max(multi.boxes, weightBoxes) : -1;
+  const fitStatus = !geometryFeasible
+    ? FIT_STATUS.OVERSIZE
+    : balanceBlocked
+      ? FIT_STATUS.BALANCE_BLOCKED
+      : FIT_STATUS.FIT;
 
   const evaluation = {
     container,
-    feasible: !multi.fatalOversize && boxes > 0,
-    fatalOversize: multi.fatalOversize,
+    feasible: fitStatus === FIT_STATUS.FIT,
+    geometryFeasible,
+    complianceFeasible: fitStatus === FIT_STATUS.FIT,
+    balanceBlocked,
+    fitStatus,
+    fatalOversize: fitStatus === FIT_STATUS.OVERSIZE,
     boxes,
     totalUnits: total.totalQuantity,
     solverUnits: units.length,
@@ -132,16 +156,20 @@ function buildEvaluation(container, units, total, utilizationPercent, globalGapC
       weightBoxes,
       boxes
     }),
-    packedBoxes: multi.packedBoxes.map((box, index) => ({
-      index: index + 1,
-      strategyId: box.strategyId,
-      strategyName: box.strategyName,
-      strategySummary: box.strategySummary,
-      balanceValidation: box.balanceValidation || validateWeightBalance(container, box.placed),
-      placed: box.placed.map(toPlacementDto),
-      unplacedUnitKeys: box.unplaced.map((unit) => unit.unitKey)
-    }))
+    packedBoxes: multi.packedBoxes.map((box, index) => {
+      const balanceValidation = packedBoxBalances[index] || validateWeightBalance(container, box.placed);
+      return {
+        index: index + 1,
+        strategyId: box.strategyId,
+        strategyName: box.strategyName,
+        strategySummary: box.strategySummary,
+        balanceValidation,
+        placed: box.placed.map(toPlacementDto),
+        unplacedUnitKeys: box.unplaced.map((unit) => unit.unitKey)
+      };
+    })
   };
+  evaluation.recommendation = buildRecommendation(evaluation);
   Object.defineProperty(evaluation, "_sourceFirstBox", { value: multi.firstBox, enumerable: false });
   return evaluation;
 }
@@ -169,6 +197,7 @@ function packMultiple(container, allUnits) {
   let firstBox = { placed: [], unplaced: remaining, strategyId: "none", strategyName: "无可行摆放", strategySummary: {} };
   let estimated = false;
   let fatalOversize = false;
+  let balanceBlocked = false;
   let remainingUnitCountAfterDetailed = 0;
 
   for (let boxIndex = 0; remaining.length && boxIndex < MAX_DETAILED_BOXES; boxIndex += 1) {
@@ -178,13 +207,16 @@ function packMultiple(container, allUnits) {
       fatalOversize = true;
       break;
     }
+    if (packed.balanceValidation?.severity === "red" || packed.strategySummary?.complianceBlocked) {
+      balanceBlocked = true;
+    }
     packedBoxes.push(packed);
     const placedIds = new Set(packed.placed.map((unit) => unit.unitKey));
     remaining = remaining.filter((unit) => !placedIds.has(unit.unitKey));
   }
 
   let boxes = packedBoxes.length;
-  if (remaining.length && packedBoxes.length) {
+  if (remaining.length && packedBoxes.length && !fatalOversize) {
     remainingUnitCountAfterDetailed = sumUnitQuantity(remaining);
     const averagePlaced = Math.max(1, Math.round(packedBoxes.reduce((sum, box) => sum + sumUnitQuantity(box.placed), 0) / packedBoxes.length));
     boxes += Math.ceil(remainingUnitCountAfterDetailed / averagePlaced);
@@ -199,7 +231,8 @@ function packMultiple(container, allUnits) {
     detailedBoxLimit: MAX_DETAILED_BOXES,
     remainingUnitCountAfterDetailed,
     estimated,
-    fatalOversize: fatalOversize || remaining.length > 0
+    fatalOversize: fatalOversize || remaining.length > 0,
+    balanceBlocked
   };
 }
 
@@ -387,6 +420,19 @@ function packContainer(container, units) {
 
   const accepted = attempts.filter((attempt) => attempt.balanceValidation?.severity !== "red");
   if (accepted.length) return accepted.sort(comparePackAttempt(container))[0];
+
+  const blocked = attempts
+    .filter((attempt) => attempt.placed.length)
+    .sort(comparePackAttempt(container))[0];
+  if (blocked) {
+    blocked.strategySummary = {
+      ...blocked.strategySummary,
+      balanceRejected: true,
+      balanceRejectedCount: rejectedByBalance,
+      complianceBlocked: true
+    };
+    return blocked;
+  }
 
   const fallback = makePackedBox([], units, { id: "none", name: "balance rejected" }, {
     localSearchPasses: 0,
@@ -1164,10 +1210,127 @@ function cargoDisplayName(cargo) {
 }
 
 function compareEvaluation(a, b) {
-  if (a.fatalOversize !== b.fatalOversize) return a.fatalOversize ? 1 : -1;
-  if (a.boxes !== b.boxes) return a.boxes - b.boxes;
-  if (b.firstBoxFillPercent !== a.firstBoxFillPercent) return b.firstBoxFillPercent - a.firstBoxFillPercent;
+  const scoreDiff = recommendationScoreValue(a) - recommendationScoreValue(b);
+  if (Math.abs(scoreDiff) > EPS) return scoreDiff;
+  const statusDiff = fitStatusRank(a.fitStatus) - fitStatusRank(b.fitStatus);
+  if (statusDiff) return statusDiff;
+  const costDiff = estimatedFreightCost(a) - estimatedFreightCost(b);
+  if (Math.abs(costDiff) > EPS) return costDiff;
+  const boxDiff = normalizedBoxCount(a) - normalizedBoxCount(b);
+  if (boxDiff) return boxDiff;
+  const targetDiff = Math.abs(a.firstBoxFillPercent - UTILIZATION_TARGET_PERCENT) - Math.abs(b.firstBoxFillPercent - UTILIZATION_TARGET_PERCENT);
+  if (Math.abs(targetDiff) > EPS) return targetDiff;
   return volumeM3(a.container) - volumeM3(b.container);
+}
+
+function buildRecommendation(evaluation) {
+  const meta = equipmentMeta(evaluation.container);
+  const statusRank = fitStatusRank(evaluation.fitStatus);
+  const boxes = normalizedBoxCount(evaluation);
+  const cost = boxes >= 9999 ? 9999 : boxes * meta.costFactor;
+  const fill = Number(evaluation.firstBoxFillPercent || 0);
+  const underusePenalty = Math.max(0, UTILIZATION_LOW_WARN_PERCENT - fill) * 4;
+  const tightPenalty = Math.max(0, fill - UTILIZATION_HIGH_WARN_PERCENT) * 2;
+  const targetPenalty = Math.abs(fill - UTILIZATION_TARGET_PERCENT) * 0.8;
+  const specialEquipmentPenalty = meta.equipmentClass === "FR" ? 260 : meta.equipmentClass === "RF" ? 160 : meta.equipmentClass === "45HQ" ? 60 : 0;
+  const balancePenalty = evaluation.fitStatus === FIT_STATUS.BALANCE_BLOCKED
+    ? 50000
+    : evaluation.packedBoxes?.some((box) => box.balanceValidation?.severity === "yellow")
+      ? 120
+      : 0;
+  const oversizePenalty = evaluation.fitStatus === FIT_STATUS.OVERSIZE ? 1000000 : 0;
+  const statusPenalty = statusRank * 1000;
+  const volumePenalty = volumeM3(evaluation.container) * 2;
+  const score = oversizePenalty
+    + balancePenalty
+    + statusPenalty
+    + cost * 1000
+    + specialEquipmentPenalty
+    + underusePenalty
+    + tightPenalty
+    + targetPenalty
+    + volumePenalty;
+
+  return {
+    score: round(score),
+    costFactor: round(meta.costFactor),
+    estimatedCost: round(cost),
+    priceTier: meta.priceTier,
+    equipmentClass: meta.equipmentClass,
+    utilizationBand: utilizationBand(fill),
+    statusRank
+  };
+}
+
+function recommendationScoreValue(evaluation) {
+  const score = Number(evaluation?.recommendation?.score);
+  return Number.isFinite(score) ? score : buildRecommendation(evaluation).score;
+}
+
+function fitStatusRank(status) {
+  if (status === FIT_STATUS.FIT) return 0;
+  if (status === FIT_STATUS.BALANCE_BLOCKED) return 1;
+  return 2;
+}
+
+function normalizedBoxCount(evaluation) {
+  const boxes = Number(evaluation?.boxes || 0);
+  return boxes > 0 ? boxes : 9999;
+}
+
+function estimatedFreightCost(evaluation) {
+  const recommendation = evaluation?.recommendation;
+  if (Number.isFinite(Number(recommendation?.estimatedCost))) return Number(recommendation.estimatedCost);
+  const meta = equipmentMeta(evaluation?.container);
+  return normalizedBoxCount(evaluation) * meta.costFactor;
+}
+
+function equipmentMeta(container = {}) {
+  const id = String(container.id || "").toLowerCase();
+  const name = String(container.name || "").toLowerCase();
+  const text = `${id} ${name}`;
+  const explicitCost = Number(container.costFactor);
+  let equipmentClass = "GP";
+  if (/fr|flat/.test(text) || /平板/.test(name)) equipmentClass = "FR";
+  else if (/rf|reefer/.test(text) || /冷藏/.test(name)) equipmentClass = "RF";
+  else if (/45/.test(text)) equipmentClass = "45HQ";
+  else if (/hq|high/.test(text) || /高/.test(name)) equipmentClass = "HQ";
+
+  const inferredCosts = {
+    "20gp": 1,
+    "20hq": 1.08,
+    "40gp": 1.55,
+    "40hq": 1.68,
+    "45hq": 2.05,
+    "20rf": 1.65,
+    "40rf": 2.45,
+    "20fr": 2.15,
+    "40fr": 3.2
+  };
+  const inferredByClass = equipmentClass === "FR" ? 2.6 : equipmentClass === "RF" ? 2 : equipmentClass === "45HQ" ? 2.05 : equipmentClass === "HQ" ? 1.45 : 1.25;
+  const costFactor = Number.isFinite(explicitCost) && explicitCost > 0
+    ? explicitCost
+    : inferredCosts[id] || inferredByClass;
+  const explicitTier = String(container.priceTier || "").trim();
+  const priceTier = explicitTier || (
+    costFactor <= 1.15
+      ? "economy"
+      : costFactor <= 1.75
+        ? "standard"
+        : costFactor <= 2.35
+          ? "high"
+          : "special"
+  );
+
+  return { costFactor, priceTier, equipmentClass };
+}
+
+function utilizationBand(fillPercent) {
+  if (fillPercent <= 0) return "none";
+  if (fillPercent < 45) return "low";
+  if (fillPercent < 70) return "moderate";
+  if (fillPercent <= UTILIZATION_HIGH_WARN_PERCENT) return "balanced";
+  return "tight";
 }
 
 function buildTrace(container, units, total, multi, metrics) {
@@ -1185,7 +1348,7 @@ function buildTrace(container, units, total, multi, metrics) {
       "候选落位必须满足边界、不相交、底面支撑和不可重压货物不承载上层货物",
       "首轮失败时执行局部搜索，移出一小组已摆货物与剩余货物重排，而不是立刻开启第二箱",
       "同一箱型选择已摆数量更多、占用体积更高、承重支撑面更好的方案",
-      "所有箱型按箱数更少、首箱占用更高、箱型体积更小排序推荐"
+      "所有箱型按合规状态、参考费用、箱数、利用率区间和特种箱惩罚进行综合推荐"
     ],
     strategies: SEARCH_STRATEGIES.map((strategy) => strategy.name),
     selectedStrategy: firstBox.strategyName || "",

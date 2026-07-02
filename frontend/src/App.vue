@@ -347,16 +347,23 @@
             <el-button
               v-for="evaluation in sortedEvaluations"
               :key="evaluation.container.id"
-              :class="{ active: selectedContainerId === evaluation.container.id, best: result?.bestContainerId === evaluation.container.id }"
+              :class="{
+                active: selectedContainerId === evaluation.container.id,
+                best: result?.bestContainerId === evaluation.container.id,
+                'balance-blocked': evaluation.fitStatus === 'balance-blocked',
+                unavailable: evaluation.fitStatus === 'oversize'
+              }"
               class="container-card"
               text
+              :title="evaluationHint(evaluation)"
               @click="selectContainer(evaluation.container.id)"
             >
               <span class="container-icon">{{ containerIcon(evaluation.container.name) }}</span>
               <strong>{{ evaluation.container.name }}</strong>
               <small>{{ evaluation.container.lengthCm }} × {{ evaluation.container.widthCm }} × {{ evaluation.container.heightCm }} cm</small>
-              <b>{{ evaluation.boxes > 0 ? `${evaluation.estimatedBoxes ? "约 " : ""}${evaluation.boxes} 箱` : "不可装" }}</b>
-              <em>占用率 {{ fmt(evaluation.firstBoxFillPercent, 1) }}%</em>
+              <b :class="['fit-status', evaluation.fitStatus || 'fit']">{{ evaluationFitText(evaluation) }}</b>
+              <em>占用率 {{ fmt(evaluation.firstBoxFillPercent, 1) }}% · {{ evaluationCostText(evaluation) }}</em>
+              <small class="recommendation-meta">{{ evaluationRecommendationText(evaluation) }}</small>
             </el-button>
           </div>
         </section>
@@ -379,8 +386,8 @@
             :busy="loading || switchingBox"
             :exporting="exportingReport"
             :export-zip-label="exportZipLabel"
-            :can-export="Boolean(selectedPlacements.length)"
-            :can-export-zip="Boolean(selectedEvaluation?.packedBoxes?.length)"
+            :can-export="selectedPlanExportable"
+            :can-export-zip="selectedPlanExportable && Boolean(selectedEvaluation?.packedBoxes?.length)"
             @export-image="exportCurrentReport('png')"
             @export-pdf="exportCurrentReport('pdf')"
             @export-zip="exportAllReportsZip"
@@ -612,6 +619,9 @@ const boxSwitchLabel = computed(() => {
   return `显示货舱 ${detailedBoxCount.value || total}`;
 });
 const exportZipLabel = computed(() => hasUndetailedBoxes.value ? "导出已详算 ZIP" : "导出整套 ZIP");
+const selectedPlanExportable = computed(() =>
+  Boolean(selectedPlacements.value.length && isEvaluationExportable(selectedEvaluation.value))
+);
 const cargoTypeCount = computed(() => cargos.value.length);
 const cargoTotalQuantity = computed(() =>
   cargos.value.reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0)
@@ -648,7 +658,7 @@ const plannerWorkflowSteps = computed(() => [
     key: "results",
     no: "02",
     label: "计算方案",
-    description: selectedEvaluation.value ? `${selectedEvaluation.value.container.name} / ${selectedEvaluation.value.boxes || 0} 箱` : "可视化与导出",
+    description: selectedEvaluation.value ? `${selectedEvaluation.value.container.name} / ${evaluationFitText(selectedEvaluation.value)}` : "可视化与导出",
     done: Boolean(selectedEvaluation.value?.packedBoxes?.length),
     disabled: !cargos.value.length
   }
@@ -848,12 +858,25 @@ async function recalculate() {
 }
 
 function normalizeResult(nextResult) {
-  const evaluations = [...(nextResult?.evaluations || [])].sort((a, b) => {
-    if (a.fatalOversize !== b.fatalOversize) return a.fatalOversize ? 1 : -1;
-    if (a.boxes !== b.boxes) return a.boxes - b.boxes;
-    return b.firstBoxFillPercent - a.firstBoxFillPercent;
-  });
-  return { ...nextResult, evaluations };
+  const evaluations = [...(nextResult?.evaluations || [])].sort(compareEvaluationForUi);
+  return {
+    ...nextResult,
+    bestContainerId: evaluations[0]?.container?.id || nextResult?.bestContainerId || null,
+    evaluations
+  };
+}
+
+function compareEvaluationForUi(a, b) {
+  const scoreA = Number(a?.recommendation?.score);
+  const scoreB = Number(b?.recommendation?.score);
+  if (Number.isFinite(scoreA) && Number.isFinite(scoreB) && scoreA !== scoreB) return scoreA - scoreB;
+  const statusDiff = evaluationStatusRank(a) - evaluationStatusRank(b);
+  if (statusDiff) return statusDiff;
+  const costDiff = Number(a?.recommendation?.estimatedCost || 9999) - Number(b?.recommendation?.estimatedCost || 9999);
+  if (costDiff) return costDiff;
+  const boxDiff = normalizedEvaluationBoxes(a) - normalizedEvaluationBoxes(b);
+  if (boxDiff) return boxDiff;
+  return Math.abs(Number(a?.firstBoxFillPercent || 0) - 82) - Math.abs(Number(b?.firstBoxFillPercent || 0) - 82);
 }
 
 function selectContainer(id) {
@@ -1024,6 +1047,10 @@ async function exportCurrentReport(format) {
     showToast("当前没有可导出的摆放结果。");
     return;
   }
+  if (!isEvaluationExportable(selectedEvaluation.value)) {
+    showToast("当前方案被偏载校验拦截，仅可预览调载参考，不能导出正式图纸。");
+    return;
+  }
   exportingReport.value = true;
   showToast(format === "pdf" ? "正在生成 PDF 报告..." : "正在生成剖析图片...");
   try {
@@ -1051,6 +1078,10 @@ async function exportAllReportsZip() {
     showToast("当前没有可打包导出的装箱方案。");
     return;
   }
+  if (!isEvaluationExportable(selectedEvaluation.value)) {
+    showToast("当前方案被偏载校验拦截，仅可预览调载参考，不能导出正式图纸。");
+    return;
+  }
   exportingReport.value = true;
   showToast(hasUndetailedBoxes.value ? "正在打包已详算货舱报告..." : "正在打包整套装箱报告...");
   try {
@@ -1073,6 +1104,10 @@ async function exportAllReportsZip() {
 function printCurrentPlan() {
   if (!selectedContainer.value || !selectedPlacements.value.length) {
     showToast("当前没有可打印的装箱方案。");
+    return;
+  }
+  if (!isEvaluationExportable(selectedEvaluation.value)) {
+    showToast("当前方案被偏载校验拦截，仅可预览调载参考，不能打印正式图纸。");
     return;
   }
   window.print();
@@ -1137,6 +1172,82 @@ function containerIcon(name) {
   if (name.includes("45")) return "45";
   if (name.includes("40")) return "40";
   return "20";
+}
+
+function evaluationFitText(evaluation) {
+  const boxes = Number(evaluation?.boxes || 0);
+  if (boxes <= 0 || evaluation?.fitStatus === "oversize") return "不可装";
+  const boxText = `${evaluation?.estimatedBoxes ? "约 " : ""}${boxes} 箱`;
+  if (evaluation?.fitStatus === "balance-blocked") return `${boxText} · 偏载拦截`;
+  return boxText;
+}
+
+function evaluationCostText(evaluation) {
+  const recommendation = evaluation?.recommendation || {};
+  const cost = Number(recommendation.costFactor || 0);
+  const costText = cost > 0 ? `×${cost.toFixed(2)}` : "";
+  return `${priceTierText(recommendation.priceTier)}${costText ? ` ${costText}` : ""}`;
+}
+
+function evaluationRecommendationText(evaluation) {
+  const recommendation = evaluation?.recommendation || {};
+  const status = evaluation?.fitStatus === "balance-blocked"
+    ? "几何可装，需调载"
+    : evaluation?.fitStatus === "oversize"
+      ? "尺寸/承载不可行"
+      : "合规候选";
+  return `${status} · ${equipmentClassText(recommendation.equipmentClass)} · ${utilizationBandText(recommendation.utilizationBand)}`;
+}
+
+function evaluationHint(evaluation) {
+  const recommendation = evaluation?.recommendation || {};
+  const score = Number(recommendation.score || 0);
+  const scoreText = score > 0 ? `；综合评分 ${score.toFixed(0)}，分数越低越优` : "";
+  return `状态：${evaluationRecommendationText(evaluation)}；参考费用：${evaluationCostText(evaluation)}；占用率 ${fmt(evaluation?.firstBoxFillPercent || 0, 1)}%${scoreText}`;
+}
+
+function priceTierText(tier) {
+  return {
+    economy: "经济档",
+    standard: "标准档",
+    high: "较高档",
+    special: "特种高价"
+  }[tier] || tier || "参考价";
+}
+
+function equipmentClassText(value) {
+  return {
+    GP: "普柜",
+    HQ: "高柜",
+    "45HQ": "45高柜",
+    RF: "冷藏柜",
+    FR: "平板柜"
+  }[value] || "箱型";
+}
+
+function utilizationBandText(value) {
+  return {
+    none: "无装载",
+    low: "低利用",
+    moderate: "适中利用",
+    balanced: "均衡利用",
+    tight: "偏紧利用"
+  }[value] || "利用率待评估";
+}
+
+function evaluationStatusRank(evaluation) {
+  if (evaluation?.fitStatus === "fit") return 0;
+  if (evaluation?.fitStatus === "balance-blocked") return 1;
+  return 2;
+}
+
+function normalizedEvaluationBoxes(evaluation) {
+  const boxes = Number(evaluation?.boxes || 0);
+  return boxes > 0 ? boxes : 9999;
+}
+
+function isEvaluationExportable(evaluation) {
+  return Boolean(evaluation && evaluation.fitStatus !== "balance-blocked" && evaluation.fitStatus !== "oversize");
 }
 
 function importExcelCargos({ cargos: importedCargos, mode, skippedRows = 0 }) {

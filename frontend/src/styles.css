@@ -1460,7 +1460,7 @@ select {
 
 .container-card.el-button {
   position: relative;
-  min-height: 104px;
+  min-height: 124px;
   height: auto;
   margin: 0;
   padding: 12px;
@@ -1474,7 +1474,7 @@ select {
 .container-card.el-button > span {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr);
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto auto auto;
   gap: 4px 10px;
   width: 100%;
   align-items: start;
@@ -1493,6 +1493,20 @@ select {
   box-shadow: 0 0 0 1px #165DFF inset, 0 10px 22px rgba(22, 93, 255, 0.1);
 }
 
+.container-card.el-button.balance-blocked {
+  background: #fffbeb;
+  border-color: #f4c76d;
+}
+
+.container-card.el-button.balance-blocked.active {
+  box-shadow: 0 0 0 1px #f59e0b inset, 0 10px 22px rgba(245, 158, 11, 0.14);
+}
+
+.container-card.el-button.unavailable {
+  background: #f8fafc;
+  opacity: 0.78;
+}
+
 .container-card.el-button.best::after {
   content: "推荐";
   position: absolute;
@@ -1504,7 +1518,7 @@ select {
 }
 
 .container-icon {
-  grid-row: 1 / 4;
+  grid-row: 1 / 5;
   display: grid;
   place-items: center;
   align-self: stretch;
@@ -1529,6 +1543,20 @@ select {
 
 .container-card em {
   white-space: nowrap;
+}
+
+.container-card .fit-status.balance-blocked {
+  color: #a16207;
+}
+
+.container-card .fit-status.oversize {
+  color: #b91c1c;
+}
+
+.container-card .recommendation-meta {
+  font-size: 12px;
+  white-space: normal;
+  line-height: 1.35;
 }
 
 .visual-panel {
