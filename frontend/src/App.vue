@@ -475,7 +475,7 @@
               :type="selectedBoxIndex === box.index ? 'primary' : 'default'"
               @click="switchBox(box.index)"
             >
-              {{ box.index }}
+              {{ boxTabLabel(box) }}
             </el-button>
           </div>
           <div class="container-grid">
@@ -495,11 +495,9 @@
             >
               <span class="container-icon">{{ containerIcon(evaluation.container.name) }}</span>
               <strong>{{ evaluation.container.name }}</strong>
-              <small>{{ containerDimensionText(evaluation.container) }} cm</small>
-              <small class="container-source-line">{{ containerSourceShort(evaluation.container) }}</small>
-              <b :class="['fit-status', evaluation.fitStatus || 'fit']">{{ evaluationFitText(evaluation) }}</b>
-              <em>占用率 {{ fmt(evaluation.firstBoxFillPercent, 1) }}% · {{ evaluationCostText(evaluation) }}</em>
-              <small class="recommendation-meta">{{ evaluationRecommendationText(evaluation) }}</small>
+              <small>{{ evaluationCardSubtitle(evaluation) }}</small>
+              <em>{{ evaluationCardMetric(evaluation) }}</em>
+              <b v-if="evaluationCardStatus(evaluation)" :class="['fit-status', evaluation.fitStatus || 'fit']">{{ evaluationCardStatus(evaluation) }}</b>
             </el-button>
           </div>
         </section>
@@ -783,11 +781,11 @@ const selectedEvaluation = computed(() => {
   if (!sortedEvaluations.value.length) return null;
   return sortedEvaluations.value.find((item) => item.container.id === selectedContainerId.value) || sortedEvaluations.value[0];
 });
-const selectedContainer = computed(() => selectedEvaluation.value?.container || containers.value[0] || null);
 const selectedBox = computed(() => {
   const boxes = selectedEvaluation.value?.packedBoxes || [];
   return boxes.find((box) => box.index === selectedBoxIndex.value) || boxes[0] || { placed: [] };
 });
+const selectedContainer = computed(() => selectedBox.value?.container || selectedEvaluation.value?.container || containers.value[0] || null);
 const selectedPlacements = computed(() =>
   (selectedBox.value.placed || []).map((item) => ({ ...item, type: shortType(item.type) }))
 );
@@ -816,9 +814,9 @@ const resultSummary = computed(() => {
   return {
     ...counts,
     boxesText: boxes > 0 ? `${best?.estimatedBoxes ? "约 " : ""}${boxes} 箱` : "-",
-    containerName: best?.container?.name || "暂无推荐",
+    containerName: best?.mixedPlan?.summary || best?.container?.name || "暂无推荐",
     recommendationText: best
-      ? `${best.container.name} / ${evaluationFitText(best)}`
+      ? `${best.mixedPlan?.summary || best.container.name} / ${evaluationFitText(best)}`
       : "暂无计算结果"
   };
 });
@@ -1485,6 +1483,7 @@ async function importStructuredCargoFile(file: File, label = "文件") {
 }
 
 function containerIcon(name) {
+  if (name.includes("组合") || name.includes("智能")) return "MIX";
   if (name.includes("FR") || name.includes("平板")) return "FR";
   if (name.includes("RF") || name.includes("冷藏")) return "RF";
   if (name.includes("45")) return "45";
@@ -1512,6 +1511,30 @@ function containerUsageText(value: string) {
 
 function containerSourceShort(container: any) {
   return `来源：${container?.dimensionSource || "用户自定义"}`;
+}
+
+function evaluationCardSubtitle(evaluation) {
+  if (evaluation?.isMixedPlan || evaluation?.container?.mixedPlan) {
+    return evaluation?.mixedPlan?.summary || "多箱型组合";
+  }
+  return `${containerDimensionText(evaluation?.container)} cm`;
+}
+
+function evaluationCardMetric(evaluation) {
+  return `空间利用率 ${fmt(evaluation?.firstBoxFillPercent || 0, 1)}%`;
+}
+
+function evaluationCardStatus(evaluation) {
+  if (!evaluation || evaluation.fitStatus === "fit") return "";
+  if (evaluation.fitStatus === "oversize") return "不可装";
+  if (evaluation.fitStatus === "balance-blocked") return "偏载拦截";
+  return "";
+}
+
+function boxTabLabel(box) {
+  const name = box?.container?.name;
+  if (!name) return box?.index || "";
+  return `${box.index} ${name.split(" ")[0] || name}`;
 }
 
 function formatTons(value: unknown) {
@@ -1553,7 +1576,7 @@ function evaluationHint(evaluation) {
   const recommendation = evaluation?.recommendation || {};
   const score = Number(recommendation.score || 0);
   const scoreText = score > 0 ? `；综合评分 ${score.toFixed(0)}，分数越低越优` : "";
-  return `状态：${evaluationRecommendationText(evaluation)}；${evaluationCostText(evaluation)}；占用率 ${fmt(evaluation?.firstBoxFillPercent || 0, 1)}%；${containerSourceShort(evaluation?.container)}${scoreText}`;
+  return `${evaluation?.container?.name || "方案"}；${evaluationCardSubtitle(evaluation)}；${evaluationCardMetric(evaluation)}${scoreText}`;
 }
 
 function priceTierText(tier) {
@@ -1561,7 +1584,8 @@ function priceTierText(tier) {
     economy: "经济",
     standard: "标准",
     high: "较高",
-    special: "特种高价"
+    special: "特种高价",
+    mixed: "组合"
   }[tier] || tier || "参考价";
 }
 
@@ -1571,7 +1595,8 @@ function equipmentClassText(value) {
     HQ: "高柜",
     "45HQ": "45高柜",
     RF: "冷藏柜",
-    FR: "平板柜"
+    FR: "平板柜",
+    MIX: "组合方案"
   }[value] || "箱型";
 }
 

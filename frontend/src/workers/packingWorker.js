@@ -72,6 +72,9 @@ export function calculate(request = {}) {
     evaluations.push(evaluation);
   }
 
+  const mixedEvaluation = buildMixedContainerEvaluation(request.containers || [], cargos, total, utilization, globalGapCm, balanceSettings);
+  if (mixedEvaluation) evaluations.push(mixedEvaluation);
+
   evaluations.sort(compareEvaluation);
   return {
     bestContainerId: evaluations[0]?.container.id || null,
@@ -164,6 +167,7 @@ function buildEvaluation(container, units, total, utilizationPercent, globalGapC
       const balanceValidation = packedBoxBalances[index] || validateWeightBalance(container, box.placed);
       return {
         index: index + 1,
+        container: box.container ? { ...box.container } : undefined,
         strategyId: box.strategyId,
         strategyName: box.strategyName,
         strategySummary: box.strategySummary,
@@ -238,6 +242,136 @@ function packMultiple(container, allUnits) {
     fatalOversize: fatalOversize || remaining.length > 0,
     balanceBlocked
   };
+}
+
+function buildMixedContainerEvaluation(containers, cargos, total, utilizationPercent, globalGapCm, balanceSettings) {
+  if (!Array.isArray(containers) || containers.length < 2 || !total.totalQuantity) return null;
+  if (total.totalQuantity > 260) return null;
+  const runtimeContainers = containers.map((container) => ({ ...container, balanceSettings }));
+  let remaining = buildUnits(cargos, globalGapCm, null, total).map(copyUnit);
+  if (!remaining.length) return null;
+
+  const packedBoxes = [];
+  let balanceBlocked = false;
+  let fatalOversize = false;
+
+  for (let boxIndex = 0; remaining.length && boxIndex < MAX_DETAILED_BOXES; boxIndex += 1) {
+    const candidates = runtimeContainers
+      .map((container) => {
+        const packed = packContainer(container, remaining);
+        const placedQuantity = sumUnitQuantity(packed.placed);
+        if (!placedQuantity) return null;
+        const fitStatus = packed.balanceValidation?.severity === "red" || packed.strategySummary?.complianceBlocked
+          ? FIT_STATUS.BALANCE_BLOCKED
+          : FIT_STATUS.FIT;
+        return {
+          container,
+          packed,
+          placedQuantity,
+          fitStatus,
+          score: mixedBoxCandidateScore(container, packed, remaining, utilizationPercent, fitStatus)
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.score - b.score);
+
+    const selected = candidates.find((candidate) => candidate.fitStatus === FIT_STATUS.FIT) || candidates[0];
+    if (!selected?.packed?.placed?.length) {
+      fatalOversize = true;
+      break;
+    }
+
+    const placedIds = new Set(selected.packed.placed.map((unit) => unit.unitKey));
+    const selectedBox = {
+      ...selected.packed,
+      container: { ...selected.container, balanceSettings: undefined }
+    };
+    packedBoxes.push(selectedBox);
+    if (selected.fitStatus === FIT_STATUS.BALANCE_BLOCKED) balanceBlocked = true;
+    remaining = remaining.filter((unit) => !placedIds.has(unit.unitKey));
+  }
+
+  if (remaining.length) fatalOversize = true;
+  if (!packedBoxes.length) return null;
+  const distinctContainerIds = new Set(packedBoxes.map((box) => box.container?.id).filter(Boolean));
+  if (!fatalOversize && distinctContainerIds.size < 2) return null;
+
+  const mixedContainer = {
+    id: "mixed-plan",
+    name: "智能组合方案",
+    lengthCm: packedBoxes[0].container.lengthCm,
+    widthCm: packedBoxes[0].container.widthCm,
+    heightCm: packedBoxes[0].container.heightCm,
+    payloadKg: packedBoxes.reduce((sum, box) => sum + Number(box.container.payloadKg || 0), 0),
+    equipmentClass: "MIX",
+    priceTier: "mixed",
+    costFactor: mixedPlanCost(packedBoxes),
+    mixedPlan: true
+  };
+  const multi = {
+    boxes: fatalOversize ? -1 : packedBoxes.length,
+    firstBox: packedBoxes[0],
+    packedBoxes,
+    detailedBoxLimit: MAX_DETAILED_BOXES,
+    remainingUnitCountAfterDetailed: sumUnitQuantity(remaining),
+    estimated: false,
+    fatalOversize,
+    balanceBlocked
+  };
+  const units = packedBoxes.flatMap((box) => box.placed.map(copyUnit));
+  const evaluation = buildEvaluation(mixedContainer, units, total, utilizationPercent, globalGapCm, multi);
+  evaluation.isMixedPlan = true;
+  const totalUsableVolume = packedBoxes.reduce((sum, box) => sum + volumeM3(box.container) * utilizationPercent / 100, 0);
+  const totalOccupiedVolume = packedBoxes.reduce((sum, box) => sum + sumOccupiedVolumeM3(box.placed), 0);
+  evaluation.usableVolumeM3 = round(totalUsableVolume);
+  evaluation.firstBoxOccupiedVolumeM3 = round(totalOccupiedVolume);
+  evaluation.firstBoxRemainingVolumeM3 = round(Math.max(0, totalUsableVolume - totalOccupiedVolume));
+  evaluation.firstBoxFillPercent = totalUsableVolume > 0 ? round(totalOccupiedVolume / totalUsableVolume * 100) : 0;
+  evaluation.firstBoxRawFillPercent = evaluation.firstBoxFillPercent;
+  evaluation.mixedPlan = {
+    summary: mixedPlanSummary(packedBoxes),
+    boxes: packedBoxes.map((box, index) => ({
+      index: index + 1,
+      containerId: box.container.id,
+      containerName: box.container.name,
+      placedCount: sumUnitQuantity(box.placed)
+    }))
+  };
+  evaluation.recommendation = buildRecommendation(evaluation);
+  return evaluation;
+}
+
+function mixedBoxCandidateScore(container, packed, remaining, utilizationPercent, fitStatus) {
+  const placedQuantity = sumUnitQuantity(packed.placed);
+  const totalQuantity = Math.max(1, sumUnitQuantity(remaining));
+  const placedVolume = sumOccupiedVolumeM3(packed.placed);
+  const usableVolume = Math.max(EPS, volumeM3(container) * utilizationPercent / 100);
+  const fillPercent = placedVolume / usableVolume * 100;
+  const meta = equipmentMeta(container);
+  const placedRatio = placedQuantity / totalQuantity;
+  const completesAll = placedQuantity >= totalQuantity;
+  const underfillPenalty = completesAll ? Math.max(0, 55 - fillPercent) * 2 : Math.max(0, 35 - fillPercent);
+  const specialPenalty = meta.equipmentClass === "FR" ? 3.6 : meta.equipmentClass === "RF" ? 2.6 : meta.equipmentClass === "45HQ" ? 0.45 : 0;
+  const blockedPenalty = fitStatus === FIT_STATUS.BALANCE_BLOCKED ? 500 : 0;
+  return blockedPenalty
+    + meta.costFactor
+    + specialPenalty
+    + underfillPenalty / 100
+    - placedRatio * 2.5
+    - placedVolume / Math.max(EPS, meta.costFactor) * 0.05;
+}
+
+function mixedPlanCost(packedBoxes) {
+  return packedBoxes.reduce((sum, box) => sum + equipmentMeta(box.container).costFactor, 0);
+}
+
+function mixedPlanSummary(packedBoxes) {
+  const counts = new Map();
+  packedBoxes.forEach((box) => {
+    const name = box.container?.name || "箱型";
+    counts.set(name, (counts.get(name) || 0) + 1);
+  });
+  return [...counts.entries()].map(([name, count]) => count > 1 ? `${name}×${count}` : name).join(" + ");
 }
 
 function buildUnits(cargos, globalGapCm, container = null, total = null) {
@@ -1346,12 +1480,14 @@ function buildRecommendation(evaluation) {
   const meta = equipmentMeta(evaluation.container);
   const statusRank = fitStatusRank(evaluation.fitStatus);
   const boxes = normalizedBoxCount(evaluation);
-  const cost = boxes >= 9999 ? 9999 : boxes * meta.costFactor;
+  const cost = evaluation.isMixedPlan || evaluation.container?.mixedPlan
+    ? Number(evaluation.container?.costFactor || 9999)
+    : boxes >= 9999 ? 9999 : boxes * meta.costFactor;
   const fill = Number(evaluation.firstBoxFillPercent || 0);
   const underusePenalty = Math.max(0, UTILIZATION_LOW_WARN_PERCENT - fill) * 4;
   const tightPenalty = Math.max(0, fill - UTILIZATION_HIGH_WARN_PERCENT) * 2;
   const targetPenalty = Math.abs(fill - UTILIZATION_TARGET_PERCENT) * 0.8;
-  const specialEquipmentPenalty = meta.equipmentClass === "FR" ? 3600 : meta.equipmentClass === "RF" ? 2600 : meta.equipmentClass === "45HQ" ? 450 : 0;
+  const specialEquipmentPenalty = meta.equipmentClass === "MIX" ? 0 : meta.equipmentClass === "FR" ? 3600 : meta.equipmentClass === "RF" ? 2600 : meta.equipmentClass === "45HQ" ? 450 : 0;
   const balancePenalty = evaluation.fitStatus === FIT_STATUS.BALANCE_BLOCKED
     ? 50000
     : evaluation.packedBoxes?.some((box) => box.balanceValidation?.severity === "yellow")
@@ -1409,11 +1545,14 @@ function equipmentMeta(container = {}) {
   const name = String(container.name || "").toLowerCase();
   const text = `${id} ${name}`;
   const explicitCost = Number(container.costFactor);
-  let equipmentClass = "GP";
-  if (/fr|flat/.test(text) || /平板/.test(name)) equipmentClass = "FR";
-  else if (/rf|reefer/.test(text) || /冷藏/.test(name)) equipmentClass = "RF";
-  else if (/45/.test(text)) equipmentClass = "45HQ";
-  else if (/hq|high/.test(text) || /高/.test(name)) equipmentClass = "HQ";
+  let equipmentClass = String(container.equipmentClass || "").toUpperCase();
+  if (!["GP", "HQ", "45HQ", "RF", "FR", "MIX"].includes(equipmentClass)) {
+    equipmentClass = "GP";
+    if (/fr|flat/.test(text) || /平板/.test(name)) equipmentClass = "FR";
+    else if (/rf|reefer/.test(text) || /冷藏/.test(name)) equipmentClass = "RF";
+    else if (/45/.test(text)) equipmentClass = "45HQ";
+    else if (/hq|high/.test(text) || /高/.test(name)) equipmentClass = "HQ";
+  }
 
   const inferredCosts = {
     "20gp": 1,
@@ -1426,7 +1565,7 @@ function equipmentMeta(container = {}) {
     "20fr": 2.15,
     "40fr": 3.2
   };
-  const inferredByClass = equipmentClass === "FR" ? 2.6 : equipmentClass === "RF" ? 2 : equipmentClass === "45HQ" ? 2.05 : equipmentClass === "HQ" ? 1.45 : 1.25;
+  const inferredByClass = equipmentClass === "MIX" ? 1 : equipmentClass === "FR" ? 2.6 : equipmentClass === "RF" ? 2 : equipmentClass === "45HQ" ? 2.05 : equipmentClass === "HQ" ? 1.45 : 1.25;
   const costFactor = Number.isFinite(explicitCost) && explicitCost > 0
     ? explicitCost
     : inferredCosts[id] || inferredByClass;
