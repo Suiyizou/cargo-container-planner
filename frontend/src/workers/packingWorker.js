@@ -824,34 +824,7 @@ function validateWeightBalance(container, placed) {
   const balance = calculateWeightBalance(container, placed);
   if (!balance.valid) return balance;
   const rules = balanceRuleSettings(container);
-  if (balance.totalWeightKg <= rules.skipBelowWeightKg + EPS) {
-    return {
-      ...balance,
-      severity: "green",
-      score: 0,
-      balanceExempt: true,
-      message: `单箱总重 ${round(balance.totalWeightKg / 1000)}t 低于轻载豁免阈值 ${round(rules.skipBelowWeightKg / 1000)}t，跳过偏载硬拦截。`,
-      limits: {
-        greenPercent: rules.greenLimitPercent,
-        redPercent: rules.redLimitPercent,
-        frontMaxPercent: rules.frontMaxPercent,
-        rearMinPercent40FR: null,
-        lateralOffsetLimitCm: rules.lateralOffsetLimitCm,
-        skipBelowWeightKg: rules.skipBelowWeightKg
-      },
-      checks: {
-        frontPercent: round(balance.loads.frontPercent),
-        rearPercent: round(balance.loads.rearPercent),
-        frontRearDiffPercent: round(Math.abs(balance.loads.frontPercent - balance.loads.rearPercent)),
-        leftRightDiffPercent: round(Math.abs(balance.loads.leftPercent - balance.loads.rightPercent)),
-        longitudinalOffsetPercent: round(Math.abs(balance.offset.longitudinalPercent)),
-        lateralOffsetPercent: round(Math.abs(balance.offset.lateralPercent)),
-        lateralOffsetCm: round(Math.abs(balance.offset.lateralCm)),
-        requiresRearMinimum: false,
-        lightLoadExempt: true
-      }
-    };
-  }
+  const lightLoadSearchMode = balance.totalWeightKg <= rules.skipBelowWeightKg + EPS;
 
   const frontRearDiffPercent = Math.abs(balance.loads.frontPercent - balance.loads.rearPercent);
   const leftRightDiffPercent = Math.abs(balance.loads.leftPercent - balance.loads.rightPercent);
@@ -908,7 +881,8 @@ function validateWeightBalance(container, placed) {
       longitudinalOffsetPercent: round(longitudinalOffsetPercent),
       lateralOffsetPercent: round(lateralOffsetPercent),
       lateralOffsetCm: round(lateralOffsetCm),
-      requiresRearMinimum
+      requiresRearMinimum,
+      lightLoadSearchMode
     }
   };
 }

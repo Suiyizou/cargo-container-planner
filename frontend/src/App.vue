@@ -196,8 +196,8 @@
                     <el-slider v-model="balanceSettings.lateralOffsetLimitCm" :min="4" :max="20" :step="1" @change="markBalanceCustom" />
                   </div>
                   <div class="mini-slider-row">
-                    <span>轻载豁免</span>
-                    <el-tag size="small" type="success" effect="plain">≤ {{ formatTons(balanceSettings.skipBelowWeightKg) }}</el-tag>
+                    <span>轻载填充优先</span>
+                    <el-tag size="small" type="info" effect="plain">≤ {{ formatTons(balanceSettings.skipBelowWeightKg) }}</el-tag>
                     <el-slider v-model="balanceSettings.skipBelowWeightKg" :min="0" :max="30000" :step="1000" @change="markBalanceCustom" />
                   </div>
                   <div class="mini-slider-row">
@@ -213,9 +213,11 @@
                 </div>
               </div>
             </div>
-            <div class="planner-action-row">
-              <el-button type="primary" :icon="Plus" @click="openCargoModal()">手动录入货物</el-button>
-              <el-button :icon="Tickets" @click="goPlannerStep('cargos')">进入货物总览</el-button>
+            <div class="planner-action-row planner-action-row-prominent">
+              <el-button class="overview-cta" type="primary" size="large" :icon="Tickets" @click="goPlannerStep('cargos')">
+                进入货物总览
+              </el-button>
+              <el-button size="large" :icon="Plus" @click="openCargoModal()">手动录入货物</el-button>
             </div>
             <el-divider />
             <div class="config-toolbox">
@@ -237,82 +239,72 @@
             </div>
           </el-card>
 
-          <el-card class="planner-card" shadow="hover">
+          <el-card class="planner-card template-container-card" shadow="hover">
             <template #header>
               <div class="card-header-title">
                 <el-icon><Files /></el-icon>
-                <strong>模板货物栏</strong>
+                <strong>模板与箱型</strong>
               </div>
             </template>
-            <p class="planner-muted">先提供本机常用货物模板，后续接数据库后可升级为企业 SKU 模板库。</p>
-            <div class="template-save-row">
-              <el-input v-model.trim="templateName" placeholder="模板名称，例如：E-House 项目" clearable />
-              <el-button type="primary" :disabled="!cargos.length" @click="saveCargoTemplate">保存当前为模板</el-button>
+            <div class="compact-template-block">
+              <div class="compact-section-head">
+                <div>
+                  <strong>货物模板</strong>
+                  <small>本机常用货物组合</small>
+                </div>
+                <el-button size="small" type="primary" :disabled="!cargos.length" @click="saveCargoTemplate">保存模板</el-button>
+              </div>
+              <div class="template-save-row compact">
+                <el-input v-model.trim="templateName" placeholder="模板名称，例如：E-House 项目" clearable />
+              </div>
+              <el-table v-if="cargoTemplates.length" :data="cargoTemplates" size="small" class="template-table-lite compact" max-height="132">
+                <el-table-column prop="name" label="模板名称" min-width="150" />
+                <el-table-column label="规模" width="110">
+                  <template #default="{ row }">{{ row.cargos.length }} 类 / {{ templateQuantity(row) }} 件</template>
+                </el-table-column>
+                <el-table-column label="操作" width="82" fixed="right">
+                  <template #default="{ row }">
+                    <el-button size="small" type="primary" plain @click="applyCargoTemplate(row.id)">套用</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+              <el-empty v-else description="还没有本机货物模板" :image-size="48" />
+              <div class="template-placeholder-grid compact">
+                <el-button :icon="MagicStick" @click="loadSample">套用示例</el-button>
+                <el-button :icon="Delete" :disabled="!cargoTemplates.length" @click="deleteSelectedCargoTemplate">删除最近</el-button>
+              </div>
             </div>
-            <el-table v-if="cargoTemplates.length" :data="cargoTemplates" size="small" class="template-table-lite" max-height="240">
-              <el-table-column prop="name" label="模板名称" min-width="150" />
-              <el-table-column label="规模" width="110">
-                <template #default="{ row }">{{ row.cargos.length }} 类 / {{ templateQuantity(row) }} 件</template>
-              </el-table-column>
-              <el-table-column label="操作" width="96" fixed="right">
-                <template #default="{ row }">
-                  <el-button size="small" type="primary" plain @click="applyCargoTemplate(row.id)">套用</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-            <el-empty v-else description="还没有本机货物模板" :image-size="72" />
-            <div class="template-placeholder-grid">
-              <el-button :icon="MagicStick" @click="loadSample">套用示例货物</el-button>
-              <el-button :icon="Delete" :disabled="!cargoTemplates.length" @click="deleteSelectedCargoTemplate">删除最近模板</el-button>
+
+            <el-divider />
+            <div class="container-source-compact">
+              <div class="compact-section-head">
+                <div>
+                  <strong>箱型尺寸管理</strong>
+                  <small>默认优先推荐普柜/高柜，冷藏和平板为特殊设备</small>
+                </div>
+                <RouterLink to="/containers">
+                  <el-button size="small" type="primary" plain :icon="DataAnalysis">资料库</el-button>
+                </RouterLink>
+              </div>
+              <div class="container-management-actions compact">
+                <el-button size="small" :icon="Box" @click="openContainerModal()">添加箱型</el-button>
+                <el-button size="small" :icon="Refresh" @click="resetContainers">恢复默认</el-button>
+              </div>
+              <el-table :data="containerSourceRows" size="small" class="container-source-table compact" max-height="320">
+                <el-table-column prop="name" label="箱型" min-width="120" />
+                <el-table-column label="尺寸 cm" min-width="170">
+                  <template #default="{ row }">{{ containerDimensionText(row) }}</template>
+                </el-table-column>
+                <el-table-column label="操作" width="116" fixed="right">
+                  <template #default="{ row }">
+                    <el-button link type="primary" @click="openContainerModal(row)">编辑</el-button>
+                    <el-button link :disabled="!isDefaultContainer(row.id)" @click="restoreContainerDefaults(row)">恢复</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
             </div>
           </el-card>
         </div>
-        <el-card class="container-source-panel" shadow="hover">
-          <template #header>
-            <div class="card-header-title">
-              <el-icon><DataAnalysis /></el-icon>
-              <strong>箱型尺寸管理</strong>
-            </div>
-          </template>
-          <el-alert
-            class="container-source-alert"
-            title="默认优先推荐普柜/高柜；冷藏柜和平板柜作为特殊设备。平板柜默认不按箱体高度硬拦截，但仍需按 OOG 与绑扎方案复核。"
-            type="info"
-            show-icon
-            :closable="false"
-          />
-          <div class="container-management-actions">
-            <RouterLink to="/containers">
-              <el-button type="primary" plain :icon="DataAnalysis">查看尺寸来源资料库</el-button>
-            </RouterLink>
-            <el-button :icon="Box" @click="openContainerModal()">添加箱型</el-button>
-            <el-button :icon="Refresh" @click="resetContainers">恢复全部默认尺寸</el-button>
-          </div>
-          <el-table :data="containerSourceRows" size="small" class="container-source-table">
-            <el-table-column prop="name" label="箱型" min-width="130" />
-            <el-table-column label="计算尺寸 cm" min-width="170">
-              <template #default="{ row }">{{ containerDimensionText(row) }}</template>
-            </el-table-column>
-            <el-table-column label="最大载重" width="110">
-              <template #default="{ row }">{{ containerPayloadText(row) }}</template>
-            </el-table-column>
-            <el-table-column label="属性" min-width="180">
-              <template #default="{ row }">
-                <el-tag size="small" :type="row.usagePriority === 'common' ? 'success' : row.usagePriority === 'special' ? 'info' : 'warning'" effect="light">
-                  {{ containerUsageText(row.usagePriority) }}
-                </el-tag>
-                <el-tag v-if="row.ignoreHeightLimit" size="small" type="warning" effect="plain">不计高度</el-tag>
-                <el-tag v-if="row.dimensionEdited" size="small" type="danger" effect="plain">已编辑</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="210" fixed="right">
-              <template #default="{ row }">
-                <el-button link type="primary" @click="openContainerModal(row)">编辑尺寸</el-button>
-                <el-button link :disabled="!isDefaultContainer(row.id)" @click="restoreContainerDefaults(row)">恢复默认</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
         <el-collapse-transition>
           <div v-if="smartImportOpen" class="embedded-smart-import config-embedded-import">
             <ExcelTemplatePage key="config-smart-import" @import-cargos="importExcelCargos" />
