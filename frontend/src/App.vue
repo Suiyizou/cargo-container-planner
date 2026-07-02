@@ -258,6 +258,48 @@
             </div>
           </el-card>
         </div>
+        <el-card class="container-source-panel" shadow="hover">
+          <template #header>
+            <div class="card-header-title">
+              <el-icon><DataAnalysis /></el-icon>
+              <strong>箱型尺寸与信息来源</strong>
+            </div>
+          </template>
+          <el-alert
+            class="container-source-alert"
+            title="默认尺寸按公开设备规格录入，用于方案预估；实际订舱、装柜和 OOG 货物请以船司放箱柜号、场站实测和绑扎方案为准。"
+            type="info"
+            show-icon
+            :closable="false"
+          />
+          <el-table :data="containerSourceRows" size="small" class="container-source-table">
+            <el-table-column prop="name" label="箱型" min-width="130" />
+            <el-table-column label="计算尺寸 cm" min-width="170">
+              <template #default="{ row }">{{ containerDimensionText(row) }}</template>
+            </el-table-column>
+            <el-table-column label="最大载重" width="110">
+              <template #default="{ row }">{{ containerPayloadText(row) }}</template>
+            </el-table-column>
+            <el-table-column label="信息来源" min-width="210">
+              <template #default="{ row }">
+                <el-link
+                  v-if="row.dimensionSourceUrl"
+                  type="primary"
+                  :underline="false"
+                  :href="row.dimensionSourceUrl"
+                  target="_blank"
+                >
+                  {{ row.dimensionSource }}
+                </el-link>
+                <span v-else>{{ row.dimensionSource || "用户自定义" }}</span>
+                <small class="source-basis">{{ row.dimensionBasis || "手动录入尺寸" }}</small>
+              </template>
+            </el-table-column>
+            <el-table-column label="备注" min-width="260">
+              <template #default="{ row }">{{ row.dimensionNote || "自定义箱型，请按实际设备复核。" }}</template>
+            </el-table-column>
+          </el-table>
+        </el-card>
         <el-collapse-transition>
           <div v-if="smartImportOpen" class="embedded-smart-import config-embedded-import">
             <ExcelTemplatePage key="config-smart-import" @import-cargos="importExcelCargos" />
@@ -448,7 +490,8 @@
             >
               <span class="container-icon">{{ containerIcon(evaluation.container.name) }}</span>
               <strong>{{ evaluation.container.name }}</strong>
-              <small>{{ evaluation.container.lengthCm }} × {{ evaluation.container.widthCm }} × {{ evaluation.container.heightCm }} cm</small>
+              <small>{{ containerDimensionText(evaluation.container) }} cm</small>
+              <small class="container-source-line">{{ containerSourceShort(evaluation.container) }}</small>
               <b :class="['fit-status', evaluation.fitStatus || 'fit']">{{ evaluationFitText(evaluation) }}</b>
               <em>占用率 {{ fmt(evaluation.firstBoxFillPercent, 1) }}% · {{ evaluationCostText(evaluation) }}</em>
               <small class="recommendation-meta">{{ evaluationRecommendationText(evaluation) }}</small>
@@ -756,6 +799,14 @@ const resultSummary = computed(() => {
       : "暂无计算结果"
   };
 });
+const containerSourceRows = computed(() =>
+  containers.value.map((container: any) => ({
+    ...container,
+    dimensionSource: container.dimensionSource || "用户自定义",
+    dimensionBasis: container.dimensionBasis || "手动录入尺寸",
+    dimensionNote: container.dimensionNote || "自定义箱型，请按实际设备复核。"
+  }))
+);
 const cargoTypeCount = computed(() => cargos.value.length);
 const cargoTotalQuantity = computed(() =>
   cargos.value.reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0)
@@ -1385,6 +1436,26 @@ function containerIcon(name) {
   return "20";
 }
 
+function containerDimensionText(container: any) {
+  return `${formatDimensionNumber(container?.lengthCm)} × ${formatDimensionNumber(container?.widthCm)} × ${formatDimensionNumber(container?.heightCm)}`;
+}
+
+function containerPayloadText(container: any) {
+  const value = Number(container?.payloadKg || 0);
+  if (!value) return "-";
+  return value >= 1000 ? `${formatDimensionNumber(value / 1000)} t` : `${formatDimensionNumber(value)} kg`;
+}
+
+function containerSourceShort(container: any) {
+  return `来源：${container?.dimensionSource || "用户自定义"}`;
+}
+
+function formatDimensionNumber(value: unknown) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric) || numeric <= 0) return "-";
+  return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(1).replace(/\.0$/, "");
+}
+
 function evaluationFitText(evaluation) {
   const boxes = Number(evaluation?.boxes || 0);
   if (boxes <= 0 || evaluation?.fitStatus === "oversize") return "不可装";
@@ -1412,7 +1483,7 @@ function evaluationHint(evaluation) {
   const recommendation = evaluation?.recommendation || {};
   const score = Number(recommendation.score || 0);
   const scoreText = score > 0 ? `；综合评分 ${score.toFixed(0)}，分数越低越优` : "";
-  return `状态：${evaluationRecommendationText(evaluation)}；${evaluationCostText(evaluation)}；占用率 ${fmt(evaluation?.firstBoxFillPercent || 0, 1)}%${scoreText}`;
+  return `状态：${evaluationRecommendationText(evaluation)}；${evaluationCostText(evaluation)}；占用率 ${fmt(evaluation?.firstBoxFillPercent || 0, 1)}%；${containerSourceShort(evaluation?.container)}${scoreText}`;
 }
 
 function priceTierText(tier) {

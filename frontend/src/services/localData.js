@@ -1,14 +1,112 @@
 export const defaultContainers = [
-  { id: "20gp", name: "20GP 普柜", lengthCm: 590, widthCm: 235, heightCm: 239, payloadKg: 28200 },
-  { id: "20hq", name: "20HQ 高柜", lengthCm: 590, widthCm: 235, heightCm: 270, payloadKg: 27800 },
-  // Flat racks are open equipment; widthCm/heightCm are OOG planning envelopes, not closed inner dimensions.
-  { id: "20fr", name: "20FR 平板柜", lengthCm: 564, widthCm: 260, heightCm: 420, payloadKg: 42100 },
-  { id: "40gp", name: "40GP 普柜", lengthCm: 1203, widthCm: 235, heightCm: 239, payloadKg: 26700 },
-  { id: "40hq", name: "40HQ 高柜", lengthCm: 1203, widthCm: 235, heightCm: 270, payloadKg: 26500 },
-  { id: "40fr", name: "40FR 平板柜", lengthCm: 1219, widthCm: 260, heightCm: 420, payloadKg: 49100 },
-  { id: "45hq", name: "45HQ 高柜", lengthCm: 1356, widthCm: 235, heightCm: 270, payloadKg: 28600 },
-  { id: "20rf", name: "20RF 冷藏柜", lengthCm: 545, widthCm: 229, heightCm: 226, payloadKg: 27000 },
-  { id: "40rf", name: "40RF 冷藏高柜", lengthCm: 1156, widthCm: 229, heightCm: 250, payloadKg: 29000 }
+  {
+    id: "20gp",
+    name: "20GP 普柜",
+    lengthCm: 590,
+    widthCm: 235.2,
+    heightCm: 239.5,
+    payloadKg: 28130,
+    dimensionSource: "Hapag-Lloyd 20' Standard",
+    dimensionSourceUrl: "https://www.hapag-lloyd.com/en/services-information/cargo-fleet/container/20-standard.html",
+    dimensionBasis: "Inside Dimension",
+    dimensionNote: "公开规格为名义内尺寸，实际柜号可能因制造批次存在公差。"
+  },
+  {
+    id: "20hq",
+    name: "20HQ 高柜",
+    lengthCm: 589.8,
+    widthCm: 235.2,
+    heightCm: 268.9,
+    payloadKg: 28340,
+    dimensionSource: "Triton 20ft High Cube Dry",
+    dimensionSourceUrl: "https://www.tritoncontainer.com/products/20ft-high-cube-dry-containers",
+    dimensionBasis: "Internal Dimensions",
+    dimensionNote: "20HQ 不是最常见海运标配，订舱前请按实际设备确认。"
+  },
+  {
+    id: "20fr",
+    name: "20FR 平板柜",
+    lengthCm: 563.8,
+    widthCm: 243.8,
+    heightCm: 223.3,
+    payloadKg: 42100,
+    dimensionSource: "Hapag-Lloyd 20' Flatrack",
+    dimensionSourceUrl: "https://www.hapag-lloyd.com/en/services-information/cargo-fleet/container/20-flatrack.html",
+    dimensionBasis: "Inside Dimension / Min. Width",
+    dimensionNote: "平板柜为开放设备；来源地板宽 219.4cm，超宽超高需按船司 OOG 与绑扎方案复核。"
+  },
+  {
+    id: "40gp",
+    name: "40GP 普柜",
+    lengthCm: 1203.2,
+    widthCm: 235.2,
+    heightCm: 239.5,
+    payloadKg: 28750,
+    dimensionSource: "Hapag-Lloyd 40' Standard",
+    dimensionSourceUrl: "https://www.hapag-lloyd.com/en/services-information/cargo-fleet/container/40-standard.html",
+    dimensionBasis: "Inside Dimension",
+    dimensionNote: "公开规格为名义内尺寸，实际柜号可能因制造批次存在公差。"
+  },
+  {
+    id: "40hq",
+    name: "40HQ 高柜",
+    lengthCm: 1203.2,
+    widthCm: 235,
+    heightCm: 270,
+    payloadKg: 28600,
+    dimensionSource: "Hapag-Lloyd 40' Standard High Cube",
+    dimensionSourceUrl: "https://www.hapag-lloyd.com/en/services-information/cargo-fleet/container/40-standard-high-cube.html",
+    dimensionBasis: "Inside Dimension",
+    dimensionNote: "公开规格为名义内尺寸，实际柜号可能因制造批次存在公差。"
+  },
+  {
+    id: "40fr",
+    name: "40FR 平板柜",
+    lengthCm: 1165.2,
+    widthCm: 234.7,
+    heightCm: 226.5,
+    payloadKg: 49100,
+    dimensionSource: "Hapag-Lloyd 40' Flatrack High Cube",
+    dimensionSourceUrl: "https://www.hapag-lloyd.com/en/services-information/cargo-fleet/container/40-flatrack-high-cube.html",
+    dimensionBasis: "Inside Dimension / Min. Width",
+    dimensionNote: "平板柜为开放设备；来源地板宽 224.5cm，超宽超高需按船司 OOG 与绑扎方案复核。"
+  },
+  {
+    id: "45hq",
+    name: "45HQ 高柜",
+    lengthCm: 1355.6,
+    widthCm: 235.2,
+    heightCm: 270,
+    payloadKg: 27700,
+    dimensionSource: "Hapag-Lloyd 45' Standard High Cube",
+    dimensionSourceUrl: "https://www.hapag-lloyd.com/en/services-information/cargo-fleet/container/45-standard-high-cube.html",
+    dimensionBasis: "Inside Dimension",
+    dimensionNote: "公开规格为名义内尺寸，实际柜号可能因制造批次存在公差。"
+  },
+  {
+    id: "20rf",
+    name: "20RF 冷藏柜",
+    lengthCm: 545,
+    widthCm: 228,
+    heightCm: 215.9,
+    payloadKg: 29140,
+    dimensionSource: "Hapag-Lloyd 20' Reefer",
+    dimensionSourceUrl: "https://www.hapag-lloyd.com/en/services-information/cargo-fleet/container/20-reefer.html",
+    dimensionBasis: "Inside Dimension",
+    dimensionNote: "冷藏柜内尺寸受制冷机组、风道和装载线影响，订舱前请按实际柜号确认。"
+  },
+  {
+    id: "40rf",
+    name: "40RF 冷藏高柜",
+    lengthCm: 1159.9,
+    widthCm: 229,
+    heightCm: 242.5,
+    payloadKg: 29580,
+    dimensionSource: "Hapag-Lloyd 40' Reefer High Cube",
+    dimensionSourceUrl: "https://www.hapag-lloyd.com/en/services-information/cargo-fleet/container/40-reefer-high-cube.html",
+    dimensionBasis: "Inside Dimension",
+    dimensionNote: "冷藏柜内尺寸受制冷机组、风道和装载线影响，订舱前请按实际柜号确认。"
+  }
 ];
 
 const defaultContainerProfiles = {
@@ -23,15 +121,35 @@ const defaultContainerProfiles = {
   "40fr": { costFactor: 3.2, priceTier: "special", equipmentClass: "FR" }
 };
 
+const defaultContainerById = new Map(defaultContainers.map((item) => [item.id, item]));
+const defaultDimensionFields = [
+  "name",
+  "lengthCm",
+  "widthCm",
+  "heightCm",
+  "payloadKg",
+  "dimensionSource",
+  "dimensionSourceUrl",
+  "dimensionBasis",
+  "dimensionNote"
+];
+
 function withDefaultProfile(container) {
+  const defaultContainer = defaultContainerById.get(container?.id);
   const profile = defaultContainerProfiles[container?.id] || {};
-  return {
+  const next = {
     ...profile,
     ...container,
     costFactor: container?.costFactor ?? profile.costFactor,
     priceTier: container?.priceTier ?? profile.priceTier,
     equipmentClass: container?.equipmentClass ?? profile.equipmentClass
   };
+  if (defaultContainer) {
+    defaultDimensionFields.forEach((field) => {
+      next[field] = defaultContainer[field];
+    });
+  }
+  return next;
 }
 
 export function cloneDefaultContainers() {
