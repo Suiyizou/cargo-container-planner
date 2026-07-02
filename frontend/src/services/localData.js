@@ -9,7 +9,10 @@ export const defaultContainers = [
     dimensionSource: "Hapag-Lloyd 20' Standard",
     dimensionSourceUrl: "https://www.hapag-lloyd.com/en/services-information/cargo-fleet/container/20-standard.html",
     dimensionBasis: "Inside Dimension",
-    dimensionNote: "公开规格为名义内尺寸，实际柜号可能因制造批次存在公差。"
+    dimensionNote: "公开规格为名义内尺寸，实际柜号可能因制造批次存在公差。",
+    usagePriority: "common",
+    visualKind: "dry",
+    ignoreHeightLimit: false
   },
   {
     id: "20hq",
@@ -21,7 +24,10 @@ export const defaultContainers = [
     dimensionSource: "Triton 20ft High Cube Dry",
     dimensionSourceUrl: "https://www.tritoncontainer.com/products/20ft-high-cube-dry-containers",
     dimensionBasis: "Internal Dimensions",
-    dimensionNote: "20HQ 不是最常见海运标配，订舱前请按实际设备确认。"
+    dimensionNote: "20HQ 不是最常见海运标配，订舱前请按实际设备确认。",
+    usagePriority: "common",
+    visualKind: "high-cube",
+    ignoreHeightLimit: false
   },
   {
     id: "20fr",
@@ -33,7 +39,10 @@ export const defaultContainers = [
     dimensionSource: "Hapag-Lloyd 20' Flatrack",
     dimensionSourceUrl: "https://www.hapag-lloyd.com/en/services-information/cargo-fleet/container/20-flatrack.html",
     dimensionBasis: "Inside Dimension / Min. Width",
-    dimensionNote: "平板柜为开放设备；来源地板宽 219.4cm，超宽超高需按船司 OOG 与绑扎方案复核。"
+    dimensionNote: "平板柜为开放设备；系统默认不按箱体高度硬拦截，来源地板宽 219.4cm，超宽超高需按船司 OOG 与绑扎方案复核。",
+    usagePriority: "special",
+    visualKind: "flat-rack",
+    ignoreHeightLimit: true
   },
   {
     id: "40gp",
@@ -45,7 +54,10 @@ export const defaultContainers = [
     dimensionSource: "Hapag-Lloyd 40' Standard",
     dimensionSourceUrl: "https://www.hapag-lloyd.com/en/services-information/cargo-fleet/container/40-standard.html",
     dimensionBasis: "Inside Dimension",
-    dimensionNote: "公开规格为名义内尺寸，实际柜号可能因制造批次存在公差。"
+    dimensionNote: "公开规格为名义内尺寸，实际柜号可能因制造批次存在公差。",
+    usagePriority: "common",
+    visualKind: "dry",
+    ignoreHeightLimit: false
   },
   {
     id: "40hq",
@@ -57,7 +69,10 @@ export const defaultContainers = [
     dimensionSource: "Hapag-Lloyd 40' Standard High Cube",
     dimensionSourceUrl: "https://www.hapag-lloyd.com/en/services-information/cargo-fleet/container/40-standard-high-cube.html",
     dimensionBasis: "Inside Dimension",
-    dimensionNote: "公开规格为名义内尺寸，实际柜号可能因制造批次存在公差。"
+    dimensionNote: "公开规格为名义内尺寸，实际柜号可能因制造批次存在公差。",
+    usagePriority: "common",
+    visualKind: "high-cube",
+    ignoreHeightLimit: false
   },
   {
     id: "40fr",
@@ -69,7 +84,10 @@ export const defaultContainers = [
     dimensionSource: "Hapag-Lloyd 40' Flatrack High Cube",
     dimensionSourceUrl: "https://www.hapag-lloyd.com/en/services-information/cargo-fleet/container/40-flatrack-high-cube.html",
     dimensionBasis: "Inside Dimension / Min. Width",
-    dimensionNote: "平板柜为开放设备；来源地板宽 224.5cm，超宽超高需按船司 OOG 与绑扎方案复核。"
+    dimensionNote: "平板柜为开放设备；系统默认不按箱体高度硬拦截，来源地板宽 224.5cm，超宽超高需按船司 OOG 与绑扎方案复核。",
+    usagePriority: "special",
+    visualKind: "flat-rack",
+    ignoreHeightLimit: true
   },
   {
     id: "45hq",
@@ -81,7 +99,10 @@ export const defaultContainers = [
     dimensionSource: "Hapag-Lloyd 45' Standard High Cube",
     dimensionSourceUrl: "https://www.hapag-lloyd.com/en/services-information/cargo-fleet/container/45-standard-high-cube.html",
     dimensionBasis: "Inside Dimension",
-    dimensionNote: "公开规格为名义内尺寸，实际柜号可能因制造批次存在公差。"
+    dimensionNote: "公开规格为名义内尺寸，实际柜号可能因制造批次存在公差。",
+    usagePriority: "limited",
+    visualKind: "high-cube",
+    ignoreHeightLimit: false
   },
   {
     id: "20rf",
@@ -93,7 +114,10 @@ export const defaultContainers = [
     dimensionSource: "Hapag-Lloyd 20' Reefer",
     dimensionSourceUrl: "https://www.hapag-lloyd.com/en/services-information/cargo-fleet/container/20-reefer.html",
     dimensionBasis: "Inside Dimension",
-    dimensionNote: "冷藏柜内尺寸受制冷机组、风道和装载线影响，订舱前请按实际柜号确认。"
+    dimensionNote: "冷藏柜属于特殊设备；普通货和冷藏设备类货物优先尝试普柜/高柜，只有温控运输才建议选 RF。",
+    usagePriority: "special",
+    visualKind: "reefer",
+    ignoreHeightLimit: false
   },
   {
     id: "40rf",
@@ -105,7 +129,10 @@ export const defaultContainers = [
     dimensionSource: "Hapag-Lloyd 40' Reefer High Cube",
     dimensionSourceUrl: "https://www.hapag-lloyd.com/en/services-information/cargo-fleet/container/40-reefer-high-cube.html",
     dimensionBasis: "Inside Dimension",
-    dimensionNote: "冷藏柜内尺寸受制冷机组、风道和装载线影响，订舱前请按实际柜号确认。"
+    dimensionNote: "冷藏柜属于特殊设备；普通货和冷藏设备类货物优先尝试普柜/高柜，只有温控运输才建议选 RF。",
+    usagePriority: "special",
+    visualKind: "reefer",
+    ignoreHeightLimit: false
   }
 ];
 
@@ -131,10 +158,13 @@ const defaultDimensionFields = [
   "dimensionSource",
   "dimensionSourceUrl",
   "dimensionBasis",
-  "dimensionNote"
+  "dimensionNote",
+  "usagePriority",
+  "visualKind",
+  "ignoreHeightLimit"
 ];
 
-function withDefaultProfile(container) {
+function withDefaultProfile(container, options = {}) {
   const defaultContainer = defaultContainerById.get(container?.id);
   const profile = defaultContainerProfiles[container?.id] || {};
   const next = {
@@ -144,7 +174,7 @@ function withDefaultProfile(container) {
     priceTier: container?.priceTier ?? profile.priceTier,
     equipmentClass: container?.equipmentClass ?? profile.equipmentClass
   };
-  if (defaultContainer) {
+  if (defaultContainer && options.refreshDefaultDimensions && !container?.dimensionEdited) {
     defaultDimensionFields.forEach((field) => {
       next[field] = defaultContainer[field];
     });
@@ -161,10 +191,24 @@ export function mergeDefaultContainers(containers = []) {
   if (!existing.length) return cloneDefaultContainers();
   const defaultIds = new Set(defaultContainers.map((item) => item.id));
   if (!existing.some((item) => defaultIds.has(item.id))) return existing;
-  const existingWithProfiles = existing.map((item) => withDefaultProfile(item));
+  const existingWithProfiles = existing.map((item) => withDefaultProfile(item, { refreshDefaultDimensions: true }));
   const existingIds = new Set(existingWithProfiles.map((item) => item.id));
   const missingDefaults = defaultContainers
     .filter((item) => !existingIds.has(item.id))
     .map((item) => withDefaultProfile(item));
   return [...existingWithProfiles, ...missingDefaults];
+}
+
+export function isDefaultContainerId(id) {
+  return defaultContainerById.has(id);
+}
+
+export function defaultContainerForId(id) {
+  const container = defaultContainerById.get(id);
+  return container ? withDefaultProfile(container) : null;
+}
+
+export function restoreDefaultContainer(container) {
+  const restored = defaultContainerForId(container?.id);
+  return restored || container;
 }

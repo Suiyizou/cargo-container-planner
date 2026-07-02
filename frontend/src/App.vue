@@ -77,6 +77,10 @@
             <el-icon><Document /></el-icon>
             <span>算法说明</span>
           </el-menu-item>
+          <el-menu-item index="/containers">
+            <el-icon><DataAnalysis /></el-icon>
+            <span>箱型资料</span>
+          </el-menu-item>
         </el-menu>
 
       </aside>
@@ -192,6 +196,11 @@
                     <el-slider v-model="balanceSettings.lateralOffsetLimitCm" :min="4" :max="20" :step="1" @change="markBalanceCustom" />
                   </div>
                   <div class="mini-slider-row">
+                    <span>轻载豁免</span>
+                    <el-tag size="small" type="success" effect="plain">≤ {{ formatTons(balanceSettings.skipBelowWeightKg) }}</el-tag>
+                    <el-slider v-model="balanceSettings.skipBelowWeightKg" :min="0" :max="30000" :step="1000" @change="markBalanceCustom" />
+                  </div>
+                  <div class="mini-slider-row">
                     <span>前半最大</span>
                     <el-tag size="small" effect="plain">≤ {{ balanceSettings.frontMaxPercent }}%</el-tag>
                     <el-slider v-model="balanceSettings.frontMaxPercent" :min="55" :max="70" :step="1" @change="markBalanceCustom" />
@@ -262,16 +271,23 @@
           <template #header>
             <div class="card-header-title">
               <el-icon><DataAnalysis /></el-icon>
-              <strong>箱型尺寸与信息来源</strong>
+              <strong>箱型尺寸管理</strong>
             </div>
           </template>
           <el-alert
             class="container-source-alert"
-            title="默认尺寸按公开设备规格录入，用于方案预估；实际订舱、装柜和 OOG 货物请以船司放箱柜号、场站实测和绑扎方案为准。"
+            title="默认优先推荐普柜/高柜；冷藏柜和平板柜作为特殊设备。平板柜默认不按箱体高度硬拦截，但仍需按 OOG 与绑扎方案复核。"
             type="info"
             show-icon
             :closable="false"
           />
+          <div class="container-management-actions">
+            <RouterLink to="/containers">
+              <el-button type="primary" plain :icon="DataAnalysis">查看尺寸来源资料库</el-button>
+            </RouterLink>
+            <el-button :icon="Box" @click="openContainerModal()">添加箱型</el-button>
+            <el-button :icon="Refresh" @click="resetContainers">恢复全部默认尺寸</el-button>
+          </div>
           <el-table :data="containerSourceRows" size="small" class="container-source-table">
             <el-table-column prop="name" label="箱型" min-width="130" />
             <el-table-column label="计算尺寸 cm" min-width="170">
@@ -280,23 +296,20 @@
             <el-table-column label="最大载重" width="110">
               <template #default="{ row }">{{ containerPayloadText(row) }}</template>
             </el-table-column>
-            <el-table-column label="信息来源" min-width="210">
+            <el-table-column label="属性" min-width="180">
               <template #default="{ row }">
-                <el-link
-                  v-if="row.dimensionSourceUrl"
-                  type="primary"
-                  :underline="false"
-                  :href="row.dimensionSourceUrl"
-                  target="_blank"
-                >
-                  {{ row.dimensionSource }}
-                </el-link>
-                <span v-else>{{ row.dimensionSource || "用户自定义" }}</span>
-                <small class="source-basis">{{ row.dimensionBasis || "手动录入尺寸" }}</small>
+                <el-tag size="small" :type="row.usagePriority === 'common' ? 'success' : row.usagePriority === 'special' ? 'info' : 'warning'" effect="light">
+                  {{ containerUsageText(row.usagePriority) }}
+                </el-tag>
+                <el-tag v-if="row.ignoreHeightLimit" size="small" type="warning" effect="plain">不计高度</el-tag>
+                <el-tag v-if="row.dimensionEdited" size="small" type="danger" effect="plain">已编辑</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="备注" min-width="260">
-              <template #default="{ row }">{{ row.dimensionNote || "自定义箱型，请按实际设备复核。" }}</template>
+            <el-table-column label="操作" width="210" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="openContainerModal(row)">编辑尺寸</el-button>
+                <el-button link :disabled="!isDefaultContainer(row.id)" @click="restoreContainerDefaults(row)">恢复默认</el-button>
+              </template>
             </el-table-column>
           </el-table>
         </el-card>
@@ -534,12 +547,22 @@
       key="algorithm"
       :evaluation="selectedEvaluation"
     />
+    <ContainerReferencePage
+      v-else-if="activePage === 'containers'"
+      key="containers"
+      :containers="containers"
+    />
     </Transition>
       </section>
     </div>
 
     <CargoModal v-if="cargoModalOpen" :cargo="editingCargo" @close="closeCargoModal" @save="saveCargo" />
-    <ContainerModal v-if="containerModalOpen" @close="containerModalOpen = false" @save="saveContainer" />
+    <ContainerModal
+      v-if="containerModalOpen"
+      :container="editingContainer"
+      @close="closeContainerModal"
+      @save="saveContainer"
+    />
     <div v-if="profileOpen" class="modal-backdrop profile-backdrop">
       <div class="modal profile-modal">
         <header class="profile-modal-head">
@@ -636,12 +659,13 @@ import HomePage from "./components/HomePage.vue";
 import LoginPage from "./components/LoginPage.vue";
 import CargoModal from "./components/CargoModal.vue";
 import ContainerModal from "./components/ContainerModal.vue";
+import ContainerReferencePage from "./components/ContainerReferencePage.vue";
 import ContainerScene from "./components/ContainerScene.vue";
 import { exportPackingReportsZip, exportPackingReport } from "./services/exportReport";
 import { assignCargoModels } from "./services/excelImport";
 import { buildPreviewInWorker, readWorkbookInWorker } from "./services/excelImportClient";
 import { calculatePacking, estimatePackingWorkload } from "./services/packingClient";
-import { cloneDefaultContainers, mergeDefaultContainers } from "./services/localData";
+import { cloneDefaultContainers, isDefaultContainerId, mergeDefaultContainers, restoreDefaultContainer } from "./services/localData";
 import { fetchAdminMe, logoutAdmin } from "./services/adminApi";
 import { clearSession, isSessionExpired, storedExpiresAt, storedToken, storedUser } from "./services/authSession";
 import { cargoLabel, fmt, shortType, uid } from "./utils/format";
@@ -654,7 +678,8 @@ const DEFAULT_BALANCE_SETTINGS = {
   redLimitPercent: 5,
   frontMaxPercent: 60,
   rearMinPercent40FR: 30,
-  lateralOffsetLimitCm: 8
+  lateralOffsetLimitCm: 8,
+  skipBelowWeightKg: 10000
 };
 const BALANCE_PRESETS = {
   strict: {
@@ -662,7 +687,8 @@ const BALANCE_PRESETS = {
     redLimitPercent: 4,
     frontMaxPercent: 58,
     rearMinPercent40FR: 35,
-    lateralOffsetLimitCm: 6
+    lateralOffsetLimitCm: 6,
+    skipBelowWeightKg: 8000
   },
   standard: DEFAULT_BALANCE_SETTINGS,
   loose: {
@@ -670,7 +696,8 @@ const BALANCE_PRESETS = {
     redLimitPercent: 8,
     frontMaxPercent: 65,
     rearMinPercent40FR: 25,
-    lateralOffsetLimitCm: 12
+    lateralOffsetLimitCm: 12,
+    skipBelowWeightKg: 18000
   }
 };
 
@@ -688,6 +715,7 @@ const loginRedirectText = ref("正在进入系统...");
 const routeName = computed(() => String(route.name || ""));
 const activePage = computed(() => {
   if (routeName.value.startsWith("planner")) return "planner";
+  if (routeName.value === "containers") return "containers";
   return routeName.value || "home";
 });
 const plannerMode = computed(() => {
@@ -703,12 +731,14 @@ const activePlannerStepLabel = computed(() =>
 const activeMenuIndex = computed(() => {
   if (activePage.value === "planner") return activePlannerStep.value === "results" ? "/planner/results" : "/planner/config";
   if (activePage.value === "algorithm") return "/algorithm";
+  if (activePage.value === "containers") return "/containers";
   return "/home";
 });
 const pageTitle = computed(() => ({
   home: "工作台首页",
   planner: "装箱计算",
   algorithm: "算法说明",
+  containers: "箱型资料",
   admin: "管理后台"
 }[activePage.value] || "工作台"));
 const userDisplayName = computed(() => {
@@ -746,6 +776,7 @@ const containerModalOpen = ref(false);
 const smartImportOpen = ref(false);
 const selectedCargoRows = ref<any[]>([]);
 const editingCargo = ref(null);
+const editingContainer = ref(null);
 const cargoTemplates = ref([]);
 const templateName = ref("");
 const exportingReport = ref(false);
@@ -1129,20 +1160,52 @@ function touchCargoList() {
   selectedBoxIndex.value = 1;
 }
 
-function openContainerModal() {
+function openContainerModal(container = null) {
+  editingContainer.value = container ? { ...container } : null;
   containerModalOpen.value = true;
 }
 
 function saveContainer(container) {
-  containers.value.push(container);
+  const existingIndex = containers.value.findIndex((item) => item.id === container.id);
+  const normalized = {
+    ...container,
+    dimensionEdited: isDefaultContainerId(container.id)
+  };
+  if (normalized.dimensionEdited) {
+    normalized.dimensionSource = "用户编辑尺寸";
+    normalized.dimensionBasis = "手动编辑尺寸";
+    normalized.dimensionNote = "已手动调整默认箱型尺寸，可在配置页一键恢复公开默认值。";
+  }
+  if (existingIndex >= 0) {
+    containers.value.splice(existingIndex, 1, normalized);
+  } else {
+    containers.value.push(normalized);
+  }
   selectedContainerId.value = container.id;
+  closeContainerModal();
+  showToast(existingIndex >= 0 ? "箱型尺寸已更新。" : "已加入自定义箱型。");
+}
+
+function closeContainerModal() {
   containerModalOpen.value = false;
+  editingContainer.value = null;
 }
 
 function resetContainers() {
   containers.value = cloneDefaultContainers();
   selectedContainerId.value = containers.value[0]?.id || "";
   showToast("已恢复默认箱型。");
+}
+
+function restoreContainerDefaults(container) {
+  const restored = restoreDefaultContainer(container);
+  if (!restored || !container?.id) return;
+  containers.value = containers.value.map((item) => item.id === container.id ? restored : item);
+  showToast(`${restored.name} 已恢复默认尺寸。`);
+}
+
+function isDefaultContainer(id) {
+  return isDefaultContainerId(id);
 }
 
 function applyBalancePreset(value) {
@@ -1167,7 +1230,8 @@ function normalizeBalanceSettings(settings = DEFAULT_BALANCE_SETTINGS) {
     redLimitPercent,
     frontMaxPercent: clampNumber(raw.frontMaxPercent, 55, 70, DEFAULT_BALANCE_SETTINGS.frontMaxPercent),
     rearMinPercent40FR: clampNumber(raw.rearMinPercent40FR, 20, 45, DEFAULT_BALANCE_SETTINGS.rearMinPercent40FR),
-    lateralOffsetLimitCm: clampNumber(raw.lateralOffsetLimitCm, 4, 20, DEFAULT_BALANCE_SETTINGS.lateralOffsetLimitCm)
+    lateralOffsetLimitCm: clampNumber(raw.lateralOffsetLimitCm, 4, 20, DEFAULT_BALANCE_SETTINGS.lateralOffsetLimitCm),
+    skipBelowWeightKg: clampNumber(raw.skipBelowWeightKg, 0, 30000, DEFAULT_BALANCE_SETTINGS.skipBelowWeightKg)
   };
 }
 
@@ -1446,8 +1510,22 @@ function containerPayloadText(container: any) {
   return value >= 1000 ? `${formatDimensionNumber(value / 1000)} t` : `${formatDimensionNumber(value)} kg`;
 }
 
+function containerUsageText(value: string) {
+  return {
+    common: "常用箱型",
+    limited: "少量使用",
+    special: "特殊设备"
+  }[value] || "自定义";
+}
+
 function containerSourceShort(container: any) {
   return `来源：${container?.dimensionSource || "用户自定义"}`;
+}
+
+function formatTons(value: unknown) {
+  const kg = Number(value || 0);
+  if (!Number.isFinite(kg) || kg <= 0) return "不豁免";
+  return `${formatDimensionNumber(kg / 1000)} t`;
 }
 
 function formatDimensionNumber(value: unknown) {

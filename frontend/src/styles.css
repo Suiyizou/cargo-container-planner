@@ -1519,8 +1519,19 @@ select {
   margin-bottom: 12px;
 }
 
+.container-management-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
 .container-source-table {
   width: 100%;
+}
+
+.container-source-table .el-tag + .el-tag {
+  margin-left: 6px;
 }
 
 .source-basis {
@@ -1529,6 +1540,160 @@ select {
   color: #718096;
   font-size: 12px;
   line-height: 1.35;
+}
+
+.container-reference-page {
+  display: grid;
+  gap: 16px;
+}
+
+.container-reference-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.container-reference-card {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid #d7e4f2;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(15, 34, 60, 0.06);
+}
+
+.container-model-stage {
+  display: grid;
+  place-items: center;
+  min-height: 150px;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #eff6ff, #f8fafc);
+  overflow: hidden;
+  perspective: 520px;
+}
+
+.container-model {
+  position: relative;
+  width: 112px;
+  height: 72px;
+  transform-style: preserve-3d;
+  transform: rotateX(-18deg) rotateY(-28deg);
+}
+
+.model-face {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(22, 93, 255, 0.3);
+  background: repeating-linear-gradient(90deg, #2f73b7 0 9px, #367ec2 9px 12px);
+  color: #fff;
+  font-weight: 900;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+.model-face.front {
+  width: 66px;
+  height: 72px;
+  transform: translateZ(56px);
+  border-radius: 7px;
+}
+
+.model-face.side {
+  width: 112px;
+  height: 72px;
+  transform: rotateY(90deg) translateZ(10px);
+  transform-origin: left center;
+}
+
+.model-face.top {
+  width: 112px;
+  height: 66px;
+  transform: rotateX(90deg) translateZ(33px);
+  transform-origin: center top;
+  opacity: 0.82;
+}
+
+.container-model.reefer .model-face {
+  background: repeating-linear-gradient(90deg, #5c8fd3 0 9px, #78a7df 9px 12px);
+}
+
+.container-model.high-cube .model-face {
+  background: repeating-linear-gradient(90deg, #2b66a0 0 9px, #3374ad 9px 12px);
+}
+
+.container-model.flat-rack .model-face {
+  background: #315f8f;
+}
+
+.container-model.flat-rack .model-face.top {
+  display: none;
+}
+
+.container-model.flat-rack .model-face.side {
+  height: 24px;
+  transform: rotateY(90deg) translateZ(10px) translateY(48px);
+}
+
+.container-model.flat-rack .model-face.front {
+  height: 34px;
+  transform: translateZ(56px) translateY(38px);
+}
+
+.container-reference-body {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.container-reference-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.container-reference-head h3 {
+  margin: 8px 0 0;
+  color: #102033;
+  font-size: 19px;
+}
+
+.container-reference-specs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.container-reference-specs div {
+  padding: 10px;
+  border: 1px solid #deebf8;
+  border-radius: 10px;
+  background: #f8fbff;
+}
+
+.container-reference-specs dt {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.container-reference-specs dd {
+  margin: 3px 0 0;
+  color: #102033;
+  font-weight: 800;
+}
+
+.container-reference-note {
+  margin: 0;
+  color: #52677f;
+  line-height: 1.6;
+}
+
+.container-reference-custom-source {
+  color: #64748b;
+  font-size: 14px;
 }
 
 .result-summary-panel {
@@ -3648,6 +3813,7 @@ select {
   .algorithm-grid,
   .template-grid,
   .planner-config-grid,
+  .container-reference-grid,
   .balance-setting-grid,
   .excel-entry-grid,
   .excel-workspace-layout,
