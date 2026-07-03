@@ -83,6 +83,8 @@
 
 <script setup>
 import { computed, reactive, ref } from "vue";
+import { currentLocale } from "../i18n";
+import { translateLegacyText } from "../i18n/legacyText";
 
 const STORAGE_KEY = "cargo-planner-user-profile";
 const props = defineProps({
@@ -95,9 +97,9 @@ const emit = defineEmits(["save-settings"]);
 
 const profile = reactive(loadProfile());
 const message = ref("");
-const greetingName = computed(() => props.user?.displayName || props.user?.username || profile.displayName || "操作员");
+const greetingName = computed(() => profile.displayName || props.user?.displayName || props.user?.username || "操作员");
 const todayText = computed(() =>
-  new Intl.DateTimeFormat("zh-CN", {
+  new Intl.DateTimeFormat(currentLocale.value === "en-US" ? "en-US" : "zh-CN", {
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -133,7 +135,7 @@ function saveProfile() {
     utilizationPercent: profile.utilizationPercent,
     globalGapCm: profile.globalGapCm
   });
-  message.value = "偏好已保存";
+  message.value = translateLegacyText("偏好已保存", currentLocale.value);
   window.clearTimeout(saveProfile.timer);
   saveProfile.timer = window.setTimeout(() => (message.value = ""), 1800);
 }

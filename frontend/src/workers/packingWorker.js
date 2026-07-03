@@ -12,7 +12,7 @@ const MAX_DETAILED_BOXES = 24;
 const LOCAL_SEARCH_PASSES = 5;
 const GROUPING_MIN_TOTAL_UNITS = 120;
 const GROUPING_MIN_CARGO_QUANTITY = 24;
-const GROUPING_MAX_BLOCK_QUANTITY = 16;
+const GROUPING_MAX_BLOCK_QUANTITY = 4;
 const MIXED_PLAN_MAX_SOLVER_UNITS = 120;
 const BALANCE_GREEN_LIMIT_PERCENT = 2.5;
 const BALANCE_RED_LIMIT_PERCENT = 5;
@@ -46,17 +46,64 @@ const SEARCH_STRATEGIES = [
   { id: "blue-vertical", name: "蓝色/小件竖放支撑", unitOrder: "small-vertical", pointOrder: "support", blueVertical: true }
 ];
 
+let activeTrace = null;
+
 const workerScope = typeof self !== "undefined" ? self : null;
 if (workerScope?.addEventListener) {
   workerScope.onmessage = (event) => {
     const { id, payload } = event.data || {};
+    const trace = createWorkerTrace(id, payload?.traceOptions);
+    activeTrace = trace;
     try {
       const result = calculate(payload || {});
+      trace.flush();
       workerScope.postMessage({ id, type: "result", result });
     } catch (error) {
+      trace.flush();
       workerScope.postMessage({ id, type: "error", message: error.message || "本机计算失败" });
+    } finally {
+      activeTrace = null;
     }
   };
+}
+
+function createWorkerTrace(id, options = {}) {
+  const enabled = Boolean(options?.enabled) && Boolean(workerScope?.postMessage);
+  const maxEntries = Math.min(600, Math.max(40, Math.floor(Number(options?.maxEntries || 240))));
+  const batchSize = Math.min(40, Math.max(6, Math.floor(Number(options?.batchSize || 12))));
+  const buffer = [];
+  let emitted = 0;
+  let dropped = 0;
+
+  return {
+    log(entry) {
+      if (!enabled || !entry?.text) return;
+      if (emitted >= maxEntries) {
+        dropped += 1;
+        return;
+      }
+      emitted += 1;
+      buffer.push({
+        index: emitted,
+        phase: entry.phase || "search",
+        level: entry.level || "summary",
+        text: String(entry.text)
+      });
+      if (buffer.length >= batchSize) this.flush();
+    },
+    flush() {
+      if (!enabled || !buffer.length) return;
+      const decisions = buffer.splice(0);
+      workerScope.postMessage({ id, type: "decision", decisions });
+    },
+    droppedCount() {
+      return dropped;
+    }
+  };
+}
+
+function traceDecision(entry) {
+  activeTrace?.log(entry);
 }
 
 export function calculate(request = {}) {
@@ -66,19 +113,55 @@ export function calculate(request = {}) {
   const utilization = safeUtilizationPercent(request.utilizationPercent);
   const balanceSettings = normalizeBalanceSettings(request.balanceSettings);
   const evaluations = [];
+  traceDecision({
+    phase: "start",
+    level: "summary",
+    text: `开始本机装箱：${cargos.length} 类货物 / ${total.totalQuantity} 件，评估 ${(request.containers || []).length} 个箱型；轻载阈值 ${round(balanceSettings.skipBelowWeightKg / 1000)}t。`
+  });
 
   for (const container of request.containers || []) {
     const runtimeContainer = { ...container, balanceSettings };
+    traceDecision({
+      phase: "container",
+      level: "summary",
+      text: `评估箱型：${container.name}，内尺寸 ${round(container.lengthCm)}×${round(container.widthCm)}×${round(container.heightCm)}cm，最大载重 ${round(Number(container.payloadKg || 0) / 1000)}t。`
+    });
     const units = buildUnits(cargos, globalGapCm, runtimeContainer, total);
+    traceDecision({
+      phase: "prepare",
+      level: "summary",
+      text: units.length < total.totalQuantity
+        ? `${container.name} · 启用同规格块化：原始 ${total.totalQuantity} 件压缩为 ${units.length} 个搜索单元，最大组合块 ${GROUPING_MAX_BLOCK_QUANTITY} 件。`
+        : `${container.name} · 保持单件搜索：共 ${units.length} 个搜索单元。`
+    });
     const evaluation = evaluateContainer(runtimeContainer, units, total, utilization, globalGapCm);
     evaluation.container = { ...container };
     evaluations.push(evaluation);
+    traceDecision({
+      phase: "container",
+      level: "summary",
+      text: `${container.name} · 计算完成：${evaluation.fitStatus === FIT_STATUS.FIT ? "可装" : evaluation.fitStatus === FIT_STATUS.BALANCE_BLOCKED ? "偏载拦截" : "不可装"}，${evaluation.boxes > 0 ? `${evaluation.boxes} 箱` : "未形成完整方案"}，首箱利用率 ${round(evaluation.firstBoxFillPercent)}%，平均利用率 ${round(evaluation.averageFillPercent)}%。`
+    });
   }
 
   const mixedEvaluation = safeBuildMixedContainerEvaluation(request.containers || [], cargos, total, utilization, globalGapCm, balanceSettings);
-  if (mixedEvaluation) evaluations.push(mixedEvaluation);
+  if (mixedEvaluation) {
+    evaluations.push(mixedEvaluation);
+    traceDecision({
+      phase: "recommendation",
+      level: "summary",
+      text: `智能组合候选：${mixedEvaluation.mixedPlan?.summary || "组合方案"}，${mixedEvaluation.boxes} 箱，平均利用率 ${round(mixedEvaluation.averageFillPercent)}%。`
+    });
+  }
 
   evaluations.sort(compareEvaluation);
+  traceDecision({
+    phase: "recommendation",
+    level: "summary",
+    text: evaluations[0]
+      ? `推荐结果：${evaluations[0].mixedPlan?.summary || evaluations[0].container.name}，${evaluations[0].boxes > 0 ? `${evaluations[0].boxes} 箱` : "暂无完整方案"}，综合评分 ${round(evaluations[0].recommendation?.score)}。`
+      : "没有生成可推荐方案。"
+  });
   return {
     bestContainerId: evaluations[0]?.container.id || null,
     evaluations
@@ -223,6 +306,11 @@ function packMultiple(container, allUnits) {
   let remainingUnitCountAfterDetailed = 0;
 
   for (let boxIndex = 0; remaining.length && boxIndex < MAX_DETAILED_BOXES; boxIndex += 1) {
+    traceDecision({
+      phase: "box",
+      level: "summary",
+      text: `${container.name} · 第 ${boxIndex + 1} 货舱开始：剩余 ${sumUnitQuantity(remaining)} 件 / ${remaining.length} 个搜索单元。`
+    });
     const packed = packContainer(container, remaining);
     if (boxIndex === 0) firstBox = packed;
     if (!packed.placed.length) {
@@ -233,6 +321,11 @@ function packMultiple(container, allUnits) {
       balanceBlocked = true;
     }
     packedBoxes.push(packed);
+    traceDecision({
+      phase: "box",
+      level: "summary",
+      text: `${container.name} · 第 ${boxIndex + 1} 货舱完成：装入 ${sumUnitQuantity(packed.placed)} 件，剩余 ${sumUnitQuantity(packed.unplaced)} 件，采用「${packed.strategyName || "未知策略"}」。`
+    });
     const placedIds = new Set(packed.placed.map((unit) => unit.unitKey));
     remaining = remaining.filter((unit) => !placedIds.has(unit.unitKey));
   }
@@ -589,15 +682,31 @@ function packContainer(container, units) {
   const attempts = [];
   let rejectedByBalance = 0;
   for (const strategy of SEARCH_STRATEGIES) {
+    traceDecision({
+      phase: "strategy",
+      level: "summary",
+      text: `${container.name} · 尝试策略「${strategy.name}」：按 ${strategy.unitOrder === "footprint" ? "底面积/体积" : strategy.unitOrder === "height" ? "高度" : strategy.unitOrder === "support" ? "可承重与重量" : "规则"} 排序。`
+    });
     const ordered = orderUnits(units, strategy.unitOrder);
     let attempt = packLayerLaff(container, ordered, strategy);
     if (attempt.unplaced.length) {
+      const beforeRepair = sumUnitQuantity(attempt.unplaced);
       attempt = repairWithLocalSearch(container, attempt, ordered, strategy);
+      traceDecision({
+        phase: "repair",
+        level: "summary",
+        text: `${container.name} · 策略「${strategy.name}」进入局部搜索：原剩余 ${beforeRepair} 件，回填后剩余 ${sumUnitQuantity(attempt.unplaced)} 件，执行 ${attempt.strategySummary?.refillPasses || 0} 轮。`
+      });
     }
     attempt = centerPackedLayout(container, attempt, strategy);
     attempt = withBalanceValidation(container, attempt, rejectedByBalance);
     if (attempt.balanceValidation?.severity === "red") rejectedByBalance += 1;
     attempts.push(attempt);
+    traceDecision({
+      phase: "strategy",
+      level: "summary",
+      text: `${container.name} · 策略「${strategy.name}」结果：装入 ${sumUnitQuantity(attempt.placed)} 件，剩余 ${sumUnitQuantity(attempt.unplaced)} 件，${attempt.strategySummary?.layerCount || 0} 层，偏载 ${balanceDecisionText(attempt.balanceValidation)}。`
+    });
     if (!attempt.unplaced.length && attempt.balanceValidation?.severity !== "red") break;
   }
 
@@ -631,16 +740,18 @@ function packLayerLaff(container, units, strategy) {
   const placed = [];
   const unplaced = [];
   const active = units.map(copyUnit);
+  let nextLayerBottom = 0;
+  let layerNo = 0;
 
   while (active.length) {
-    const seedIndex = pickLayerSeedIndex(active, container, placed, strategy);
+    const seedIndex = pickLayerSeedIndex(active, container, placed, strategy, { layerBottom: nextLayerBottom });
     if (seedIndex < 0) {
       unplaced.push(...active.splice(0));
       break;
     }
 
     const seed = active.splice(seedIndex, 1)[0];
-    const seedPlacement = packExtremePoint(container, placed, seed, strategy);
+    const seedPlacement = packExtremePoint(container, placed, seed, strategy, { layerBottom: nextLayerBottom });
     if (!seedPlacement) {
       unplaced.push(seed);
       continue;
@@ -648,21 +759,53 @@ function packLayerLaff(container, units, strategy) {
 
     const placedSeed = applyPlacement(seed, seedPlacement);
     placed.push(placedSeed);
+    const layerBottom = placedSeed.z;
+    const layerTop = placedSeed.z + placedSeed.heightCm;
+    layerNo += 1;
+    let layerPlacedQuantity = unitQuantity(placedSeed);
+    traceDecision({
+      phase: "layer",
+      level: "summary",
+      text: `${container.name} · ${strategy.name} · 第 ${layerNo} 层选种子：${decisionUnitName(seed)} ${decisionDims(seedPlacement)}，底面积 ${round(seedPlacement.lengthCm * seedPlacement.widthCm)}cm²，放置 ${decisionPoint(seedPlacement)}，层高上限 z=${round(layerTop)}cm。`
+    });
 
     let changed = true;
     while (changed) {
       changed = false;
-      const layerCandidates = orderLayerCandidates(active, placedSeed.z, null, strategy);
+      const layerCandidates = orderLayerCandidates(active, layerBottom, layerTop, strategy);
       for (const unit of layerCandidates) {
         const index = active.findIndex((item) => item.unitKey === unit.unitKey);
         if (index < 0) continue;
-        const placement = packExtremePoint(container, placed, unit, strategy);
+        const placement = packExtremePoint(container, placed, unit, strategy, { layerBottom, layerTop });
         if (!placement) continue;
         active.splice(index, 1);
         placed.push(applyPlacement(unit, placement));
+        layerPlacedQuantity += unitQuantity(unit);
+        traceDecision({
+          phase: "placement",
+          level: "detail",
+          text: `${container.name} · 第 ${layerNo} 层装入：${decisionUnitName(unit)} ${decisionDims(placement)} → ${decisionPoint(placement)}，不超过当前层高 ${round(layerTop - layerBottom)}cm。`
+        });
         changed = true;
       }
     }
+
+    const skippedByHeight = active.filter((unit) =>
+      !unit.orientations.some((dims) => dims.heightCm <= layerTop - layerBottom + EPS)
+    ).length;
+    if (skippedByHeight) {
+      traceDecision({
+        phase: "layer",
+        level: "summary",
+        text: `${container.name} · 第 ${layerNo} 层跳过 ${skippedByHeight} 个较高搜索单元：高度超过本层 ${round(layerTop - layerBottom)}cm，保留到下一层继续作为候选。`
+      });
+    }
+    traceDecision({
+      phase: "layer",
+      level: "summary",
+      text: `${container.name} · 第 ${layerNo} 层完成：本层装入 ${layerPlacedQuantity} 件，累计 ${sumUnitQuantity(placed)} 件，剩余 ${sumUnitQuantity(active)} 件；下一层从 z=${round(layerTop)}cm 开始。`
+    });
+    nextLayerBottom = Math.max(nextLayerBottom, layerTop);
   }
 
   const valid = validateAllPlacements(container, placed);
@@ -788,12 +931,12 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function pickLayerSeedIndex(units, container, placed, strategy) {
+function pickLayerSeedIndex(units, container, placed, strategy, options = {}) {
   let best = -1;
   let bestScore = Infinity;
   for (let i = 0; i < units.length; i += 1) {
     const unit = units[i];
-    const placement = packExtremePoint(container, placed, unit, strategy);
+    const placement = packExtremePoint(container, placed, unit, strategy, options);
     if (!placement) continue;
     const area = placement.lengthCm * placement.widthCm;
     const score = placement.z * 1_000_000 - area * 100 - placement.heightCm;
@@ -821,13 +964,18 @@ function orderLayerCandidates(units, layerBottom, layerTop, strategy) {
 function extremePoints(container, placed, dims, options = {}) {
   const points = new Map();
   const heightLimit = containerHeightLimit(container);
+  const layerBottom = Number(options.layerBottom);
+  const hasLayerBottom = Number.isFinite(layerBottom);
+  const layerTop = Number(options.layerTop);
+  const hasLayerTop = Number.isFinite(layerTop);
   const add = (x, y, z) => {
     const point = { x: round3(x), y: round3(y), z: round3(z) };
     if (point.x < -EPS || point.y < -EPS || point.z < -EPS) return;
     if (point.x + dims.lengthCm > container.lengthCm + EPS) return;
     if (point.y + dims.widthCm > container.widthCm + EPS) return;
     if (point.z + dims.heightCm > heightLimit + EPS) return;
-    if (options.layerTop && point.z + dims.heightCm > options.layerTop + EPS) return;
+    if (hasLayerBottom && point.z < layerBottom - EPS) return;
+    if (hasLayerTop && point.z + dims.heightCm > layerTop + EPS) return;
     points.set(`${point.x}/${point.y}/${point.z}`, point);
   };
 
@@ -937,6 +1085,16 @@ function orderUnits(units, strategyId) {
       const heightDiff = tallestOrientation(b) - tallestOrientation(a);
       if (Math.abs(heightDiff) > EPS) return heightDiff;
     }
+    if (strategyId === "footprint") {
+      const areaDiff = maxFootprint(b) - maxFootprint(a);
+      if (Math.abs(areaDiff) > EPS) return areaDiff;
+      const volumeDiff = unitVolumeCm3(b) - unitVolumeCm3(a);
+      if (Math.abs(volumeDiff) > EPS) return volumeDiff;
+      const weightDiff = Number(b.weightKg || 0) - Number(a.weightKg || 0);
+      if (Math.abs(weightDiff) > EPS) return weightDiff;
+      if (a.cargoIndex !== b.cargoIndex) return a.cargoIndex - b.cargoIndex;
+      return a.itemIndex - b.itemIndex;
+    }
     const weightDiff = Number(b.weightKg || 0) - Number(a.weightKg || 0);
     if (Math.abs(weightDiff) > EPS) return weightDiff;
     const areaDiff = maxFootprint(b) - maxFootprint(a);
@@ -954,11 +1112,13 @@ function comparePackAttempt(container) {
     if (balanceRankDiff) return balanceRankDiff;
     const balanceScoreDiff = Number(a.balanceValidation?.score || 0) - Number(b.balanceValidation?.score || 0);
     if (Math.abs(balanceScoreDiff) > EPS) return balanceScoreDiff;
+    const occupiedDiff = sumOccupiedVolumeM3(b.placed) - sumOccupiedVolumeM3(a.placed);
+    if (Math.abs(occupiedDiff) > EPS) return occupiedDiff;
+    const rawVolumeDiff = sumCargoVolumeM3(b.placed) - sumCargoVolumeM3(a.placed);
+    if (Math.abs(rawVolumeDiff) > EPS) return rawVolumeDiff;
     const aPlacedCount = sumUnitQuantity(a.placed);
     const bPlacedCount = sumUnitQuantity(b.placed);
     if (aPlacedCount !== bPlacedCount) return bPlacedCount - aPlacedCount;
-    const occupiedDiff = sumOccupiedVolumeM3(b.placed) - sumOccupiedVolumeM3(a.placed);
-    if (Math.abs(occupiedDiff) > EPS) return occupiedDiff;
     const supportDiff = supportSurfaceScore(b.placed, container) - supportSurfaceScore(a.placed, container);
     if (Math.abs(supportDiff) > EPS) return supportDiff;
     const topDiff = maxTop(a.placed) - maxTop(b.placed);
@@ -1632,7 +1792,7 @@ function buildRecommendation(evaluation) {
   const tightPenalty = Math.max(0, fill - UTILIZATION_HIGH_WARN_PERCENT) * 8;
   const targetPenalty = Math.abs(fill - RECOMMENDATION_TARGET_FILL_PERCENT) * 5;
   const lowUseLargeBoxPenalty = fill < 60 && ["45HQ", "FR", "RF"].includes(meta.equipmentClass) ? (60 - fill) * 55 : 0;
-  const specialEquipmentPenalty = meta.equipmentClass === "MIX" ? 0 : meta.equipmentClass === "FR" ? 4200 : meta.equipmentClass === "RF" ? 3200 : meta.equipmentClass === "45HQ" ? 900 : 0;
+  const specialEquipmentPenalty = meta.equipmentClass === "MIX" ? 0 : meta.equipmentClass === "FR" ? 4200 : meta.equipmentClass === "RF" ? 3200 : meta.equipmentClass === "45HQ" ? 180 : 0;
   const balancePenalty = evaluation.fitStatus === FIT_STATUS.BALANCE_BLOCKED
     ? 50000
     : evaluation.packedBoxes?.some((box) => box.balanceValidation?.severity === "yellow")
@@ -1941,6 +2101,29 @@ function countBy(items, key) {
     acc[value] = (acc[value] || 0) + 1;
     return acc;
   }, {});
+}
+
+function decisionUnitName(unit) {
+  const quantity = unitQuantity(unit);
+  const group = quantity > 1 ? `组合${quantity}件` : "单件";
+  return `[${unit?.name || "未命名货物"} · ${group} · ${round(unit?.weightKg || 0)}kg]`;
+}
+
+function decisionDims(item) {
+  return `${round(item?.lengthCm)}×${round(item?.widthCm)}×${round(item?.heightCm)}cm`;
+}
+
+function decisionPoint(point) {
+  return `(${round(point?.x)}, ${round(point?.y)}, ${round(point?.z)})`;
+}
+
+function balanceDecisionText(validation) {
+  if (!validation?.valid) return "无重量数据";
+  if (validation.balanceExempt || validation.severity === "exempt") return "轻载豁免";
+  if (validation.severity === "green") return "绿色合规";
+  if (validation.severity === "yellow") return "黄色预警";
+  if (validation.severity === "red") return "红色拦截";
+  return validation.severity || "未知";
 }
 
 function unitQuantity(unit) {

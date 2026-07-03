@@ -1,7 +1,7 @@
 let currentWorker = null;
 let currentJobId = 0;
 
-export function calculatePacking(payload) {
+export function calculatePacking(payload, options = {}) {
   if (currentWorker) {
     currentWorker.terminate();
     currentWorker = null;
@@ -10,6 +10,7 @@ export function calculatePacking(payload) {
   const jobId = ++currentJobId;
   currentWorker = new Worker(new URL("../workers/packingWorker.js", import.meta.url), { type: "module" });
   const timeoutMs = packingTimeoutMs(payload);
+  const onDecision = typeof options.onDecision === "function" ? options.onDecision : null;
 
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => {
@@ -18,8 +19,12 @@ export function calculatePacking(payload) {
     }, timeoutMs);
 
     currentWorker.onmessage = (event) => {
-      const { id, type, result, message } = event.data || {};
+      const { id, type, result, message, decisions } = event.data || {};
       if (id !== jobId) return;
+      if (type === "decision") {
+        onDecision?.(Array.isArray(decisions) ? decisions : []);
+        return;
+      }
       window.clearTimeout(timer);
       cleanup();
       if (type === "result") resolve(result);
@@ -32,7 +37,17 @@ export function calculatePacking(payload) {
       reject(new Error(error.message || "本机计算失败"));
     };
 
-    currentWorker.postMessage({ id: jobId, payload: toWorkerPayload(payload) });
+    currentWorker.postMessage({
+      id: jobId,
+      payload: {
+        ...toWorkerPayload(payload),
+        traceOptions: {
+          enabled: Boolean(onDecision),
+          maxEntries: Number(options.maxDecisionEntries || 240),
+          batchSize: Number(options.decisionBatchSize || 12)
+        }
+      }
+    });
   });
 }
 
@@ -60,7 +75,7 @@ export function estimatePackingWorkload(payload = {}) {
   const groupingEnabled = rawUnitCount >= 120;
   const solverUnitCount = cargos.reduce((sum, cargo) => {
     const quantity = Math.max(0, Math.floor(Number(cargo.quantity || 0)));
-    if (groupingEnabled && quantity >= 24) return sum + Math.ceil(quantity / 16);
+    if (groupingEnabled && quantity >= 24) return sum + Math.ceil(quantity / 4);
     return sum + quantity;
   }, 0);
   const typeFactor = Math.max(1, Math.log2(typeCount + 1));

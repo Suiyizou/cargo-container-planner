@@ -487,13 +487,15 @@ import {
   updateEmployee,
   updateLlmSettings
 } from "../services/adminApi";
+import { currentLocale } from "../i18n";
+import { translateLegacyText } from "../i18n/legacyText";
 
 const props = defineProps({
   currentUser: { type: Object, default: null }
 });
 const emit = defineEmits(["logout", "user-updated"]);
 
-const adminPages = [
+const rawAdminPages = [
   { key: "overview", no: "01", label: "后台概览", description: "指标与运行监控", eyebrow: "Admin Console", title: "后台总览", subtitle: "查看账号、设备、接口运行的关键状态。" },
   { key: "employees", no: "02", label: "员工管理", description: "账号与角色", eyebrow: "Employee Management", title: "员工管理", subtitle: "创建员工账号，调整角色与启用状态。" },
   { key: "devices", no: "03", label: "设备登录", description: "IP 与在线设备", eyebrow: "Device Sessions", title: "设备与登录", subtitle: "查看当前登录设备、IP、会话状态并执行下线。" },
@@ -521,8 +523,15 @@ const llmForm = reactive({
   clearApiKey: false
 });
 
+const adminPages = computed(() => rawAdminPages.map((item) => ({
+  ...item,
+  label: tr(item.label),
+  description: tr(item.description),
+  title: tr(item.title),
+  subtitle: tr(item.subtitle)
+})));
 const activePageMeta = computed(() =>
-  adminPages.find((item) => item.key === activeAdminPage.value) || adminPages[0]
+  adminPages.value.find((item) => item.key === activeAdminPage.value) || adminPages.value[0]
 );
 const displayAdminName = computed(() => repairMojibake(currentUser.value?.displayName || "管理员"));
 const normalizedEmployees = computed(() => employees.value.map(normalizeDisplayName));
@@ -531,9 +540,9 @@ const onlineDevices = computed(() => normalizedDevices.value.filter((device) => 
 const recentEvents = computed(() => monitoring.value?.recentEvents || []);
 const topEndpoints = computed(() => monitoring.value?.runtime?.topEndpoints || []);
 const llmStatusText = computed(() => {
-  if (!llmSettings.value) return "未加载";
-  if (!llmSettings.value.enabled) return "已关闭";
-  return llmSettings.value.apiKeyConfigured ? "已启用" : "缺少 Key";
+  if (!llmSettings.value) return tr("未加载");
+  if (!llmSettings.value.enabled) return tr("已关闭");
+  return tr(llmSettings.value.apiKeyConfigured ? "已启用" : "缺少 Key");
 });
 const heapPercent = computed(() => {
   const used = Number(monitoring.value?.runtime?.heapUsedMb || 0);
@@ -696,7 +705,7 @@ async function withLoading(action) {
     await action();
   } catch (error) {
     hasError.value = true;
-    message.value = error.message || "操作失败";
+    message.value = tr(error.message || "操作失败");
   } finally {
     loading.value = false;
   }
@@ -704,7 +713,7 @@ async function withLoading(action) {
 
 function showMessage(text) {
   hasError.value = false;
-  message.value = text;
+  message.value = tr(text);
 }
 
 function normalizeDisplayName(record) {
@@ -738,15 +747,15 @@ function countChinese(text) {
 }
 
 function roleText(role) {
-  return role === "ADMIN" ? "管理员" : "员工";
+  return tr(role === "ADMIN" ? "管理员" : "员工");
 }
 
 function statusText(status) {
-  return status === "ACTIVE" ? "启用" : "禁用";
+  return tr(status === "ACTIVE" ? "启用" : "禁用");
 }
 
 function eventTypeText(type) {
-  return {
+  const labels = {
     LOGIN_SUCCESS: "登录成功",
     LOGIN_FAIL: "登录失败",
     LOGOUT: "退出登录",
@@ -754,7 +763,8 @@ function eventTypeText(type) {
     RESET_PASSWORD: "重置密码",
     DELETE_DEVICE: "删除设备",
     DEVICE_LIMIT: "设备限流"
-  }[type] || type || "-";
+  };
+  return tr(labels[type] || type || "-");
 }
 
 function eventClass(type) {
@@ -771,12 +781,16 @@ function eventClass(type) {
 
 function formatDate(value) {
   if (!value) return "-";
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(currentLocale.value === "en-US" ? "en-US" : "zh-CN", {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit"
   }).format(new Date(value));
+}
+
+function tr(value) {
+  return translateLegacyText(value, currentLocale.value);
 }
 
 const CP1252_BYTES = {
