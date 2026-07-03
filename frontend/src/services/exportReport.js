@@ -7,20 +7,52 @@ const PAGE_WIDTH = 1800;
 const CARD_RADIUS = 18;
 
 export async function exportPackingReport(options) {
-  if (!options?.container || !options?.placements?.length) {
+  if (!options?.container) {
+    throw new Error("当前货舱没有可导出的摆放结果。");
+  }
+  if (options.format !== "pdf" && !options?.placements?.length) {
     throw new Error("当前货舱没有可导出的摆放结果。");
   }
   if (document.fonts?.ready) await document.fonts.ready;
 
-  const canvas = renderReportCanvas(options);
-  const fileBase = reportFileBase(options);
   if (options.format === "pdf") {
-    const pdfBlob = await createPdfFromCanvas(canvas);
-    downloadBlob(pdfBlob, `${fileBase}.pdf`);
+    const generatedAt = new Date();
+    const boxes = collectReportBoxes(options);
+    if (!boxes.length) throw new Error("当前方案没有可导出的货舱报告。");
+    const canvases = boxes.map((box) => renderReportCanvas({
+      ...options,
+      container: box.container,
+      placements: box.placements,
+      boxIndex: box.index,
+      generatedAt
+    }));
+    const pdfBlob = await createPdfFromCanvases(canvases);
+    downloadBlob(pdfBlob, `${multiReportFileBase(options, generatedAt)}.pdf`);
     return;
   }
+  const canvas = renderReportCanvas(options);
+  const fileBase = reportFileBase(options);
   const imageBlob = await canvasToBlob(canvas, "image/png", 1);
   downloadBlob(imageBlob, `${fileBase}.png`);
+}
+
+function collectReportBoxes(options) {
+  const boxes = [...(options?.evaluation?.packedBoxes || [])]
+    .filter((box) => box?.placed?.length)
+    .sort((a, b) => Number(a.index || 0) - Number(b.index || 0))
+    .map((box, index) => ({
+      index: Number(box.index || index + 1),
+      container: box.container || options.container,
+      placements: box.placed || []
+    }));
+  if (boxes.length) return boxes;
+  return options?.placements?.length
+    ? [{
+      index: Number(options.boxIndex || 1),
+      container: options.container,
+      placements: options.placements
+    }]
+    : [];
 }
 
 export async function exportPackingReportsZip(options) {
@@ -33,15 +65,17 @@ export async function exportPackingReportsZip(options) {
   const files = [];
   for (const box of boxes) {
     if (!box.placed?.length) continue;
+    const boxContainer = box.container || options.container;
     const canvas = renderReportCanvas({
       ...options,
+      container: boxContainer,
       placements: box.placed,
       boxIndex: box.index,
       generatedAt
     });
     const blob = await canvasToBlob(canvas, "image/png", 1);
     files.push({
-      name: `${reportFileBase({ ...options, boxIndex: box.index, generatedAt })}.png`,
+      name: `${reportFileBase({ ...options, container: boxContainer, boxIndex: box.index, generatedAt })}.png`,
       blob
     });
   }
@@ -65,7 +99,7 @@ export function renderReportCanvas(options) {
   const canvas = document.createElement("canvas");
   canvas.width = PAGE_WIDTH;
   canvas.height = height;
-  const ctx = localizeCanvasContext(canvas.getContext("2d"));
+  const ctx = localizeCanvasContext(canvas.getContext("2d"), options.locale);
 
   ctx.fillStyle = "#f4f7fb";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -118,7 +152,7 @@ function drawHeader(ctx, options, catalog, layers) {
   ctx.fillText(`${options.container?.name || "-"} · 第 ${options.boxIndex || 1} 货舱`, rightX, 58);
   ctx.fillStyle = "#52657b";
   ctx.font = "400 17px Microsoft YaHei, Arial";
-  ctx.fillText(`生成时间：${(options.generatedAt || new Date()).toLocaleString("zh-CN")}`, rightX, 92);
+  ctx.fillText(`生成时间：${(options.generatedAt || new Date()).toLocaleString(reportLocale(options.locale))}`, rightX, 92);
   ctx.fillText(`货物类别：${catalog.length} 类 · 分层数量：${layers.length} 层`, rightX, 122);
 }
 
@@ -899,21 +933,29 @@ function wrapText(ctx, text, x, y, maxWidth, lineHeight, maxLines = 2) {
 }
 
 async function createPdfFromCanvas(sourceCanvas) {
+  return createPdfFromCanvases([sourceCanvas]);
+}
+
+async function createPdfFromCanvases(sourceCanvases) {
   const pageWidthPt = 595.28;
   const pageHeightPt = 841.89;
-  const sliceHeight = Math.floor(sourceCanvas.width * (pageHeightPt / pageWidthPt));
+  const sourceWidth = sourceCanvases[0]?.width || PAGE_WIDTH;
+  const sliceHeight = Math.floor(sourceWidth * (pageHeightPt / pageWidthPt));
   const pages = [];
-  for (let y = 0; y < sourceCanvas.height; y += sliceHeight) {
-    const sliceCanvas = document.createElement("canvas");
-    sliceCanvas.width = sourceCanvas.width;
-    sliceCanvas.height = sliceHeight;
-    const ctx = sliceCanvas.getContext("2d");
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
-    ctx.drawImage(sourceCanvas, 0, y, sourceCanvas.width, Math.min(sliceHeight, sourceCanvas.height - y), 0, 0, sourceCanvas.width, Math.min(sliceHeight, sourceCanvas.height - y));
-    pages.push(base64ToBytes(sliceCanvas.toDataURL("image/jpeg", 0.92).split(",")[1]));
+  for (const sourceCanvas of sourceCanvases) {
+    for (let y = 0; y < sourceCanvas.height; y += sliceHeight) {
+      const sliceCanvas = document.createElement("canvas");
+      sliceCanvas.width = sourceWidth;
+      sliceCanvas.height = sliceHeight;
+      const ctx = sliceCanvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+      const drawHeight = Math.min(sliceHeight, sourceCanvas.height - y);
+      ctx.drawImage(sourceCanvas, 0, y, sourceCanvas.width, drawHeight, 0, 0, sourceWidth, drawHeight);
+      pages.push(base64ToBytes(sliceCanvas.toDataURL("image/jpeg", 0.92).split(",")[1]));
+    }
   }
-  return buildPdf(pages, sourceCanvas.width, sliceHeight, pageWidthPt, pageHeightPt);
+  return buildPdf(pages, sourceWidth, sliceHeight, pageWidthPt, pageHeightPt);
 }
 
 function buildPdf(images, imageWidth, imageHeight, pageWidthPt, pageHeightPt) {
@@ -989,6 +1031,18 @@ function downloadBlob(blob, filename) {
 
 function reportFileBase(options) {
   return `装箱剖析-${safeFileName(options.container.name)}-第${options.boxIndex || 1}货舱-${timestampForFile(options.generatedAt || new Date())}`;
+}
+
+function multiReportFileBase(options, generatedAt = new Date()) {
+  const locale = reportLocale(options?.locale);
+  const containerName = translateLegacyText(options?.container?.name || "箱型", locale);
+  const prefix = locale === "en-US" ? "Packing-Report" : "装箱剖析";
+  const suffix = locale === "en-US" ? "All-Holds" : "全货舱";
+  return `${prefix}-${safeFileName(containerName)}-${suffix}-${timestampForFile(generatedAt)}`;
+}
+
+function reportLocale(locale) {
+  return String(locale || "").toLowerCase().startsWith("en") ? "en-US" : "zh-CN";
 }
 
 async function createZipBlob(files) {

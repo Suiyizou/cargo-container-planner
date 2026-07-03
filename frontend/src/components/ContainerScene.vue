@@ -2,45 +2,45 @@
   <section ref="shellRef" class="packing-visual-shell" :class="{ fullscreen: isFullscreen }">
     <el-card class="packing-visual-toolbar" shadow="never">
       <div class="toolbar-left">
-        <el-button :icon="Refresh" @click="setView('iso')">视角复位</el-button>
+        <el-button :icon="Refresh" @click="setView('iso')">{{ tr("视角复位") }}</el-button>
         <el-segmented v-model="viewMode" :options="viewModeOptions" size="default" />
         <el-button-group>
-          <el-button :type="activeView === 'front' ? 'primary' : 'default'" @click="setView('front')">正视</el-button>
-          <el-button :type="activeView === 'side' ? 'primary' : 'default'" @click="setView('side')">侧视</el-button>
-          <el-button :type="activeView === 'top' ? 'primary' : 'default'" @click="setView('top')">俯视</el-button>
-          <el-button :type="activeView === 'iso' ? 'primary' : 'default'" @click="setView('iso')">轴测</el-button>
+          <el-button :type="activeView === 'front' ? 'primary' : 'default'" @click="setView('front')">{{ tr("正视") }}</el-button>
+          <el-button :type="activeView === 'side' ? 'primary' : 'default'" @click="setView('side')">{{ tr("侧视") }}</el-button>
+          <el-button :type="activeView === 'top' ? 'primary' : 'default'" @click="setView('top')">{{ tr("俯视") }}</el-button>
+          <el-button :type="activeView === 'iso' ? 'primary' : 'default'" @click="setView('iso')">{{ tr("轴测") }}</el-button>
         </el-button-group>
       </div>
       <div class="toolbar-right">
-        <el-switch v-model="sliceEnabled" active-text="剖切" inactive-text="剖切" />
+        <el-switch v-model="sliceEnabled" :active-text="tr('剖切')" :inactive-text="tr('剖切')" />
         <el-popover placement="bottom-end" trigger="click" width="260">
           <template #reference>
-            <el-button :icon="Setting">显示选项</el-button>
+            <el-button :icon="Setting">{{ tr("显示选项") }}</el-button>
           </template>
           <div class="visual-option-grid">
-            <el-checkbox v-model="showLabels">货号标签</el-checkbox>
-            <el-checkbox v-model="remainingModel">剩余空间</el-checkbox>
-            <el-checkbox v-model="massModel">重心偏载</el-checkbox>
-            <el-checkbox v-model="showGrid">底部网格</el-checkbox>
-            <el-checkbox v-model="showShell">箱体外壳</el-checkbox>
-            <el-checkbox v-model="showCenter">几何中心</el-checkbox>
-            <el-checkbox v-model="translucentCargo">半透明货物</el-checkbox>
-            <el-checkbox v-model="showHeatmap">重量热力</el-checkbox>
+            <el-checkbox v-model="showLabels">{{ tr("货号标签") }}</el-checkbox>
+            <el-checkbox v-model="remainingModel">{{ tr("剩余空间") }}</el-checkbox>
+            <el-checkbox v-model="massModel">{{ tr("重心偏载") }}</el-checkbox>
+            <el-checkbox v-model="showGrid">{{ tr("底部网格") }}</el-checkbox>
+            <el-checkbox v-model="showShell">{{ tr("箱体外壳") }}</el-checkbox>
+            <el-checkbox v-model="showCenter">{{ tr("几何中心") }}</el-checkbox>
+            <el-checkbox v-model="translucentCargo">{{ tr("半透明货物") }}</el-checkbox>
+            <el-checkbox v-model="showHeatmap">{{ tr("重量热力") }}</el-checkbox>
           </div>
         </el-popover>
         <el-button :icon="isFullscreen ? Aim : FullScreen" @click="toggleFullscreen">
-          {{ isFullscreen ? "退出全屏" : "全屏" }}
+          {{ isFullscreen ? tr("退出全屏") : tr("全屏") }}
         </el-button>
       </div>
     </el-card>
 
     <el-card v-if="sliceEnabled" class="slice-control-card" shadow="never">
       <div class="slice-control-row">
-        <span>剖切方向</span>
+        <span>{{ tr("剖切方向") }}</span>
         <el-radio-group v-model="sliceAxis" size="small">
-          <el-radio-button value="z">Z 高度</el-radio-button>
-          <el-radio-button value="x">X 前后</el-radio-button>
-          <el-radio-button value="y">Y 左右</el-radio-button>
+          <el-radio-button value="z">{{ tr("Z 高度") }}</el-radio-button>
+          <el-radio-button value="x">{{ tr("X 前后") }}</el-radio-button>
+          <el-radio-button value="y">{{ tr("Y 左右") }}</el-radio-button>
         </el-radio-group>
         <el-slider v-model="slicePercent" :min="0" :max="100" :step="1" />
         <el-tag effect="plain">{{ sliceLabel }}</el-tag>
@@ -52,97 +52,26 @@
         <div ref="canvasHost" class="packing-scene-canvas"></div>
         <div v-if="busy" class="loading-mask visual-loading">
           <div class="spinner"></div>
-          <span>正在生成 3D 装箱视图...</span>
+          <span>{{ tr("正在生成 3D 装箱视图...") }}</span>
         </div>
         <div v-else-if="emptyStateVisible" class="visual-empty-state">
           <el-empty :description="emptyStateText" />
         </div>
         <div v-if="tooltip.visible" class="scene-tooltip visual-tooltip" :style="{ left: `${tooltip.x}px`, top: `${tooltip.y}px` }">
           <strong>#{{ tooltip.item.displayNo }} {{ tooltip.item.name }}</strong>
-          <span>尺寸 {{ tooltip.item.lengthCm }} × {{ tooltip.item.widthCm }} × {{ tooltip.item.heightCm }} cm</span>
-          <span>数量 {{ tooltip.item.quantity }} 件 · 重量 {{ formatWeight(tooltip.item.weightKg) }}</span>
-          <span>{{ tooltip.item.orientationLabel || tooltip.item.bottomFaceDetail || "按算法输出坐标摆放" }}</span>
-          <span>坐标 X{{ tooltip.item.xCm }} / Y{{ tooltip.item.yCm }} / Z{{ tooltip.item.zCm }} cm</span>
+          <span>{{ tr("尺寸") }} {{ tooltip.item.lengthCm }} × {{ tooltip.item.widthCm }} × {{ tooltip.item.heightCm }} cm</span>
+          <span>{{ tr("数量") }} {{ tooltip.item.quantity }} {{ tr("件") }} · {{ tr("重量") }} {{ formatWeight(tooltip.item.weightKg) }}</span>
+          <span>{{ tr(tooltip.item.orientationLabel || tooltip.item.bottomFaceDetail || "按算法输出坐标摆放") }}</span>
+          <span>{{ tr("坐标") }} X{{ tooltip.item.xCm }} / Y{{ tooltip.item.yCm }} / Z{{ tooltip.item.zCm }} cm</span>
         </div>
       </div>
 
       <aside class="packing-info-panel">
-        <el-card class="info-panel-card" shadow="never">
-          <template #header>
-            <div class="info-card-head">
-              <strong>{{ sceneData.container?.name || "未选择箱型" }}</strong>
-              <el-tag size="small" effect="plain">{{ viewMode === "3d" ? "3D装箱" : "2D视角" }}</el-tag>
-            </div>
-          </template>
-          <div class="stats-grid compact">
-            <div>
-              <span>总件数</span>
-              <b>{{ sceneData.stats.totalPieces }}</b>
-            </div>
-            <div>
-              <span>总体积</span>
-              <b>{{ sceneData.stats.totalVolumeM3.toFixed(2) }} m³</b>
-            </div>
-            <div>
-              <span>{{ t(sceneData.stats.utilizationLabel) }}</span>
-              <b>{{ sceneData.stats.utilizationPercent.toFixed(1) }}%</b>
-              <small v-if="sceneData.stats.lengthUtilizationPercent">{{ t("metrics.lengthPercent", { value: sceneData.stats.lengthUtilizationPercent.toFixed(1) }) }}</small>
-            </div>
-            <div>
-              <span>总毛重</span>
-              <b>{{ formatWeight(sceneData.stats.totalWeightKg) }}</b>
-            </div>
-          </div>
-          <el-alert
-            v-if="sceneData.stats.performanceMode"
-            class="visual-performance-alert"
-            type="warning"
-            title="已启用流畅模式"
-            description="货物超过100件，系统自动关闭标签与热力特效。"
-            show-icon
-            :closable="false"
-          />
-        </el-card>
-
-        <el-card class="info-panel-card" shadow="never">
-          <template #header>
-            <div class="info-card-head">
-              <strong>偏载重心</strong>
-              <el-tag :type="balanceState.tagType" effect="light">{{ balanceState.label }}</el-tag>
-            </div>
-          </template>
-          <div class="balance-summary">
-            <p>{{ balanceState.description }}</p>
-            <div class="balance-metric-list">
-              <span>重心坐标</span>
-              <b>X {{ balanceState.center.xCm.toFixed(1) }} / Y {{ balanceState.center.yCm.toFixed(1) }} / Z {{ balanceState.center.zCm.toFixed(1) }} cm</b>
-              <span>横向偏移 Y</span>
-              <b>{{ formatSigned(balanceState.offset.lateralCm ?? balanceState.offset.yCm) }} cm / {{ formatSigned(balanceState.offset.lateralPercent ?? balanceState.offset.yPercent) }}%</b>
-              <span>纵向偏移 X</span>
-              <b>{{ formatSigned(balanceState.offset.longitudinalCm ?? balanceState.offset.xCm) }} cm / {{ formatSigned(balanceState.offset.longitudinalPercent ?? balanceState.offset.xPercent) }}%</b>
-              <span>重心高度</span>
-              <b>{{ balanceState.center.zCm.toFixed(1) }} cm</b>
-            </div>
-          </div>
-          <div class="balance-zone-bars" v-if="balanceState.valid">
-            <div>
-              <span>前 / 后</span>
-              <el-progress :percentage="frontPercent" :stroke-width="10" :show-text="false" />
-              <small>前 {{ frontPercent.toFixed(1) }}% · 后 {{ rearPercent.toFixed(1) }}%</small>
-            </div>
-            <div>
-              <span>左 / 右</span>
-              <el-progress :percentage="leftPercent" :stroke-width="10" :show-text="false" />
-              <small>左 {{ leftPercent.toFixed(1) }}% · 右 {{ rightPercent.toFixed(1) }}%</small>
-            </div>
-          </div>
-        </el-card>
-
         <el-card class="info-panel-card legend-card" shadow="never">
           <template #header>
             <div class="info-card-head">
-              <strong>货物图例</strong>
-              <el-button v-if="hiddenSkuKeys.size" link type="primary" @click="showAllSku">全部显示</el-button>
+              <strong>{{ tr("货物图例") }}</strong>
+              <el-button v-if="hiddenSkuKeys.size" link type="primary" @click="showAllSku">{{ tr("全部显示") }}</el-button>
             </div>
           </template>
           <el-scrollbar max-height="260">
@@ -157,25 +86,96 @@
               <i :style="{ background: item.color }"></i>
               <span>
                 <b>{{ item.label }}</b>
-                <small>{{ item.quantity }} 件 · {{ formatWeight(item.weightKg) }}</small>
+                <small>{{ item.quantity }} {{ tr("件") }} · {{ formatWeight(item.weightKg) }}</small>
               </span>
-              <em>{{ hiddenSkuKeys.has(item.key) ? "隐藏" : "显示" }}</em>
+              <em>{{ hiddenSkuKeys.has(item.key) ? tr("隐藏") : tr("显示") }}</em>
             </button>
           </el-scrollbar>
+        </el-card>
+
+        <el-card class="info-panel-card" shadow="never">
+          <template #header>
+            <div class="info-card-head">
+              <strong>{{ tr("偏载重心") }}</strong>
+              <el-tag :type="balanceState.tagType" effect="light">{{ tr(balanceState.label) }}</el-tag>
+            </div>
+          </template>
+          <div class="balance-summary">
+            <p>{{ tr(balanceState.description) }}</p>
+            <div class="balance-metric-list">
+              <span>{{ tr("重心坐标") }}</span>
+              <b>X {{ balanceState.center.xCm.toFixed(1) }} / Y {{ balanceState.center.yCm.toFixed(1) }} / Z {{ balanceState.center.zCm.toFixed(1) }} cm</b>
+              <span>{{ tr("横向偏移 Y") }}</span>
+              <b>{{ formatSigned(balanceState.offset.lateralCm ?? balanceState.offset.yCm) }} cm / {{ formatSigned(balanceState.offset.lateralPercent ?? balanceState.offset.yPercent) }}%</b>
+              <span>{{ tr("纵向偏移 X") }}</span>
+              <b>{{ formatSigned(balanceState.offset.longitudinalCm ?? balanceState.offset.xCm) }} cm / {{ formatSigned(balanceState.offset.longitudinalPercent ?? balanceState.offset.xPercent) }}%</b>
+              <span>{{ tr("重心高度") }}</span>
+              <b>{{ balanceState.center.zCm.toFixed(1) }} cm</b>
+            </div>
+          </div>
+          <div class="balance-zone-bars" v-if="balanceState.valid">
+            <div>
+              <span>{{ tr("前 / 后") }}</span>
+              <el-progress :percentage="frontPercent" :stroke-width="10" :show-text="false" />
+              <small>{{ tr("前") }} {{ frontPercent.toFixed(1) }}% · {{ tr("后") }} {{ rearPercent.toFixed(1) }}%</small>
+            </div>
+            <div>
+              <span>{{ tr("左 / 右") }}</span>
+              <el-progress :percentage="leftPercent" :stroke-width="10" :show-text="false" />
+              <small>{{ tr("左") }} {{ leftPercent.toFixed(1) }}% · {{ tr("右") }} {{ rightPercent.toFixed(1) }}%</small>
+            </div>
+          </div>
+        </el-card>
+
+        <el-card class="info-panel-card" shadow="never">
+          <template #header>
+            <div class="info-card-head">
+              <strong>{{ tr(sceneData.container?.name || "未选择箱型") }}</strong>
+              <el-tag size="small" effect="plain">{{ viewMode === "3d" ? tr("3D装箱") : tr("2D视角") }}</el-tag>
+            </div>
+          </template>
+          <div class="stats-grid compact">
+            <div>
+              <span>{{ tr("总件数") }}</span>
+              <b>{{ sceneData.stats.totalPieces }}</b>
+            </div>
+            <div>
+              <span>{{ tr("总体积") }}</span>
+              <b>{{ sceneData.stats.totalVolumeM3.toFixed(2) }} m³</b>
+            </div>
+            <div>
+              <span>{{ t(sceneData.stats.utilizationLabel) }}</span>
+              <b>{{ sceneData.stats.utilizationPercent.toFixed(1) }}%</b>
+              <small v-if="sceneData.stats.lengthUtilizationPercent">{{ t("metrics.lengthPercent", { value: sceneData.stats.lengthUtilizationPercent.toFixed(1) }) }}</small>
+            </div>
+            <div>
+              <span>{{ tr("总重量") }}</span>
+              <b>{{ formatWeight(sceneData.stats.totalWeightKg) }}</b>
+            </div>
+          </div>
+          <el-alert
+            v-if="sceneData.stats.performanceMode"
+            class="visual-performance-alert"
+            type="warning"
+            :title="tr('已启用流畅模式')"
+            :description="tr('货物超过100件，系统自动关闭标签与热力特效。')"
+            show-icon
+            :closable="false"
+          />
         </el-card>
       </aside>
     </div>
 
     <el-card class="packing-bottom-actions" shadow="never">
       <div>
-        <el-tag :type="balanceState.tagType" effect="light">{{ balanceState.label }}</el-tag>
-        <span>左键旋转 · 右键平移 · 滚轮缩放</span>
+        <el-tag :type="balanceState.tagType" effect="light">{{ tr(balanceState.label) }}</el-tag>
+        <span>{{ tr("左键旋转 · 右键平移 · 滚轮缩放") }}</span>
       </div>
       <div class="bottom-button-group">
-        <el-button :icon="Picture" :disabled="exportDisabled" :loading="exporting" @click="$emit('export-image')">导出可视化截图</el-button>
-        <el-button :icon="Document" :disabled="exportDisabled" :loading="exporting" @click="$emit('export-pdf')">导出装箱方案 PDF</el-button>
-        <el-button type="primary" :icon="Download" :disabled="zipDisabled" :loading="exporting" @click="$emit('export-zip')">{{ exportZipLabel }}</el-button>
-        <el-button :icon="Printer" @click="$emit('print')">打印</el-button>
+        <el-button :icon="Picture" :disabled="exportDisabled" :loading="exporting" @click="$emit('export-image')">{{ tr("导出可视化截图") }}</el-button>
+        <el-button :icon="Document" :disabled="exportDisabled" :loading="exporting" @click="$emit('export-pdf')">{{ tr("导出装箱方案 PDF") }}</el-button>
+        <el-button type="primary" :icon="Download" :disabled="zipDisabled" :loading="exporting" @click="$emit('export-zip')">{{ tr(exportZipLabel) }}</el-button>
+        <el-button :icon="Printer" @click="$emit('print')">{{ tr("打印") }}</el-button>
       </div>
     </el-card>
   </section>
@@ -197,7 +197,8 @@ import { buildPackingSceneData, formatSigned, formatWeight } from "../visualizat
 import { resolveBalanceState } from "../visualization/packingSceneBalance";
 import { PackingSceneRenderer } from "../visualization/packingSceneRenderer";
 import type { SceneCargo, SceneViewMode, SceneViewPreset, SliceAxis } from "../visualization/packingSceneTypes";
-import { t } from "../i18n";
+import { currentLocale, t } from "../i18n";
+import { translateLegacyText } from "../i18n/legacyText";
 
 const props = defineProps({
   container: { type: Object, default: null },
@@ -252,6 +253,10 @@ const viewModeOptions = [
   { label: "2D", value: "2d" }
 ];
 
+function tr(value: unknown) {
+  return translateLegacyText(value == null ? "" : String(value), currentLocale.value);
+}
+
 const sceneData = computed(() => buildPackingSceneData({
   container: props.container as any,
   placements: props.placements as any[],
@@ -285,7 +290,7 @@ const renderOptions = computed(() => ({
   viewMode: viewMode.value
 }));
 const emptyStateVisible = computed(() => !props.busy && (!props.container || !props.placements.length || props.errorMessage));
-const emptyStateText = computed(() => props.errorMessage || (!props.container ? "请选择箱型后查看3D装箱视图" : "当前货舱暂无可渲染货物"));
+const emptyStateText = computed(() => tr(props.errorMessage || (!props.container ? "请选择箱型后查看3D装箱视图" : "当前货舱暂无可渲染货物")));
 const exportDisabled = computed(() => props.exporting || !props.canExport || !props.placements.length);
 const zipDisabled = computed(() => props.exporting || !props.canExportZip);
 const frontPercent = computed(() => Number(balanceState.value.loads.frontPercent || 0));
@@ -295,9 +300,9 @@ const rightPercent = computed(() => Number(balanceState.value.loads.rightPercent
 const sliceLabel = computed(() => {
   const container: any = sceneData.value.container;
   if (!container) return `${slicePercent.value}%`;
-  if (sliceAxis.value === "z") return `高度 ${Math.round(container.heightCm * slicePercent.value / 100)} cm`;
-  if (sliceAxis.value === "x") return `前后 ${Math.round(container.lengthCm * slicePercent.value / 100)} cm`;
-  return `左右 ${Math.round(container.widthCm * slicePercent.value / 100)} cm`;
+  if (sliceAxis.value === "z") return `${tr("高度")} ${Math.round(container.heightCm * slicePercent.value / 100)} cm`;
+  if (sliceAxis.value === "x") return `${tr("前后")} ${Math.round(container.lengthCm * slicePercent.value / 100)} cm`;
+  return `${tr("左右")} ${Math.round(container.widthCm * slicePercent.value / 100)} cm`;
 });
 
 onMounted(async () => {

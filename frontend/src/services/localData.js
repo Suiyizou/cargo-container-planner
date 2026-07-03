@@ -90,21 +90,6 @@ export const defaultContainers = [
     ignoreHeightLimit: true
   },
   {
-    id: "45hq",
-    name: "45HQ 高柜",
-    lengthCm: 1355.6,
-    widthCm: 235.2,
-    heightCm: 270,
-    payloadKg: 27700,
-    dimensionSource: "Hapag-Lloyd 45' Standard High Cube",
-    dimensionSourceUrl: "https://www.hapag-lloyd.com/en/services-information/cargo-fleet/container/45-standard-high-cube.html",
-    dimensionBasis: "Inside Dimension",
-    dimensionNote: "公开规格为名义内尺寸，实际柜号可能因制造批次存在公差。",
-    usagePriority: "limited",
-    visualKind: "high-cube",
-    ignoreHeightLimit: false
-  },
-  {
     id: "20rf",
     name: "20RF 冷藏柜",
     lengthCm: 545,
@@ -141,7 +126,6 @@ const defaultContainerProfiles = {
   "20hq": { costFactor: 1.08, priceTier: "economy", equipmentClass: "HQ" },
   "40gp": { costFactor: 1.55, priceTier: "standard", equipmentClass: "GP" },
   "40hq": { costFactor: 1.68, priceTier: "standard", equipmentClass: "HQ" },
-  "45hq": { costFactor: 2.05, priceTier: "high", equipmentClass: "45HQ" },
   "20rf": { costFactor: 1.65, priceTier: "standard", equipmentClass: "RF" },
   "40rf": { costFactor: 2.45, priceTier: "special", equipmentClass: "RF" },
   "20fr": { costFactor: 2.15, priceTier: "high", equipmentClass: "FR" },
@@ -149,6 +133,7 @@ const defaultContainerProfiles = {
 };
 
 const defaultContainerById = new Map(defaultContainers.map((item) => [item.id, item]));
+const removedDefaultContainerIds = new Set(["45hq"]);
 const defaultDimensionFields = [
   "name",
   "lengthCm",
@@ -187,7 +172,9 @@ export function cloneDefaultContainers() {
 }
 
 export function mergeDefaultContainers(containers = []) {
-  const existing = Array.isArray(containers) ? containers.filter(Boolean) : [];
+  const existing = Array.isArray(containers)
+    ? containers.filter((item) => item && !removedDefaultContainerIds.has(item.id))
+    : [];
   if (!existing.length) return cloneDefaultContainers();
   const defaultIds = new Set(defaultContainers.map((item) => item.id));
   if (!existing.some((item) => defaultIds.has(item.id))) return existing;

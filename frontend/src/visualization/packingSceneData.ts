@@ -48,7 +48,7 @@ function normalizeContainer(container: ContainerLike | null): ContainerLike | nu
 }
 
 function normalizeCargo(placement: PlacementLike, index: number, colorMap: Map<string, string>): SceneCargo {
-  const skuKey = String(placement.sku || placement.model || placement.cargoId || placement.name || `sku-${index}`);
+  const skuKey = stableCargoKey(placement, index);
   if (!colorMap.has(skuKey)) {
     colorMap.set(skuKey, placement.color || FALLBACK_COLORS[colorMap.size % FALLBACK_COLORS.length]);
   }
@@ -67,7 +67,7 @@ function normalizeCargo(placement: PlacementLike, index: number, colorMap: Map<s
     ...placement,
     key: placement.unitKey || placement.id || `${skuKey}-${index}`,
     skuKey,
-    skuLabel: placement.model ? `${placement.name} ${placement.model}` : placement.name || skuKey,
+    skuLabel: cargoDisplayLabel(placement, skuKey),
     displayNo,
     color: colorMap.get(skuKey) || placement.color || FALLBACK_COLORS[index % FALLBACK_COLORS.length],
     quantity,
@@ -108,6 +108,24 @@ function buildLegend(cargos: SceneCargo[]): SceneLegendItem[] {
     });
   });
   return [...map.values()];
+}
+
+function stableCargoKey(placement: PlacementLike, index: number) {
+  const direct = placement.cargoId || placement.sku || "";
+  if (direct) return String(direct);
+  const unitKey = String(placement.unitKey || "");
+  const parsed = unitKey.match(/^(.*?)(?:-g\d+-x\d+|-\d+)$/);
+  if (parsed?.[1]) return parsed[1];
+  const model = String(placement.model || "").trim();
+  const name = String(placement.name || "").trim();
+  return `${name || "cargo"}|${model}|${placement.lengthCm}x${placement.widthCm}x${placement.heightCm}|${index}`;
+}
+
+function cargoDisplayLabel(placement: PlacementLike, fallback: string) {
+  const name = String(placement.name || "").trim();
+  const model = String(placement.model || "").trim();
+  if (name && model && !name.includes(model)) return `${name} ${model}`;
+  return name || model || fallback;
 }
 
 function buildStats(container: ContainerLike | null, cargos: SceneCargo[], evaluation: any): SceneStats {

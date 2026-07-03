@@ -69,7 +69,7 @@ if (workerScope?.addEventListener) {
 
 function createWorkerTrace(id, options = {}) {
   const enabled = Boolean(options?.enabled) && Boolean(workerScope?.postMessage);
-  const maxEntries = Math.min(600, Math.max(40, Math.floor(Number(options?.maxEntries || 240))));
+  const maxEntries = Math.min(120, Math.max(30, Math.floor(Number(options?.maxEntries || 80))));
   const batchSize = Math.min(40, Math.max(6, Math.floor(Number(options?.batchSize || 12))));
   const buffer = [];
   let emitted = 0;
@@ -78,6 +78,7 @@ function createWorkerTrace(id, options = {}) {
   return {
     log(entry) {
       if (!enabled || !entry?.text) return;
+      if (entry.level === "detail") return;
       if (emitted >= maxEntries) {
         dropped += 1;
         return;
@@ -262,6 +263,7 @@ function buildEvaluation(container, units, total, utilizationPercent, globalGapC
     }),
     packedBoxes: multi.packedBoxes.map((box, index) => {
       const balanceValidation = packedBoxBalances[index] || validateWeightBalance(container, box.placed);
+      const placedForOutput = expandGroupedPlacements(box.placed);
       return {
         index: index + 1,
         container: box.container ? { ...box.container } : undefined,
@@ -269,7 +271,7 @@ function buildEvaluation(container, units, total, utilizationPercent, globalGapC
         strategyName: box.strategyName,
         strategySummary: box.strategySummary,
         balanceValidation,
-        placed: box.placed.map(toPlacementDto),
+        placed: placedForOutput.map(toPlacementDto),
         unplacedUnitKeys: box.unplaced.map((unit) => unit.unitKey)
       };
     })
@@ -326,8 +328,7 @@ function packMultiple(container, allUnits) {
       level: "summary",
       text: `${container.name} · 第 ${boxIndex + 1} 货舱完成：装入 ${sumUnitQuantity(packed.placed)} 件，剩余 ${sumUnitQuantity(packed.unplaced)} 件，采用「${packed.strategyName || "未知策略"}」。`
     });
-    const placedIds = new Set(packed.placed.map((unit) => unit.unitKey));
-    remaining = remaining.filter((unit) => !placedIds.has(unit.unitKey));
+    remaining = packed.unplaced.map(stripPlacement);
   }
 
   let boxes = packedBoxes.length;
@@ -397,14 +398,13 @@ function buildMixedContainerEvaluation(containers, cargos, total, utilizationPer
       break;
     }
 
-    const placedIds = new Set(selected.packed.placed.map((unit) => unit.unitKey));
     const selectedBox = {
       ...selected.packed,
       container: { ...selected.container, balanceSettings: undefined }
     };
     packedBoxes.push(selectedBox);
     if (selected.fitStatus === FIT_STATUS.BALANCE_BLOCKED) balanceBlocked = true;
-    remaining = remaining.filter((unit) => !placedIds.has(unit.unitKey));
+    remaining = selected.packed.unplaced.map(stripPlacement);
   }
 
   if (remaining.length) fatalOversize = true;
@@ -690,6 +690,9 @@ function packContainer(container, units) {
     const ordered = orderUnits(units, strategy.unitOrder);
     let attempt = packLayerLaff(container, ordered, strategy);
     if (attempt.unplaced.length) {
+      attempt = enhanceWithBlockDowngrade(container, attempt, strategy);
+    }
+    if (attempt.unplaced.length) {
       const beforeRepair = sumUnitQuantity(attempt.unplaced);
       attempt = repairWithLocalSearch(container, attempt, ordered, strategy);
       traceDecision({
@@ -736,12 +739,13 @@ function packContainer(container, units) {
   return fallback;
 }
 
-function packLayerLaff(container, units, strategy) {
-  const placed = [];
+function packLayerLaff(container, units, strategy, fixedPlaced = []) {
+  const placed = fixedPlaced.map(copyUnit);
   const unplaced = [];
-  const active = units.map(copyUnit);
+  const originalActive = units.map(stripPlacement);
+  const active = originalActive.map(copyUnit);
   let nextLayerBottom = 0;
-  let layerNo = 0;
+  let layerNo = countLayers(placed);
 
   while (active.length) {
     const seedIndex = pickLayerSeedIndex(active, container, placed, strategy, { layerBottom: nextLayerBottom });
@@ -809,10 +813,173 @@ function packLayerLaff(container, units, strategy) {
   }
 
   const valid = validateAllPlacements(container, placed);
-  return makePackedBox(valid ? placed : [], valid ? unplaced : units, strategy, {
+  return makePackedBox(valid ? placed : fixedPlaced.map(copyUnit), valid ? unplaced : originalActive, strategy, {
     localSearchPasses: 0,
     repairedCount: 0,
+    fixedPlacedCount: fixedPlaced.length,
     layerCount: countLayers(placed)
+  });
+}
+
+function enhanceWithBlockDowngrade(container, attempt, strategy) {
+  let current = cloneAttempt(attempt);
+  let best = cloneAttempt(attempt);
+  let downgradePasses = 0;
+  let downgradePlacedCount = 0;
+  let singleBackfillPlacedCount = 0;
+
+  const runRound = (maxGroupSize, withSingleBackfill = false) => {
+    if (!current.unplaced.length) return;
+    const downgraded = downgradeUnits(current.unplaced, maxGroupSize, container);
+    if (!downgraded.length) return;
+    const beforePlaced = sumUnitQuantity(current.placed);
+    let candidate = packLayerLaff(container, orderUnits(downgraded, strategy.unitOrder), strategy, current.placed);
+    if (withSingleBackfill) {
+      candidate = backfillSingleUnits(container, candidate, strategy);
+    }
+    const placedGain = sumUnitQuantity(candidate.placed) - beforePlaced;
+    if (placedGain <= 0 || !validateAllPlacements(container, candidate.placed)) return;
+    downgradePasses += 1;
+    downgradePlacedCount += placedGain;
+    singleBackfillPlacedCount += Number(candidate.strategySummary?.singleBackfillPlacedCount || 0);
+    current = candidate;
+    if (comparePackAttempt(container)(candidate, best) < 0) {
+      best = cloneAttempt(candidate);
+    }
+  };
+
+  runRound(2, false);
+  runRound(1, true);
+
+  if (downgradePlacedCount <= 0) return attempt;
+  return makePackedBox(best.placed.map(copyUnit), best.unplaced.map(stripPlacement), {
+    id: best.strategyId,
+    name: best.strategyName
+  }, {
+    ...(best.strategySummary || {}),
+    blockDowngradePasses: downgradePasses,
+    blockDowngradePlacedCount: downgradePlacedCount,
+    singleBackfillPlacedCount
+  });
+}
+
+function downgradeUnits(units, maxGroupSize, container) {
+  const result = [];
+  let serial = 0;
+  for (const unit of units) {
+    const clean = stripPlacement(unit);
+    const quantity = unitQuantity(clean);
+    if (quantity <= maxGroupSize) {
+      result.push(clean);
+      continue;
+    }
+    let remaining = quantity;
+    while (remaining > 0) {
+      const count = Math.min(maxGroupSize, remaining);
+      const derived = makeDerivedGroupUnit(clean, count, container, serial);
+      if (derived) {
+        result.push(derived);
+      } else if (count > 1) {
+        for (let i = 0; i < count; i += 1) {
+          const single = makeDerivedGroupUnit(clean, 1, container, `${serial}-${i}`);
+          if (single) result.push(single);
+        }
+      }
+      remaining -= count;
+      serial += 1;
+    }
+  }
+  return markHeavyUnits(result);
+}
+
+function makeDerivedGroupUnit(source, count, container, serial) {
+  const quantity = Math.max(1, Math.floor(Number(count || 1)));
+  const layout = bestDerivedGroupLayout(source, quantity, container);
+  if (!layout) return null;
+  const serialNumber = Number.parseInt(String(serial), 10);
+  const gap = Number(source.gapCm || 0);
+  const rawLength = singleRawLengthCm(source);
+  const rawWidth = singleRawWidthCm(source);
+  const rawHeight = singleRawHeightCm(source);
+  const heightCm = rawHeight + Number(source.verticalGapCm || source.extraGapCm || 0);
+  const lengthCm = (rawLength + gap) * layout.cols;
+  const widthCm = (rawWidth + gap) * layout.rows;
+  const unit = {
+    ...stripPlacement(source),
+    unitKey: `${source.unitKey}-d${quantity}-${serial}`,
+    parentUnitKey: source.parentUnitKey || source.unitKey,
+    itemIndex: Number(source.itemIndex || 0) * 1000 + (Number.isFinite(serialNumber) ? serialNumber : 0),
+    baseLengthCm: rawLength * layout.cols,
+    baseWidthCm: rawWidth * layout.rows,
+    baseHeightCm: rawHeight,
+    lengthCm,
+    widthCm,
+    heightCm,
+    packedLengthCm: lengthCm,
+    packedWidthCm: widthCm,
+    packedHeightCm: heightCm,
+    weightKg: singleWeightKg(source) * quantity,
+    volumeM3: singleVolumeM3(source) * quantity,
+    groupQuantity: quantity,
+    groupCols: layout.cols,
+    groupRows: layout.rows
+  };
+  unit.orientations = generateOrientations(unit);
+  return unit;
+}
+
+function bestDerivedGroupLayout(source, count, container) {
+  const quantity = Math.max(1, Math.floor(Number(count || 1)));
+  const gap = Number(source.gapCm || 0);
+  const itemLength = singleRawLengthCm(source) + gap;
+  const itemWidth = singleRawWidthCm(source) + gap;
+  const itemHeight = singleRawHeightCm(source) + Number(source.verticalGapCm || source.extraGapCm || 0);
+  if (itemHeight > containerHeightLimit(container) + EPS) return null;
+  if (quantity <= 1) {
+    return flatBlockFits(container, itemLength, itemWidth, itemHeight, source.rotatable)
+      ? { count: 1, cols: 1, rows: 1, score: 0 }
+      : null;
+  }
+
+  let best = null;
+  for (let rows = 1; rows <= quantity; rows += 1) {
+    if (quantity % rows !== 0) continue;
+    const cols = quantity / rows;
+    const lengthCm = itemLength * cols;
+    const widthCm = itemWidth * rows;
+    if (!flatBlockFits(container, lengthCm, widthCm, itemHeight, source.rotatable)) continue;
+    const score = Math.abs(lengthCm - widthCm) + Math.max(lengthCm, widthCm) * 0.02;
+    if (!best || score < best.score) best = { count: quantity, cols, rows, score };
+  }
+  return best;
+}
+
+function backfillSingleUnits(container, attempt, strategy) {
+  if (!attempt.unplaced.some((unit) => unitQuantity(unit) <= 1)) return attempt;
+  const placed = attempt.placed.map(copyUnit);
+  const unplaced = [];
+  let placedCount = 0;
+  const ordered = orderUnits(attempt.unplaced.map(stripPlacement), strategy.unitOrder);
+  for (const unit of ordered) {
+    if (unitQuantity(unit) > 1) {
+      unplaced.push(unit);
+      continue;
+    }
+    const placement = packExtremePoint(container, placed, unit, strategy);
+    if (placement) {
+      placed.push(applyPlacement(unit, placement));
+      placedCount += 1;
+    } else {
+      unplaced.push(unit);
+    }
+  }
+  if (!placedCount || !validateAllPlacements(container, placed)) return attempt;
+  return makePackedBox(placed, unplaced, {
+    id: attempt.strategyId,
+    name: attempt.strategyName
+  }, {
+    ...(attempt.strategySummary || {}),
+    singleBackfillPlacedCount: Number(attempt.strategySummary?.singleBackfillPlacedCount || 0) + placedCount
   });
 }
 
@@ -1054,6 +1221,9 @@ function makePackedBox(placed, unplaced, strategy, stats) {
       maxTopCm: round(maxTop(placed)),
       refillPlacedCount: Number(stats.repairedCount || 0),
       refillPasses: Number(stats.localSearchPasses || 0),
+      blockDowngradePasses: Number(stats.blockDowngradePasses || 0),
+      blockDowngradePlacedCount: Number(stats.blockDowngradePlacedCount || 0),
+      singleBackfillPlacedCount: Number(stats.singleBackfillPlacedCount || 0),
       layerCount: Number(stats.layerCount || countLayers(placed)),
       balanceSeverity: stats.balanceValidation?.severity || "",
       balanceScore: round(stats.balanceValidation?.score || 0),
@@ -1662,6 +1832,34 @@ function cargoVolumeM3(unit) {
   return length * width * height * quantity / 1_000_000;
 }
 
+function singleRawLengthCm(unit) {
+  const cols = Math.max(1, Math.floor(Number(unit?.groupCols || 1)));
+  const value = Number(unit?.baseLengthCm || 0) / cols;
+  if (Number.isFinite(value) && value > 0) return value;
+  return Math.max(0, Number(unit?.packedLengthCm || unit?.lengthCm || 0) / cols - Number(unit?.gapCm || 0));
+}
+
+function singleRawWidthCm(unit) {
+  const rows = Math.max(1, Math.floor(Number(unit?.groupRows || 1)));
+  const value = Number(unit?.baseWidthCm || 0) / rows;
+  if (Number.isFinite(value) && value > 0) return value;
+  return Math.max(0, Number(unit?.packedWidthCm || unit?.widthCm || 0) / rows - Number(unit?.gapCm || 0));
+}
+
+function singleRawHeightCm(unit) {
+  const value = Number(unit?.baseHeightCm || 0);
+  if (Number.isFinite(value) && value > 0) return value;
+  return Math.max(0, Number(unit?.packedHeightCm || unit?.heightCm || 0) - Number(unit?.verticalGapCm || unit?.extraGapCm || 0));
+}
+
+function singleWeightKg(unit) {
+  return Number(unit?.weightKg || 0) / unitQuantity(unit);
+}
+
+function singleVolumeM3(unit) {
+  return cargoVolumeM3(unit) / unitQuantity(unit);
+}
+
 function usageMetricsForPackedBoxes(container, packedBoxes, utilizationPercent) {
   const boxes = Array.isArray(packedBoxes) ? packedBoxes : [];
   const firstBox = boxes[0] || { placed: [], container };
@@ -2002,6 +2200,70 @@ function buildTrace(container, units, total, multi, metrics) {
       balanceChecks: box.balanceValidation?.checks || {}
     }))
   };
+}
+
+function expandGroupedPlacements(placed) {
+  return placed.flatMap((unit) => expandGroupedPlacement(unit));
+}
+
+function expandGroupedPlacement(unit) {
+  const quantity = unitQuantity(unit);
+  if (quantity <= 1) return [copyUnit(unit)];
+
+  const cols = Math.max(1, Math.floor(Number(unit.groupCols || quantity)));
+  const rows = Math.max(1, Math.floor(Number(unit.groupRows || Math.ceil(quantity / cols))));
+  const rawLength = singleRawLengthCm(unit);
+  const rawWidth = singleRawWidthCm(unit);
+  const rawHeight = singleRawHeightCm(unit);
+  const gap = Number(unit.gapCm || 0);
+  const verticalGap = Number(unit.verticalGapCm || unit.extraGapCm || 0);
+  const stepLength = rawLength + gap;
+  const stepWidth = rawWidth + gap;
+  const pieceHeight = rawHeight + verticalGap;
+  const normalBlockLength = stepLength * cols;
+  const normalBlockWidth = stepWidth * rows;
+  const rotated = Math.abs(Number(unit.lengthCm || 0) - normalBlockWidth) < EPS
+    && Math.abs(Number(unit.widthCm || 0) - normalBlockLength) < EPS;
+  const pieces = [];
+
+  for (let i = 0; i < quantity; i += 1) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const lengthCm = rotated ? stepWidth : stepLength;
+    const widthCm = rotated ? stepLength : stepWidth;
+    const x = Number(unit.x || 0) + (rotated ? row * stepWidth : col * stepLength);
+    const y = Number(unit.y || 0) + (rotated ? col * stepLength : row * stepWidth);
+    const piece = {
+      ...copyUnit(unit),
+      unitKey: `${unit.unitKey}-p${i + 1}`,
+      parentUnitKey: unit.unitKey,
+      itemIndex: Number(unit.itemIndex || 0) * 1000 + i,
+      x: round3(x),
+      y: round3(y),
+      z: Number(unit.z || 0),
+      baseLengthCm: rawLength,
+      baseWidthCm: rawWidth,
+      baseHeightCm: rawHeight,
+      lengthCm,
+      widthCm,
+      heightCm: pieceHeight,
+      packedLengthCm: lengthCm,
+      packedWidthCm: widthCm,
+      packedHeightCm: pieceHeight,
+      weightKg: singleWeightKg(unit),
+      volumeM3: singleVolumeM3(unit),
+      groupQuantity: 1,
+      groupCols: 1,
+      groupRows: 1,
+      lengthAxis: unit.lengthAxis,
+      widthAxis: unit.widthAxis,
+      heightAxis: unit.heightAxis
+    };
+    piece.orientations = generateOrientations(piece);
+    pieces.push(piece);
+  }
+
+  return pieces;
 }
 
 function toPlacementDto(unit) {

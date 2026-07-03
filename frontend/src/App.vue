@@ -429,70 +429,42 @@
           </div>
           <div class="result-summary-grid">
             <div class="summary-card success">
-              <span>绿色合格</span>
+              <span>{{ tr("绿色合格") }}</span>
               <b>{{ resultSummary.green }}</b>
-              <small>可直接输出</small>
+              <small>{{ tr("可直接输出") }}</small>
             </div>
             <div class="summary-card warning">
-              <span>黄色预警</span>
+              <span>{{ tr("黄色预警") }}</span>
               <b>{{ resultSummary.yellow }}</b>
-              <small>允许微调</small>
+              <small>{{ tr("允许微调") }}</small>
             </div>
             <div class="summary-card danger">
-              <span>红色拦截</span>
+              <span>{{ tr("红色拦截") }}</span>
               <b>{{ resultSummary.red }}</b>
-              <small>不可输出</small>
+              <small>{{ tr("不可输出") }}</small>
             </div>
             <div class="summary-card muted">
-              <span>不可装</span>
+              <span>{{ tr("不可装") }}</span>
               <b>{{ resultSummary.oversize }}</b>
-              <small>尺寸/承载失败</small>
+              <small>{{ tr("尺寸/承载失败") }}</small>
             </div>
             <div class="summary-card primary">
-              <span>推荐箱数</span>
+              <span>{{ tr("推荐箱数") }}</span>
               <b>{{ resultSummary.boxesText }}</b>
-              <small>{{ resultSummary.containerName }}</small>
-            </div>
-          </div>
-        </section>
-        <section class="panel decision-log-panel">
-          <div class="section-head">
-            <div>
-              <p>Decision Stream</p>
-              <h2>计算决策流</h2>
-            </div>
-            <div class="view-actions">
-              <el-tag :type="loading ? 'warning' : 'info'" effect="light">{{ loading ? "计算中" : "最近一次计算" }}</el-tag>
-              <el-button :disabled="!decisionLogs.length" @click="clearDecisionLogs">清空日志</el-button>
-            </div>
-          </div>
-          <div class="decision-log-list">
-            <div v-if="loading && !decisionLogs.length" class="decision-log-empty">
-              正在等待 Web Worker 输出装箱决策...
-            </div>
-            <div
-              v-for="(log, index) in decisionLogs"
-              :key="`${log.index || index}-${log.text}`"
-              :class="['decision-log-item', log.level || 'summary', log.phase || 'search']"
-            >
-              <span>{{ log.index || index + 1 }}</span>
-              <p>{{ log.text }}</p>
-            </div>
-            <div v-if="!loading && !decisionLogs.length" class="decision-log-empty">
-              暂无计算日志，点击“重新计算”后会显示每层装箱决策。
+              <small>{{ trPlanSummary(resultSummary.containerName) }}</small>
             </div>
           </div>
         </section>
         <section class="panel ranking-panel">
           <div class="section-head">
             <div>
-              <p>箱型选择</p>
-              <h2>推荐箱型对比</h2>
+              <p>{{ tr("箱型选择") }}</p>
+              <h2>{{ tr("推荐箱型对比") }}</h2>
             </div>
             <div class="view-actions">
-              <el-tag :type="loading ? 'warning' : 'primary'" effect="light">{{ apiStatus }}</el-tag>
-              <el-button :icon="ArrowLeft" @click="goPlannerStep('cargos')">返回货物总览</el-button>
-              <el-button :icon="Refresh" @click="recalculate">重新计算</el-button>
+              <el-tag :type="loading ? 'warning' : 'primary'" effect="light">{{ tr(apiStatus) }}</el-tag>
+              <el-button :icon="ArrowLeft" @click="goPlannerStep('cargos')">{{ tr("返回货物总览") }}</el-button>
+              <el-button type="primary" :icon="Refresh" @click="recalculate">{{ tr("重新计算") }}</el-button>
             </div>
           </div>
           <div class="container-grid">
@@ -511,7 +483,8 @@
               @click="selectContainer(evaluation.container.id)"
             >
               <span class="container-icon">{{ containerIcon(evaluation.container.name) }}</span>
-              <strong>{{ evaluation.container.name }}</strong>
+              <mark v-if="result?.bestContainerId === evaluation.container.id" class="container-recommend-mark">{{ tr("推荐") }}</mark>
+              <strong>{{ trPlanSummary(evaluation.container.name) }}</strong>
               <small>{{ evaluationCardSubtitle(evaluation) }}</small>
               <em>{{ evaluationCardMetric(evaluation) }}</em>
               <b v-if="evaluationCardStatus(evaluation)" :class="['fit-status', evaluation.fitStatus || 'fit']">{{ evaluationCardStatus(evaluation) }}</b>
@@ -523,20 +496,7 @@
           <div class="section-head">
             <div>
               <p>Interactive 3D Packing</p>
-              <h2>{{ selectedContainer?.name || "请选择箱型" }} · 第 {{ selectedBoxIndex }} 货舱</h2>
-            </div>
-            <div class="box-switch visual-box-switch" v-if="selectedEvaluation?.packedBoxes?.length > 1">
-              <span>{{ boxSwitchLabel }}</span>
-              <el-button
-                v-for="box in selectedEvaluation.packedBoxes"
-                :key="box.index"
-                :class="{ active: selectedBoxIndex === box.index }"
-                size="small"
-                :type="selectedBoxIndex === box.index ? 'primary' : 'default'"
-                @click="switchBox(box.index)"
-              >
-                {{ boxTabLabel(box) }}
-              </el-button>
+              <h2>{{ trContainerName(selectedContainer?.name || "请选择箱型") }} · {{ tr(`第 ${selectedBoxIndex} 货舱`) }}</h2>
             </div>
           </div>
           <ContainerScene
@@ -557,6 +517,47 @@
             @export-zip="exportAllReportsZip"
             @print="printCurrentPlan"
           />
+          <div class="box-switch visual-box-switch visual-box-switch-bottom" v-if="selectedEvaluation?.packedBoxes?.length > 1">
+            <span>{{ boxSwitchLabel }}</span>
+            <el-button
+              v-for="box in selectedEvaluation.packedBoxes"
+              :key="box.index"
+              :class="{ active: selectedBoxIndex === box.index }"
+              size="small"
+              :type="selectedBoxIndex === box.index ? 'primary' : 'default'"
+              @click="switchBox(box.index)"
+            >
+              {{ boxTabLabel(box) }}
+            </el-button>
+          </div>
+        </section>
+        <section class="panel decision-log-panel">
+          <div class="section-head">
+            <div>
+              <p>Decision Stream</p>
+              <h2>{{ tr("计算决策流") }}</h2>
+            </div>
+            <div class="view-actions">
+              <el-tag :type="loading ? 'warning' : 'info'" effect="light">{{ tr(loading ? "计算中" : "最近一次计算") }}</el-tag>
+              <el-button :disabled="!decisionLogs.length" @click="clearDecisionLogs">{{ tr("清空日志") }}</el-button>
+            </div>
+          </div>
+          <div class="decision-log-list compact">
+            <div v-if="loading && !decisionLogs.length" class="decision-log-empty">
+              {{ tr("正在等待 Web Worker 输出装箱决策...") }}
+            </div>
+            <div
+              v-for="(log, index) in decisionLogs"
+              :key="`${log.index || index}-${log.text}`"
+              :class="['decision-log-item', log.level || 'summary', log.phase || 'search']"
+            >
+              <span>{{ index + 1 }}</span>
+              <p>{{ tr(log.text) }}</p>
+            </div>
+            <div v-if="!loading && !decisionLogs.length" class="decision-log-empty">
+              {{ tr("暂无计算日志，点击“重新计算”后会显示关键装箱决策。") }}
+            </div>
+          </div>
         </section>
       </section>
       </Transition>
@@ -832,8 +833,8 @@ const hasUndetailedBoxes = computed(() =>
 );
 const boxSwitchLabel = computed(() => {
   const total = Number(selectedEvaluation.value?.boxes || 0);
-  if (hasUndetailedBoxes.value) return `显示已详算货舱 ${detailedBoxCount.value} / 约 ${total}`;
-  return `显示货舱 ${detailedBoxCount.value || total}`;
+  if (hasUndetailedBoxes.value) return tr(`显示已详算货舱 ${detailedBoxCount.value} / 约 ${total}`);
+  return tr(`显示货舱 ${detailedBoxCount.value || total}`);
 });
 const exportZipLabel = computed(() => hasUndetailedBoxes.value ? "导出已详算 ZIP" : "导出整套 ZIP");
 const selectedPlanExportable = computed(() =>
@@ -1095,7 +1096,8 @@ async function recalculate() {
       globalGapCm: globalGapCm.value,
       balanceSettings: balanceSettings.value
     }, {
-      maxDecisionEntries: 600,
+      maxDecisionEntries: 80,
+      decisionBatchSize: 8,
       onDecision(decisions) {
         if (seq !== calcSeq) return;
         appendDecisionLogs(decisions);
@@ -1124,7 +1126,7 @@ function appendDecisionLogs(decisions: any[]) {
     }))
     .filter((item) => item.text);
   if (!normalized.length) return;
-  decisionLogs.value = [...decisionLogs.value, ...normalized].slice(-260);
+  decisionLogs.value = [...decisionLogs.value, ...normalized].slice(-80);
 }
 
 function clearDecisionLogs() {
@@ -1396,7 +1398,9 @@ function exportCsv() {
 }
 
 async function exportCurrentReport(format) {
-  if (!selectedContainer.value || !selectedPlacements.value.length) {
+  const isPdf = format === "pdf";
+  const hasPdfBoxes = Boolean(selectedEvaluation.value?.packedBoxes?.some((box) => box?.placed?.length));
+  if (!selectedContainer.value || (!isPdf && !selectedPlacements.value.length) || (isPdf && !hasPdfBoxes)) {
     showToast("当前没有可导出的摆放结果。");
     return;
   }
@@ -1410,13 +1414,14 @@ async function exportCurrentReport(format) {
     await exportPackingReport({
       format,
       container: selectedContainer.value,
-      evaluation: selectedEvaluation.value,
+      evaluation: normalizeEvaluationForExport(selectedEvaluation.value),
       placements: selectedPlacements.value,
       cargos: cargos.value,
       boxIndex: selectedBoxIndex.value,
       utilizationPercent: utilizationPercent.value,
       globalGapCm: globalGapCm.value,
-      showMassBalance: showMassBalance.value
+      showMassBalance: showMassBalance.value,
+      locale: currentLocale.value
     });
     showToast(format === "pdf" ? "PDF 已导出。" : "图片已导出。");
   } catch (error) {
@@ -1444,7 +1449,8 @@ async function exportAllReportsZip() {
       cargos: cargos.value,
       utilizationPercent: utilizationPercent.value,
       globalGapCm: globalGapCm.value,
-      showMassBalance: showMassBalance.value
+      showMassBalance: showMassBalance.value,
+      locale: currentLocale.value
     });
     showToast(hasUndetailedBoxes.value ? "已详算货舱报告 ZIP 已导出。" : "整套装箱报告 ZIP 已导出。");
   } catch (error) {
@@ -1583,7 +1589,7 @@ function containerSourceShort(container: any) {
 
 function evaluationCardSubtitle(evaluation) {
   if (evaluation?.isMixedPlan || evaluation?.container?.mixedPlan) {
-    return evaluation?.mixedPlan?.summary || "多箱型组合";
+    return trPlanSummary(evaluation?.mixedPlan?.summary || "多箱型组合");
   }
   return `${containerDimensionText(evaluation?.container)} cm`;
 }
@@ -1595,20 +1601,20 @@ function evaluationCardMetric(evaluation) {
     const lengthText = lengthPercent ? t("metrics.lengthSuffix", { value: fmt(lengthPercent, 1) }) : "";
     return t("metrics.deckUtilizationWithLength", { value: fmt(fill, 1), length: lengthText });
   }
-  return `${Number(evaluation?.boxes || 0) > 1 || evaluation?.isMixedPlan ? "平均" : "空间"}利用率 ${fmt(fill, 1)}%`;
+  return `${tr(Number(evaluation?.boxes || 0) > 1 || evaluation?.isMixedPlan ? "平均利用率" : "空间利用率")} ${fmt(fill, 1)}%`;
 }
 
 function evaluationCardStatus(evaluation) {
   if (!evaluation || evaluation.fitStatus === "fit") return "";
-  if (evaluation.fitStatus === "oversize") return "不可装";
-  if (evaluation.fitStatus === "balance-blocked") return "偏载拦截";
+  if (evaluation.fitStatus === "oversize") return tr("不可装");
+  if (evaluation.fitStatus === "balance-blocked") return tr("偏载拦截");
   return "";
 }
 
 function boxTabLabel(box) {
   const name = box?.container?.name;
   if (!name) return box?.index || "";
-  return `${box.index} ${name.split(" ")[0] || name}`;
+  return `${box.index} ${trContainerName(name).split(" ")[0] || trContainerName(name)}`;
 }
 
 function formatTons(value: unknown) {
@@ -1633,6 +1639,16 @@ function tr(value) {
 
 function trContainerName(value) {
   return tr(value);
+}
+
+function trPlanSummary(value) {
+  const text = String(value || "");
+  if (!text) return text;
+  return text.split(" + ").map((part) => {
+    const match = part.match(/^(.*?)(×\d+)$/);
+    if (!match) return trContainerName(part);
+    return `${trContainerName(match[1])}${match[2]}`;
+  }).join(" + ");
 }
 
 function evaluationFitText(evaluation) {
@@ -1661,8 +1677,12 @@ function evaluationRecommendationText(evaluation) {
 function evaluationHint(evaluation) {
   const recommendation = evaluation?.recommendation || {};
   const score = Number(recommendation.score || 0);
-  const scoreText = score > 0 ? `；综合评分 ${score.toFixed(0)}，分数越低越优` : "";
-  return `${evaluation?.container?.name || "方案"}；${evaluationCardSubtitle(evaluation)}；${evaluationCardMetric(evaluation)}${scoreText}`;
+  const scoreText = score > 0
+    ? currentLocale.value === "en-US"
+      ? `; composite score ${score.toFixed(0)}, lower is better`
+      : `；综合评分 ${score.toFixed(0)}，分数越低越优`
+    : "";
+  return `${trPlanSummary(evaluation?.container?.name || "方案")}；${evaluationCardSubtitle(evaluation)}；${evaluationCardMetric(evaluation)}${scoreText}`;
 }
 
 function evaluationAverageFill(evaluation) {

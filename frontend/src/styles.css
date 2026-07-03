@@ -1621,6 +1621,11 @@ select {
   font-weight: 700;
 }
 
+.visual-box-switch-bottom {
+  justify-content: flex-end;
+  margin: 12px 0 0 auto;
+}
+
 .content {
   display: grid;
   gap: 14px;
@@ -1926,6 +1931,10 @@ select {
   background: #f8fbff;
 }
 
+.decision-log-list.compact {
+  max-height: 220px;
+}
+
 .decision-log-item {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
@@ -2035,14 +2044,16 @@ select {
   opacity: 0.78;
 }
 
-.container-card.el-button.best::after {
-  content: "推荐";
+.container-recommend-mark {
   position: absolute;
   right: 10px;
   top: 8px;
+  border: 0;
+  background: transparent;
   color: #1f6fbe;
   font-weight: 800;
   font-size: 12px;
+  font-style: normal;
 }
 
 .container-icon {
