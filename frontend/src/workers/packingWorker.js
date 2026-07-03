@@ -741,7 +741,7 @@ function generateOrientations(unit, options = {}) {
 
 function packContainer(container, units) {
   const { stackable, nonStack } = splitUnitsForFinalNonStackPass(units);
-  const stackableContainer = containerForStackablePhase(container, nonStack);
+  const stackableContainer = container;
   const baseAttempts = [];
   const attempts = [];
   let rejectedByBalance = 0;
@@ -886,7 +886,7 @@ function packLayerLaff(container, units, strategy, fixedPlaced = []) {
     if (clean.nonStack) deferredNonStack.push(clean);
     else active.push(clean);
   }
-  const stackableContainer = containerForStackablePhase(container, deferredNonStack);
+  const stackableContainer = container;
   let nextLayerBottom = 0;
   let layerNo = countLayers(placed);
 
@@ -978,46 +978,42 @@ function packLayerLaff(container, units, strategy, fixedPlaced = []) {
 }
 
 function placeDeferredNonStackOnTop(container, placed, units, strategy) {
-  const ordered = orderUnits(units.map(stripPlacement), strategy.unitOrder);
-  const unplaced = [];
+  let pending = orderUnits(units.map(stripPlacement), strategy.unitOrder);
   let placedCount = 0;
 
-  for (const unit of ordered) {
-    const placement = findTopOnlyPlacement(container, placed, unit, strategy);
-    if (placement) {
-      placed.push(applyPlacement(unit, placement));
-      placedCount += unitQuantity(unit);
-    } else {
-      unplaced.push(unit);
+  const runPass = (items) => {
+    const next = [];
+    for (const unit of orderUnits(items.map(stripPlacement), strategy.unitOrder)) {
+      const placement = findTopExposedPlacement(container, placed, unit, strategy);
+      if (placement) {
+        placed.push(applyPlacement(unit, placement));
+        placedCount += unitQuantity(unit);
+      } else {
+        next.push(unit);
+      }
     }
+    return next;
+  };
+
+  pending = runPass(pending);
+  if (pending.some((unit) => unitQuantity(unit) > 2)) {
+    pending = runPass(downgradeUnits(pending, 2, container));
+  }
+  if (pending.some((unit) => unitQuantity(unit) > 1)) {
+    pending = runPass(downgradeUnits(pending, 1, container));
   }
 
-  return { placedCount, unplaced };
-}
-
-function containerForStackablePhase(container, deferredNonStack) {
-  if (!deferredNonStack.length || container.ignoreHeightLimit) return container;
-  const reserveHeight = maxMinOrientationHeight(deferredNonStack);
-  if (reserveHeight <= EPS) return container;
-  const heightLimit = containerHeightLimit(container);
-  const reservedHeight = Math.max(0, heightLimit - reserveHeight);
-  if (reservedHeight <= EPS) return container;
-  return {
-    ...container,
-    heightCm: reservedHeight,
-    originalHeightCm: container.heightCm
-  };
-}
-
-function maxMinOrientationHeight(units) {
-  return units.reduce((maxHeight, unit) => {
-    const heights = generateOrientations(unit).map((dims) => Number(dims.heightCm || 0)).filter((value) => value > EPS);
-    if (!heights.length) return maxHeight;
-    return Math.max(maxHeight, Math.min(...heights));
-  }, 0);
+  return { placedCount, unplaced: pending };
 }
 
 function findTopOnlyPlacement(container, placed, unit, strategy) {
+  return findTopExposedPlacement(container, placed, unit, strategy);
+}
+
+function findTopExposedPlacement(container, placed, unit, strategy) {
+  const directPlacement = packExtremePoint(container, placed, unit, strategy, { denseTop: true });
+  if (directPlacement) return directPlacement;
+
   const layerBottoms = topCandidateLayerBottoms(placed);
   for (const layerBottom of layerBottoms) {
     const placement = packExtremePoint(container, placed, unit, strategy, { layerBottom, denseTop: true });
