@@ -1,13 +1,13 @@
 <template>
   <section class="algorithm-page">
     <div class="page-title">
-      <p>计算说明</p>
-      <h2>当前装箱算法与计算留痕</h2>
+      <p>{{ ui('algorithm.eyebrow') }}</p>
+      <h2>{{ ui('algorithm.title') }}</h2>
     </div>
 
     <div class="algorithm-note trace-card">
-      <strong>计算过程在哪执行</strong>
-      <p>主页面只负责收集货物和箱型参数，点击计算或修改数量后，浏览器主线程通过 <code>packingClient.js</code> 创建 Web Worker，把数据复制给 <code>packingWorker.js</code>。真正的装箱、旋转、支撑判断、箱型对比都在 Worker 里完成，所以 3D 视图和表单不会被计算过程长时间阻塞。</p>
+      <strong>{{ ui('algorithm.whereRuns') }}</strong>
+      <p>{{ ui('algorithm.whereRunsText') }}</p>
     </div>
 
     <div class="algorithm-visual-guide">
@@ -33,69 +33,69 @@
 
     <div class="algorithm-grid">
       <article>
-        <strong>1. 货物展开</strong>
-        <p>系统先把每一类货物按数量展开为单件货物。全局货物间隙主要作为长宽方向的水平间隙；高度方向只叠加货物类型带来的必要余量，避免每层都虚增高度。</p>
+        <strong>{{ ui('algorithm.step.expand') }}</strong>
+        <p>{{ ui('algorithm.step.expandText') }}</p>
       </article>
       <article>
-        <strong>2. 多策略排序</strong>
-        <p>同一箱型会尝试多种顺序：承重优先、体积优先、底面积优先、高度优先。当前重点优化为可堆放货物先形成支撑层，不可重压货物尽量后放到上层。</p>
+        <strong>{{ ui('algorithm.step.sort') }}</strong>
+        <p>{{ ui('algorithm.step.sortText') }}</p>
       </article>
       <article>
-        <strong>3. 旋转枚举</strong>
-        <p>普通货物会枚举最多 6 种长宽高方向；托盘或保持朝上类型按规则限制旋转。每个结果都会记录 X/Y/Z 分别对应货物原始哪条边。</p>
+        <strong>{{ ui('algorithm.step.rotation') }}</strong>
+        <p>{{ ui('algorithm.step.rotationText') }}</p>
       </article>
       <article>
-        <strong>4. 候选坐标</strong>
-        <p>候选点来自箱底、已摆货物右侧、前侧、上方以及边界组合点。快速方案选出后，会对剩余货物做一次深度回填，避免明明有顶面空间却开第二箱。</p>
+        <strong>{{ ui('algorithm.step.points') }}</strong>
+        <p>{{ ui('algorithm.step.pointsText') }}</p>
       </article>
       <article>
-        <strong>5. 支撑约束</strong>
+        <strong>{{ ui('algorithm.step.support') }}</strong>
         <p>{{ t("planner.supportConstraintNote") }}</p>
       </article>
       <article>
-        <strong>6. 箱型推荐</strong>
-        <p>每个箱型分别试算。推荐顺序综合合规状态、参考费用档、箱数、利用率区间和特种箱型惩罚，不再单纯追求最高空间占用率；如果前一个箱型已经单箱成功，后续更大箱型会先检查能否复用同一套坐标，减少重复计算。</p>
+        <strong>{{ ui('algorithm.step.recommend') }}</strong>
+        <p>{{ ui('algorithm.step.recommendText') }}</p>
       </article>
     </div>
 
     <div class="trace-grid">
       <article class="algorithm-note">
-        <strong>核心计算公式</strong>
+        <strong>{{ ui('algorithm.coreFormulas') }}</strong>
         <ul class="formula-list">
-          <li v-for="formula in formulas" :key="formula">{{ formula }}</li>
+          <li v-for="formula in formulas" :key="formula">{{ tr(formula) }}</li>
         </ul>
       </article>
 
       <article class="algorithm-note">
-        <strong>当前计算留痕</strong>
+        <strong>{{ ui('algorithm.currentTrace') }}</strong>
         <div v-if="trace" class="trace-metrics">
-          <div><span>选中箱型</span><b>{{ trace.current.containerName }}</b></div>
-          <div><span>计算模式</span><b>{{ trace.mode }}</b></div>
-          <div><span>货物展开</span><b>{{ trace.parameters.unitCount }} 件</b></div>
-          <div><span>计划可用率</span><b>{{ trace.parameters.utilizationPercent }}%</b></div>
-          <div><span>水平间隙</span><b>{{ trace.parameters.globalGapCm }} cm</b></div>
+          <div><span>{{ ui('algorithm.selectedContainer') }}</span><b>{{ tr(trace.current.containerName) }}</b></div>
+          <div><span>{{ ui('algorithm.calculationMode') }}</span><b>{{ tr(trace.mode) }}</b></div>
+          <div><span>{{ ui('algorithm.cargoExpansion') }}</span><b>{{ trace.parameters.unitCount }} {{ ui('unit.piece') }}</b></div>
+          <div><span>{{ ui('algorithm.plannedUtilization') }}</span><b>{{ trace.parameters.utilizationPercent }}%</b></div>
+          <div><span>{{ ui('algorithm.horizontalGap') }}</span><b>{{ trace.parameters.globalGapCm }} cm</b></div>
           <div><span>{{ t("planner.supportRatioTrace") }}</span><b>{{ trace.supportRatioPercent }}% / {{ trace.nonStackSupportRatioPercent || 98.5 }}%</b></div>
-          <div><span>首箱策略</span><b>{{ trace.selectedStrategy || "-" }}</b></div>
-          <div><span>首箱已摆</span><b>{{ trace.firstBox.placedCount }} / {{ trace.parameters.unitCount }} 件</b></div>
-          <div><span>箱体体积</span><b>{{ fmt(trace.current.containerVolumeM3) }} m³</b></div>
-          <div><span>可用体积</span><b>{{ fmt(trace.current.usableVolumeM3) }} m³</b></div>
-          <div><span>首箱占用体积</span><b>{{ fmt(trace.current.firstBoxOccupiedVolumeM3) }} m³</b></div>
-          <div><span>首箱空间占用</span><b>{{ fmt(trace.current.firstBoxFillPercent, 1) }}%</b></div>
-          <div><span>几何箱数</span><b>{{ trace.current.geometryBoxes }}</b></div>
-          <div><span>重量箱数</span><b>{{ trace.current.weightBoxes }}</b></div>
-          <div><span>最终箱数</span><b>{{ trace.current.finalBoxes }}</b></div>
+          <div><span>{{ ui('algorithm.firstBoxStrategy') }}</span><b>{{ tr(trace.selectedStrategy || "-") }}</b></div>
+          <div><span>{{ ui('algorithm.firstBoxLoaded') }}</span><b>{{ trace.firstBox.placedCount }} / {{ trace.parameters.unitCount }} {{ ui('unit.piece') }}</b></div>
+          <div><span>{{ ui('algorithm.containerVolume') }}</span><b>{{ fmt(trace.current.containerVolumeM3) }} m³</b></div>
+          <div><span>{{ ui('algorithm.usableVolume') }}</span><b>{{ fmt(trace.current.usableVolumeM3) }} m³</b></div>
+          <div><span>{{ ui('algorithm.firstBoxOccupiedVolume') }}</span><b>{{ fmt(trace.current.firstBoxOccupiedVolumeM3) }} m³</b></div>
+          <div><span>{{ ui('algorithm.firstBoxSpaceUsed') }}</span><b>{{ fmt(trace.current.firstBoxFillPercent, 1) }}%</b></div>
+          <div><span>{{ ui('algorithm.geometryBoxes') }}</span><b>{{ trace.current.geometryBoxes }}</b></div>
+          <div><span>{{ ui('algorithm.weightBoxes') }}</span><b>{{ trace.current.weightBoxes }}</b></div>
+          <div><span>{{ ui('algorithm.finalBoxes') }}</span><b>{{ trace.current.finalBoxes }}</b></div>
         </div>
-        <p v-else>当前还没有计算结果，返回装箱计算页录入货物后会在这里显示实际计算留痕。</p>
+        <p v-else>{{ ui('algorithm.noTrace') }}</p>
       </article>
     </div>
 
     <div v-if="trace" class="algorithm-note">
-      <strong>Worker 工作流程</strong>
+      <strong>{{ ui('algorithm.workerFlow') }}</strong>
       <ol class="trace-list">
-        <li v-for="step in trace.pipeline" :key="step">{{ step }}</li>
+        <li v-for="step in trace.pipeline" :key="step">{{ tr(step) }}</li>
       </ol>
       <div class="strategy-list">
-        <span v-for="strategy in trace.strategies" :key="strategy">{{ strategy }}</span>
+        <span v-for="strategy in trace.strategies" :key="strategy">{{ tr(strategy) }}</span>
       </div>
     </div>
   </section>
@@ -104,6 +104,8 @@
 <script setup>
 import { computed } from "vue";
 import { currentLocale, t } from "../i18n";
+import { translateLegacyText } from "../i18n/legacyText";
+import { translateUiText } from "../i18n/uiText";
 
 const props = defineProps({
   evaluation: { type: Object, default: null }
@@ -182,9 +184,17 @@ const guideStrategies = computed(() => {
 });
 
 function fmt(value, digits = 2) {
-  return Number(value || 0).toLocaleString("zh-CN", {
+  return Number(value || 0).toLocaleString(currentLocale.value === "en-US" ? "en-US" : "zh-CN", {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits
   });
+}
+
+function tr(value) {
+  return translateLegacyText(value == null ? "" : String(value), currentLocale.value);
+}
+
+function ui(key, params) {
+  return translateUiText(key, currentLocale.value, params);
 }
 </script>

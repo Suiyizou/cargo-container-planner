@@ -2,17 +2,17 @@
   <section class="container-reference-page">
     <el-card class="planner-page-head" shadow="never">
       <div class="page-heading">
-        <p>Container Reference</p>
-        <h2>箱型尺寸资料库</h2>
+        <p>{{ tr("Container Reference") }}</p>
+        <h2>{{ ui('container.referenceTitle') }}</h2>
       </div>
       <RouterLink to="/planner/config">
-        <el-button type="primary" plain>返回配置页</el-button>
+        <el-button type="primary" plain>{{ ui('container.backToConfig') }}</el-button>
       </RouterLink>
     </el-card>
 
     <el-alert
       class="container-source-alert"
-      title="尺寸资料来自公开船司/箱东页面，只作为方案估算基准；实际装柜请以放箱柜号、场站实测、订舱设备和绑扎方案为准。普通货优先选择普柜/高柜，冷藏和平板作为特殊设备候选。"
+      :title="ui('container.sourceAlert')"
       type="info"
       show-icon
       :closable="false"
@@ -38,18 +38,18 @@
               <el-tag :type="priorityTagType(container.usagePriority)" effect="light">
                 {{ priorityText(container.usagePriority) }}
               </el-tag>
-              <h3>{{ container.name }}</h3>
+              <h3>{{ tr(container.name) }}</h3>
             </div>
-            <el-tag v-if="container.ignoreHeightLimit" type="warning" effect="plain">平板不计高度</el-tag>
+            <el-tag v-if="container.ignoreHeightLimit" type="warning" effect="plain">{{ ui('container.flatRackHeightIgnored') }}</el-tag>
           </div>
 
           <dl class="container-reference-specs">
-            <div><dt>计算尺寸</dt><dd>{{ dimensionText(container) }} cm</dd></div>
-            <div><dt>最大载重</dt><dd>{{ payloadText(container) }}</dd></div>
-            <div><dt>尺寸依据</dt><dd>{{ container.dimensionBasis || "手动录入尺寸" }}</dd></div>
+            <div><dt>{{ ui('container.calcSize') }}</dt><dd>{{ dimensionText(container) }} cm</dd></div>
+            <div><dt>{{ ui('container.maxPayload') }}</dt><dd>{{ payloadText(container) }}</dd></div>
+            <div><dt>{{ ui('container.dimensionBasis') }}</dt><dd>{{ sourceText(container.dimensionBasis, ui('container.manualDimensions')) }}</dd></div>
           </dl>
 
-          <p class="container-reference-note">{{ container.dimensionNote || "自定义箱型，请按实际设备复核。" }}</p>
+          <p class="container-reference-note">{{ sourceText(container.dimensionNote, ui('container.customNote')) }}</p>
           <el-link
             v-if="container.dimensionSourceUrl"
             type="primary"
@@ -57,9 +57,9 @@
             target="_blank"
             :underline="false"
           >
-            {{ container.dimensionSource }}
+            {{ tr(container.dimensionSource) }}
           </el-link>
-          <span v-else class="container-reference-custom-source">{{ container.dimensionSource || "用户自定义尺寸" }}</span>
+          <span v-else class="container-reference-custom-source">{{ sourceText(container.dimensionSource, ui('container.userDefinedDimensions')) }}</span>
         </div>
       </article>
     </div>
@@ -68,6 +68,9 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { currentLocale } from "../i18n";
+import { translateLegacyText } from "../i18n/legacyText";
+import { translateUiText } from "../i18n/uiText";
 
 const props = defineProps({
   containers: { type: Array, default: () => [] }
@@ -119,10 +122,22 @@ function formatNumber(value: unknown) {
 
 function priorityText(value: string) {
   return {
-    common: "常用",
-    limited: "少量使用",
-    special: "特殊设备"
-  }[value] || "自定义";
+    common: ui('container.priority.common'),
+    limited: ui('container.priority.limited'),
+    special: ui('container.priority.special')
+  }[value] || ui('container.priority.custom');
+}
+
+function sourceText(value: unknown, fallback: string) {
+  return tr(value || fallback);
+}
+
+function tr(value: unknown) {
+  return translateLegacyText(value == null ? "" : String(value), currentLocale.value);
+}
+
+function ui(key, params) {
+  return translateUiText(key, currentLocale.value, params);
 }
 
 function priorityTagType(value: string) {

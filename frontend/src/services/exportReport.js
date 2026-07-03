@@ -1,6 +1,7 @@
 import { calculateMassBalance } from "../utils/massBalance";
 import { cargoLabel } from "../utils/format";
-import { localizeCanvasContext } from "../i18n/legacyText";
+import { localizeCanvasContext, translateLegacyText } from "../i18n/legacyText";
+import { translateUiText } from "../i18n/uiText";
 
 const REPORT_COLORS = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3", "#ca8a04", "#475569"];
 const PAGE_WIDTH = 1800;
@@ -15,8 +16,8 @@ export async function exportPackingReport(options) {
   }
   if (document.fonts?.ready) await document.fonts.ready;
 
+  const generatedAt = new Date();
   if (options.format === "pdf") {
-    const generatedAt = new Date();
     const boxes = collectReportBoxes(options);
     if (!boxes.length) throw new Error("当前方案没有可导出的货舱报告。");
     const canvases = boxes.map((box) => renderReportCanvas({
@@ -30,8 +31,8 @@ export async function exportPackingReport(options) {
     downloadBlob(pdfBlob, `${multiReportFileBase(options, generatedAt)}.pdf`);
     return;
   }
-  const canvas = renderReportCanvas(options);
-  const fileBase = reportFileBase(options);
+  const canvas = renderReportCanvas({ ...options, generatedAt });
+  const fileBase = reportFileBase({ ...options, generatedAt });
   const imageBlob = await canvasToBlob(canvas, "image/png", 1);
   downloadBlob(imageBlob, `${fileBase}.png`);
 }
@@ -83,7 +84,7 @@ export async function exportPackingReportsZip(options) {
     throw new Error("没有可导出的货舱图片。");
   }
   const zipBlob = await createZipBlob(files);
-  downloadBlob(zipBlob, `装箱方案-${safeFileName(options.container.name)}-${timestampForFile(generatedAt)}.zip`);
+  downloadBlob(zipBlob, `${reportFileStem(options, generatedAt)}-Reports.zip`);
 }
 
 export function renderReportCanvas(options) {
@@ -141,19 +142,20 @@ function drawHeader(ctx, options, catalog, layers) {
 
   ctx.fillStyle = "#122033";
   ctx.font = "800 40px Microsoft YaHei, Arial";
-  ctx.fillText("装箱分层剖析报告", 132, 68);
+  fillFittedText(ctx, reportText(ctx, "report.title"), 132, 68, 720, 28);
   ctx.fillStyle = "#52657b";
   ctx.font = "400 18px Microsoft YaHei, Arial";
-  ctx.fillText("按高度剖开货舱：每层提供俯视定位、斜侧立体剖析与色块堆放方式说明", 134, 104);
+  fillFittedText(ctx, reportText(ctx, "report.subtitle"), 134, 104, 900, 13);
 
   const rightX = 1240;
+  const holdText = reportText(ctx, "report.holdNo", { index: options.boxIndex || 1 });
   ctx.fillStyle = "#174a7f";
   ctx.font = "800 22px Microsoft YaHei, Arial";
-  ctx.fillText(`${options.container?.name || "-"} · 第 ${options.boxIndex || 1} 货舱`, rightX, 58);
+  fillFittedText(ctx, `${options.container?.name || "-"} · ${holdText}`, rightX, 58, PAGE_WIDTH - rightX - 48, 14);
   ctx.fillStyle = "#52657b";
   ctx.font = "400 17px Microsoft YaHei, Arial";
-  ctx.fillText(`生成时间：${(options.generatedAt || new Date()).toLocaleString(reportLocale(options.locale))}`, rightX, 92);
-  ctx.fillText(`货物类别：${catalog.length} 类 · 分层数量：${layers.length} 层`, rightX, 122);
+  fillFittedText(ctx, reportText(ctx, "report.generatedAt", { value: (options.generatedAt || new Date()).toLocaleString(reportLocale(options.locale)) }), rightX, 92, PAGE_WIDTH - rightX - 48, 12);
+  fillFittedText(ctx, reportText(ctx, "report.cargoLayerCounts", { cargoTypes: catalog.length, layers: layers.length }), rightX, 122, PAGE_WIDTH - rightX - 48, 12);
 }
 
 function drawSummary(ctx, x, y, width, height, options, placements, layers) {
@@ -172,10 +174,10 @@ function drawSummary(ctx, x, y, width, height, options, placements, layers) {
     const cx = x + index * cellWidth + 24;
     ctx.fillStyle = "#64748b";
     ctx.font = "400 16px Microsoft YaHei, Arial";
-    ctx.fillText(item[0], cx, y + 30);
+    fillFittedText(ctx, item[0], cx, y + 30, cellWidth - 36, 11);
     ctx.fillStyle = "#132033";
     ctx.font = "800 23px Microsoft YaHei, Arial";
-    ctx.fillText(item[1], cx, y + 62);
+    fillFittedText(ctx, item[1], cx, y + 62, cellWidth - 36, 13);
   });
 }
 
@@ -183,10 +185,10 @@ function drawMassBalance(ctx, x, y, width, height, container, placements, balanc
   drawCard(ctx, x, y, width, height);
   ctx.fillStyle = "#132033";
   ctx.font = "800 27px Microsoft YaHei, Arial";
-  ctx.fillText("质量重心与偏载", x + 24, y + 38);
+  fillFittedText(ctx, reportText(ctx, "report.massBalanceTitle"), x + 24, y + 38, width - 48, 18);
   ctx.fillStyle = "#64748b";
   ctx.font = "400 15px Microsoft YaHei, Arial";
-  ctx.fillText("按每件货物重量和货物中心计算整舱重心；红点为重心，十字为箱体几何中心，四区显示质量占比。", x + 24, y + 66);
+  fillFittedText(ctx, reportText(ctx, "report.massBalanceText"), x + 24, y + 66, width - 48, 11);
 
   const plot = { x: x + 24, y: y + 92, width: 690, height: height - 120 };
   drawBalanceTopMap(ctx, plot, container, placements, balance);
@@ -206,10 +208,10 @@ function drawMassBalance(ctx, x, y, width, height, container, placements, balanc
     const cellY = y + 98 + Math.floor(index / 2) * 58;
     ctx.fillStyle = "#64748b";
     ctx.font = "400 14px Microsoft YaHei, Arial";
-    ctx.fillText(item.label, cellX, cellY);
+    fillFittedText(ctx, item.label, cellX, cellY, metricWidth / 2 - 24, 10);
     ctx.fillStyle = item.danger ? "#be123c" : "#132033";
     ctx.font = "800 21px Microsoft YaHei, Arial";
-    ctx.fillText(item.value, cellX, cellY + 28);
+    fillFittedText(ctx, item.value, cellX, cellY + 28, metricWidth / 2 - 24, 12);
   });
 
   drawSplitBar(ctx, metricsX, y + 270, metricWidth, 24, balance.loads.leftPercent, "#2a9d8f", "#3b82f6", `左 ${formatNum(balance.loads.leftPercent)}%`, `右 ${formatNum(balance.loads.rightPercent)}%`);
@@ -226,10 +228,10 @@ function drawBalanceTopMap(ctx, plot, container, placements, balance) {
 
   ctx.fillStyle = "#132033";
   ctx.font = "800 17px Microsoft YaHei, Arial";
-  ctx.fillText("货舱俯视质量图", plot.x + 18, plot.y + 28);
+  fillFittedText(ctx, reportText(ctx, "report.massTopTitle"), plot.x + 18, plot.y + 28, 124, 12);
   ctx.fillStyle = "#64748b";
   ctx.font = "400 13px Microsoft YaHei, Arial";
-  ctx.fillText("货物按实际俯视位置铺放，四区按箱体中心线划分。", plot.x + 150, plot.y + 28);
+  fillFittedText(ctx, reportText(ctx, "report.massTopText"), plot.x + 150, plot.y + 28, plot.width - 168, 10);
 
   const inner = inset(plot, 36, 48, 36, 36);
   const scale = Math.min(inner.width / container.lengthCm, inner.height / container.widthCm);
@@ -344,10 +346,10 @@ function drawLegend(ctx, x, y, width, height, catalog) {
   drawCard(ctx, x, y, width, height);
   ctx.fillStyle = "#132033";
   ctx.font = "800 23px Microsoft YaHei, Arial";
-  ctx.fillText("货物编号与颜色图例", x + 24, y + 32);
+  fillFittedText(ctx, reportText(ctx, "report.legendTitle"), x + 24, y + 32, 210, 15);
   ctx.fillStyle = "#64748b";
   ctx.font = "400 15px Microsoft YaHei, Arial";
-  ctx.fillText("图中 #编号 对应录入货物顺序；A=长×宽、B=宽×高、C=长×高，不同底面会拆成 #2A/#2B。", x + 250, y + 32);
+  fillFittedText(ctx, reportText(ctx, "report.legendText"), x + 250, y + 32, width - 274, 10);
 
   const columns = 4;
   const cellWidth = (width - 48) / columns;
@@ -364,10 +366,13 @@ function drawLegend(ctx, x, y, width, height, catalog) {
     centerText(ctx, `#${cargo.no}`, cellX + 17, cellY + 18);
     ctx.fillStyle = "#132033";
     ctx.font = "800 16px Microsoft YaHei, Arial";
-    ctx.fillText(`#${cargo.no} ${cargoLabel(cargo)}`, cellX + 46, cellY + 10);
+    fillFittedText(ctx, `#${cargo.no} ${cargoLabel(cargo)}`, cellX + 46, cellY + 10, cellWidth - 60, 10);
     ctx.fillStyle = "#52657b";
     ctx.font = "400 13px Microsoft YaHei, Arial";
-    ctx.fillText(`${cargo.lengthCm} × ${cargo.widthCm} × ${cargo.heightCm} cm / ${cargo.quantity || 0} 件`, cellX + 46, cellY + 30);
+    fillFittedText(ctx, reportText(ctx, "report.dimensionsQuantity", {
+      dimensions: `${cargo.lengthCm} × ${cargo.widthCm} × ${cargo.heightCm}`,
+      quantity: cargo.quantity || 0
+    }), cellX + 46, cellY + 30, cellWidth - 60, 9);
   });
 }
 
@@ -631,10 +636,10 @@ function drawLayerStats(ctx, x, y, width, height, layer, index) {
 
     ctx.fillStyle = "#132033";
     ctx.font = "800 16px Microsoft YaHei, Arial";
-    ctx.fillText(`${item.name}`, x + 68, rowY - 8);
+    fillFittedText(ctx, `${item.name}`, x + 68, rowY - 8, width - 158, 10);
     ctx.fillStyle = "#52657b";
     ctx.font = "400 13px Microsoft YaHei, Arial";
-    ctx.fillText(`${item.count} 件`, x + width - 74, rowY - 8);
+    fillFittedText(ctx, reportText(ctx, "report.itemCount", { count: item.count }), x + width - 74, rowY - 8, 58, 9);
 
     ctx.font = "700 13px Microsoft YaHei, Arial";
     ctx.fillStyle = "#1f3148";
@@ -717,10 +722,10 @@ function drawSectionCard(ctx, x, y, width, height, title, subtitle) {
   drawCard(ctx, x, y, width, height);
   ctx.fillStyle = "#132033";
   ctx.font = "800 25px Microsoft YaHei, Arial";
-  ctx.fillText(title, x + 24, y + 38);
+  fillFittedText(ctx, title, x + 24, y + 38, width - 48, 15);
   ctx.fillStyle = "#64748b";
   ctx.font = "400 15px Microsoft YaHei, Arial";
-  ctx.fillText(subtitle, x + 24, y + 66);
+  fillFittedText(ctx, subtitle, x + 24, y + 66, width - 48, 10);
 }
 
 function drawPlotFrame(ctx, plot, title, note) {
@@ -732,11 +737,11 @@ function drawPlotFrame(ctx, plot, title, note) {
   ctx.stroke();
   ctx.fillStyle = "#132033";
   ctx.font = "800 17px Microsoft YaHei, Arial";
-  ctx.fillText(title, plot.x + 18, plot.y + 28);
+  fillFittedText(ctx, title, plot.x + 18, plot.y + 28, plot.width - 36, 11);
   if (note) {
     ctx.fillStyle = "#64748b";
     ctx.font = "400 13px Microsoft YaHei, Arial";
-    ctx.fillText(note, plot.x + 18, plot.y + 48);
+    fillFittedText(ctx, note, plot.x + 18, plot.y + 48, plot.width - 36, 9);
   }
 }
 
@@ -790,7 +795,7 @@ function drawFooter(ctx, y) {
   ctx.stroke();
   ctx.fillStyle = "#64748b";
   ctx.font = "400 14px Microsoft YaHei, Arial";
-  ctx.fillText("说明：分层按货物底面 z 坐标分组；A=长×宽底、B=宽×高底、C=长×高底；大批量同规格货物可能以组合块显示，件数按真实数量统计。", 48, y);
+  fillFittedText(ctx, reportText(ctx, "report.footerNote"), 48, y, PAGE_WIDTH - 96, 10);
 }
 
 function buildCargoCatalog(cargos, placements) {
@@ -915,7 +920,8 @@ function sumPlacementQuantity(placements) {
 }
 
 function wrapText(ctx, text, x, y, maxWidth, lineHeight, maxLines = 2) {
-  const chars = String(text || "").split("");
+  const translated = canvasText(ctx, text);
+  const chars = tokenizeWrapText(translated);
   let line = "";
   let lines = 0;
   for (const char of chars) {
@@ -1030,19 +1036,28 @@ function downloadBlob(blob, filename) {
 }
 
 function reportFileBase(options) {
-  return `装箱剖析-${safeFileName(options.container.name)}-第${options.boxIndex || 1}货舱-${timestampForFile(options.generatedAt || new Date())}`;
+  const generatedAt = options.generatedAt || new Date();
+  const locale = reportLocale(options?.locale);
+  const containerName = translateLegacyText(options?.container?.name || "Container", locale);
+  return `${reportFileStem(options, generatedAt)}-${safeFileName(containerName)}-Hold-${pad2(options.boxIndex || 1)}`;
 }
 
 function multiReportFileBase(options, generatedAt = new Date()) {
-  const locale = reportLocale(options?.locale);
-  const containerName = translateLegacyText(options?.container?.name || "箱型", locale);
-  const prefix = locale === "en-US" ? "Packing-Report" : "装箱剖析";
-  const suffix = locale === "en-US" ? "All-Holds" : "全货舱";
-  return `${prefix}-${safeFileName(containerName)}-${suffix}-${timestampForFile(generatedAt)}`;
+  return `${reportFileStem(options, generatedAt)}-All-Holds`;
+}
+
+function reportFileStem(options, generatedAt = new Date()) {
+  const user = safeFileName(options?.username || options?.userName || "USER") || "USER";
+  const taskId = safeFileName(options?.taskId || "task") || "task";
+  return `${user}-${timestampForFile(generatedAt)}-${taskId}`;
 }
 
 function reportLocale(locale) {
   return String(locale || "").toLowerCase().startsWith("en") ? "en-US" : "zh-CN";
+}
+
+function reportText(ctx, key, params) {
+  return translateUiText(key, ctx?.__cargoPlannerLocale || "zh-CN", params);
 }
 
 async function createZipBlob(files) {
@@ -1172,6 +1187,52 @@ function centerText(ctx, text, x, y) {
   ctx.textAlign = "left";
 }
 
+function fillFittedText(ctx, text, x, y, maxWidth, minFontSize = 10) {
+  const originalFont = ctx.font;
+  const originalSize = fontSizeOf(originalFont);
+  let size = originalSize;
+  while (size > minFontSize && ctx.measureText(text).width > maxWidth) {
+    size -= 1;
+    ctx.font = withFontSize(originalFont, size);
+  }
+  if (ctx.measureText(text).width <= maxWidth) {
+    ctx.fillText(text, x, y);
+  } else {
+    drawEllipsizedText(ctx, text, x, y, maxWidth);
+  }
+  ctx.font = originalFont;
+}
+
+function drawEllipsizedText(ctx, text, x, y, maxWidth) {
+  const source = canvasText(ctx, text);
+  const ellipsis = "...";
+  let output = source;
+  while (output && ctx.measureText(`${output}${ellipsis}`).width > maxWidth) {
+    output = output.slice(0, -1);
+  }
+  ctx.fillText(output ? `${output}${ellipsis}` : ellipsis, x, y);
+}
+
+function fontSizeOf(font) {
+  const match = String(font || "").match(/(\d+(?:\.\d+)?)px/);
+  return Number(match?.[1] || 14);
+}
+
+function withFontSize(font, size) {
+  return String(font || "14px Arial").replace(/\d+(?:\.\d+)?px/, `${size}px`);
+}
+
+function canvasText(ctx, text) {
+  return String(ctx.__cargoPlannerTranslateText ? ctx.__cargoPlannerTranslateText(text) : text || "");
+}
+
+function tokenizeWrapText(text) {
+  const source = String(text || "");
+  if (/[\u3400-\u9fff]/.test(source)) return [...source];
+  const tokens = source.split(/(\s+)/).filter(Boolean);
+  return tokens.length ? tokens : [...source];
+}
+
 function drawLine(ctx, from, to) {
   ctx.beginPath();
   ctx.moveTo(from.x, from.y);
@@ -1246,16 +1307,19 @@ function safeFileName(value) {
   return String(value || "箱型").replace(/[\\/:*?"<>|]/g, "_");
 }
 
+function pad2(value) {
+  return String(value).padStart(2, "0");
+}
+
 function timestampForFile(value = new Date()) {
   const date = value instanceof Date ? value : new Date(value);
-  const pad = (number) => String(number).padStart(2, "0");
   return [
     date.getFullYear(),
-    pad(date.getMonth() + 1),
-    pad(date.getDate())
+    pad2(date.getMonth() + 1),
+    pad2(date.getDate())
   ].join("") + "-" + [
-    pad(date.getHours()),
-    pad(date.getMinutes()),
-    pad(date.getSeconds())
+    pad2(date.getHours()),
+    pad2(date.getMinutes()),
+    pad2(date.getSeconds())
   ].join("");
 }

@@ -2306,8 +2306,28 @@ select {
 
 .visual-option-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px 10px;
+  min-width: 0;
+}
+
+.visual-options-popper {
+  max-width: calc(100vw - 24px);
+}
+
+.visual-option-grid .el-checkbox {
+  height: auto;
+  min-width: 0;
+  margin-right: 0;
+  align-items: flex-start;
+  white-space: normal;
+}
+
+.visual-option-grid .el-checkbox__label {
+  min-width: 0;
+  line-height: 1.25;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .slice-control-card .el-card__body {
@@ -5019,6 +5039,10 @@ select,
   }
 
   .packing-info-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .visual-option-grid {
     grid-template-columns: 1fr;
   }
 }

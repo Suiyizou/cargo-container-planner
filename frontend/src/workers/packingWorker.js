@@ -15,6 +15,9 @@ const GROUPING_MIN_TOTAL_UNITS = 120;
 const GROUPING_MIN_CARGO_QUANTITY = 24;
 const GROUPING_MAX_BLOCK_QUANTITY = 4;
 const NON_STACK_TOP_LAYER_CANDIDATES = 16;
+const LOWER_GAP_SWAP_MAX_BLUE_MOVERS = 8;
+const LOWER_GAP_SWAP_MAX_LATE_MOVERS = 3;
+const LOWER_GAP_SWAP_MIN_DROP_CM = 5;
 const MIXED_PLAN_MAX_SOLVER_UNITS = 120;
 const BALANCE_GREEN_LIMIT_PERCENT = 2.5;
 const BALANCE_RED_LIMIT_PERCENT = 5;
@@ -766,6 +769,20 @@ function packContainer(container, units) {
   }
 
   const baseBest = selectBestAttempt(container, baseAttempts);
+  if (baseBest?.placed?.length) {
+    const bestStrategy = strategyById(baseBest.strategyId);
+    const gapSwapped = optimizeLowerGapSwaps(stackableContainer, baseBest, bestStrategy);
+    if (gapSwapped !== baseBest) {
+      const finalGapSwapped = finalizeWithDeferredNonStack(container, gapSwapped, nonStack, bestStrategy, rejectedByBalance);
+      if (finalGapSwapped.balanceValidation?.severity === "red") rejectedByBalance += 1;
+      attempts.push(finalGapSwapped);
+      traceDecision({
+        phase: "repair",
+        level: "summary",
+        text: `${container.name} - ${bestStrategy.id}: lower-gap swap moved ${gapSwapped.strategySummary?.lowerGapSwapCount || 0} blue pcs down and lifted ${gapSwapped.strategySummary?.lowerGapSwapLiftedCount || 0} late pcs.`
+      });
+    }
+  }
   if (baseBest?.unplaced?.length) {
     const bestStrategy = strategyById(baseBest.strategyId);
     traceDecision({
@@ -778,6 +795,7 @@ function packContainer(container, units) {
     if (refined.unplaced.length) {
       refined = repairWithLocalSearch(stackableContainer, refined, orderUnits(refined.unplaced.map(stripPlacement), bestStrategy.unitOrder), bestStrategy);
     }
+    refined = optimizeLowerGapSwaps(stackableContainer, refined, bestStrategy);
     const finalRefined = finalizeWithDeferredNonStack(container, refined, nonStack, bestStrategy, rejectedByBalance);
     if (finalRefined.balanceValidation?.severity === "red") rejectedByBalance += 1;
     attempts.push(finalRefined);
@@ -1011,12 +1029,12 @@ function findTopOnlyPlacement(container, placed, unit, strategy) {
 }
 
 function findTopExposedPlacement(container, placed, unit, strategy) {
-  const directPlacement = packExtremePoint(container, placed, unit, strategy, { denseTop: true });
+  const directPlacement = packExtremePoint(container, placed, unit, strategy, { denseTop: true, exposedTop: true });
   if (directPlacement) return directPlacement;
 
   const layerBottoms = topCandidateLayerBottoms(placed);
   for (const layerBottom of layerBottoms) {
-    const placement = packExtremePoint(container, placed, unit, strategy, { layerBottom, denseTop: true });
+    const placement = packExtremePoint(container, placed, unit, strategy, { layerBottom, denseTop: true, exposedTop: true });
     if (!placement) continue;
     const candidate = applyPlacement(unit, placement);
     if (!hasAnyBoxInColumnAbove(candidate, placed)) return placement;
@@ -1219,6 +1237,7 @@ function packExtremePoint(container, placed, unit, strategy, options = {}) {
       const placement = { ...point, ...dims };
       const validation = validatePlacement(container, placed, unit, placement, supportRatio);
       if (!validation.valid) continue;
+      if (options.exposedTop && hasAnyBoxInColumnAbove(placement, placed)) continue;
       const score = placementScore(placement, unit, container, strategy, placed);
       if (!best || score < best.score) best = { ...placement, score };
     }
@@ -1261,6 +1280,155 @@ function repairWithLocalSearch(container, attempt, originalUnits, strategy) {
   }
 
   return best;
+}
+
+function optimizeLowerGapSwaps(container, attempt, strategy) {
+  if (!attempt?.placed?.length) return attempt;
+  const placed = attempt.placed.map(copyUnit);
+  const blueCandidates = lowerGapBlueCandidates(container, placed);
+  if (!blueCandidates.length) return attempt;
+
+  const lateCandidates = lowerGapLateCandidates(container, placed, blueCandidates);
+  const maxBlue = Math.min(LOWER_GAP_SWAP_MAX_BLUE_MOVERS, blueCandidates.length);
+  const maxLate = Math.min(LOWER_GAP_SWAP_MAX_LATE_MOVERS, lateCandidates.length);
+  let best = cloneAttempt(attempt);
+
+  for (let lateCount = 0; lateCount <= maxLate; lateCount += 1) {
+    const blueLimit = Math.min(maxBlue, lateCount ? LOWER_GAP_SWAP_MAX_BLUE_MOVERS : 4);
+    for (let blueCount = 1; blueCount <= blueLimit; blueCount += 1) {
+      const candidate = buildLowerGapSwapAttempt(
+        container,
+        attempt,
+        strategy,
+        blueCandidates.slice(0, blueCount),
+        lateCandidates.slice(0, lateCount)
+      );
+      if (candidate && isLowerGapSwapBetter(container, candidate, best)) {
+        best = candidate;
+      }
+    }
+  }
+
+  return Number(best.strategySummary?.lowerGapSwapCount || 0) > Number(attempt.strategySummary?.lowerGapSwapCount || 0)
+    ? best
+    : attempt;
+}
+
+function lowerGapBlueCandidates(container, placed) {
+  const top = maxTop(placed);
+  const heightLimit = containerHeightLimit(container);
+  const minTop = Math.max(top - 90, heightLimit * 0.45);
+  return placed
+    .filter((unit) =>
+      !unit.nonStack
+      && isBlueLikeCargo(unit)
+      && unit.z + unit.heightCm >= minTop - EPS
+      && !hasAnyBoxInColumnAbove(unit, placed)
+    )
+    .sort((a, b) => {
+      const topDiff = (b.z + b.heightCm) - (a.z + a.heightCm);
+      if (Math.abs(topDiff) > EPS) return topDiff;
+      return unitVolumeCm3(a) - unitVolumeCm3(b);
+    });
+}
+
+function lowerGapLateCandidates(container, placed, blueCandidates) {
+  const highestBlueBottom = Math.max(...blueCandidates.map((unit) => Number(unit.z || 0)));
+  const blueWeights = blueCandidates.map((unit) => Number(unit.weightKg || 0)).filter((weight) => weight > 0);
+  const averageBlueWeight = blueWeights.length
+    ? blueWeights.reduce((sum, weight) => sum + weight, 0) / blueWeights.length
+    : Infinity;
+
+  return placed
+    .filter((unit) => {
+      if (unit.nonStack || isBlueLikeCargo(unit)) return false;
+      if (hasAnyBoxInColumnAbove(unit, placed)) return false;
+      if (Number(unit.z || 0) >= highestBlueBottom - LOWER_GAP_SWAP_MIN_DROP_CM) return false;
+      if (unit.isHeavy && Number(unit.weightKg || 0) > averageBlueWeight * 1.5) return false;
+      if (unitQuantity(unit) > 2) return false;
+      return fitsContainerDims(container, unit);
+    })
+    .sort((a, b) => {
+      const zDiff = Number(b.z || 0) - Number(a.z || 0);
+      if (Math.abs(zDiff) > EPS) return zDiff;
+      return unitVolumeCm3(a) - unitVolumeCm3(b);
+    });
+}
+
+function buildLowerGapSwapAttempt(container, attempt, strategy, blueMovers, lateMovers) {
+  if (!blueMovers.length) return null;
+  const originalByKey = new Map(attempt.placed.map((unit) => [unit.unitKey, unit]));
+  const lateKeys = new Set(lateMovers.map((unit) => unit.unitKey));
+  const removedKeys = new Set([
+    ...blueMovers.map((unit) => unit.unitKey),
+    ...lateMovers.map((unit) => unit.unitKey)
+  ]);
+  const placed = attempt.placed
+    .filter((unit) => !removedKeys.has(unit.unitKey))
+    .map(copyUnit);
+  const delayed = [];
+  let movedCount = 0;
+  let movedDepthCm = 0;
+
+  for (const unit of orderUnits(blueMovers.map(stripPlacement), "small-vertical")) {
+    const original = originalByKey.get(unit.unitKey);
+    const placement = packExtremePoint(container, placed, unit, strategy);
+    if (placement && original && placement.z < Number(original.z || 0) - LOWER_GAP_SWAP_MIN_DROP_CM) {
+      placed.push(applyPlacement(unit, placement));
+      movedCount += unitQuantity(unit);
+      movedDepthCm += (Number(original.z || 0) - placement.z) * unitQuantity(unit);
+    } else {
+      delayed.push(unit);
+    }
+  }
+
+  if (!movedCount) return null;
+
+  const unplaced = [];
+  const retry = [
+    ...orderUnits((attempt.unplaced || []).map(stripPlacement), strategy.unitOrder),
+    ...orderUnits(delayed, strategy.unitOrder),
+    ...orderUnits(lateMovers.map(stripPlacement), "height")
+  ];
+
+  for (const unit of retry) {
+    const placement = lateKeys.has(unit.unitKey)
+      ? findTopExposedPlacement(container, placed, unit, strategy) || packExtremePoint(container, placed, unit, strategy)
+      : packExtremePoint(container, placed, unit, strategy);
+    if (placement) {
+      placed.push(applyPlacement(unit, placement));
+    } else {
+      unplaced.push(unit);
+    }
+  }
+
+  const candidate = makePackedBox(placed, unplaced, {
+    id: attempt.strategyId,
+    name: attempt.strategyName
+  }, {
+    ...(attempt.strategySummary || {}),
+    lowerGapSwapCount: Number(attempt.strategySummary?.lowerGapSwapCount || 0) + movedCount,
+    lowerGapSwapLiftedCount: Number(attempt.strategySummary?.lowerGapSwapLiftedCount || 0) + sumUnitQuantity(lateMovers),
+    lowerGapSwapDepthCm: Number(attempt.strategySummary?.lowerGapSwapDepthCm || 0) + movedDepthCm,
+    layerCount: countLayers(placed)
+  });
+
+  if (!validateAllPlacements(container, candidate.placed)) return null;
+  if (sumUnitQuantity(candidate.placed) < sumUnitQuantity(attempt.placed)) return null;
+  if (sumUnitQuantity(candidate.unplaced) > sumUnitQuantity(attempt.unplaced || [])) return null;
+  return candidate;
+}
+
+function isLowerGapSwapBetter(container, candidate, best) {
+  const comparison = comparePackAttempt(container)(candidate, best);
+  if (comparison < 0) return true;
+  if (comparison > 0) return false;
+  return Number(candidate.strategySummary?.lowerGapSwapDepthCm || 0) > Number(best.strategySummary?.lowerGapSwapDepthCm || 0) + EPS;
+}
+
+function isBlueLikeCargo(unit) {
+  const text = `${unit.name || ""} ${unit.baseName || ""} ${unit.model || ""}`.toLowerCase();
+  return String(unit.color || "").toLowerCase() === "#3b82f6" || /\bblue\b/.test(text);
 }
 
 function validatePlacement(container, placed, unit, placement, supportRatio = DEFAULT_SUPPORT_RATIO) {
@@ -1480,6 +1648,9 @@ function makePackedBox(placed, unplaced, strategy, stats) {
       blockDowngradePlacedCount: Number(stats.blockDowngradePlacedCount || 0),
       singleBackfillPlacedCount: Number(stats.singleBackfillPlacedCount || 0),
       nonStackTopPlacedCount: Number(stats.nonStackTopPlacedCount || 0),
+      lowerGapSwapCount: Number(stats.lowerGapSwapCount || 0),
+      lowerGapSwapLiftedCount: Number(stats.lowerGapSwapLiftedCount || 0),
+      lowerGapSwapDepthCm: round(stats.lowerGapSwapDepthCm || 0),
       layerCount: Number(stats.layerCount || countLayers(placed)),
       balanceSeverity: stats.balanceValidation?.severity || "",
       balanceScore: round(stats.balanceValidation?.score || 0),

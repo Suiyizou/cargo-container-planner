@@ -144,8 +144,8 @@
           v-if="showPackingWorkloadHint"
           class="calculation-load-hint"
           :class="packingWorkloadHint.level"
-          :title="packingWorkloadHint.title"
-          :description="`${packingWorkloadHint.detail}。${packingWorkloadHint.advice}`"
+          :title="tr(packingWorkloadHint.title)"
+          :description="tr(`${packingWorkloadHint.detail}。${packingWorkloadHint.advice}`)"
           :type="packingWorkloadHint.level === 'heavy' ? 'error' : packingWorkloadHint.level === 'medium' ? 'warning' : 'info'"
           show-icon
           :closable="false"
@@ -350,8 +350,8 @@
           v-if="showPackingWorkloadHint"
           class="calculation-load-hint compact"
           :class="packingWorkloadHint.level"
-          :title="packingWorkloadHint.title"
-          :description="`${packingWorkloadHint.detail}。${packingWorkloadHint.advice}`"
+          :title="tr(packingWorkloadHint.title)"
+          :description="tr(`${packingWorkloadHint.detail}。${packingWorkloadHint.advice}`)"
           :type="packingWorkloadHint.level === 'heavy' ? 'error' : packingWorkloadHint.level === 'medium' ? 'warning' : 'info'"
           show-icon
           :closable="false"
@@ -362,16 +362,16 @@
           <div class="section-head">
             <div>
               <p>Current Cargo</p>
-              <h2>当前货物列表</h2>
+              <h2>{{ ui('app.currentCargoList') }}</h2>
             </div>
             <div class="section-actions cargo-list-actions">
-              <el-button type="primary" :icon="Plus" @click="openCargoModal()">手动录入</el-button>
-              <el-button :icon="Star" @click="smartImportOpen = !smartImportOpen">{{ smartImportOpen ? "收起智能导入" : "智能导入" }}</el-button>
+              <el-button type="primary" :icon="Plus" @click="openCargoModal()">{{ ui('app.manualEntry') }}</el-button>
+              <el-button :icon="Star" @click="smartImportOpen = !smartImportOpen">{{ smartImportOpen ? ui('app.hideSmartImport') : ui('excel.title') }}</el-button>
               <el-upload :auto-upload="false" :show-file-list="false" accept=".csv,.tsv,text/csv,text/tab-separated-values" :disabled="fileImporting" :on-change="handleCsvUpload">
-                <el-button :icon="Upload" :loading="fileImporting">导入 CSV</el-button>
+                <el-button :icon="Upload" :loading="fileImporting">{{ ui('app.importCsv') }}</el-button>
               </el-upload>
-              <el-button :icon="Delete" :disabled="!selectedCargoRows.length" @click="deleteSelectedCargos">批量删除</el-button>
-              <el-button type="danger" plain :icon="Delete" :disabled="!cargos.length" @click="clearCargos">清空全部</el-button>
+              <el-button :icon="Delete" :disabled="!selectedCargoRows.length" @click="deleteSelectedCargos">{{ ui('app.batchDelete') }}</el-button>
+              <el-button type="danger" plain :icon="Delete" :disabled="!cargos.length" @click="clearCargos">{{ ui('app.clearAll') }}</el-button>
             </div>
           </div>
           </template>
@@ -389,7 +389,7 @@
             @selection-change="handleCargoSelectionChange"
           >
             <el-table-column type="selection" width="44" />
-            <el-table-column label="货物" min-width="180">
+            <el-table-column :label="ui('common.cargo')" min-width="220">
               <template #default="{ row, $index }">
                 <span class="cargo-name-cell">
                   <i :style="{ background: row.color || systemColorFor($index) }"></i>
@@ -397,36 +397,36 @@
                 </span>
               </template>
             </el-table-column>
-            <el-table-column prop="model" label="型号" min-width="110">
+            <el-table-column prop="model" :label="ui('common.model')" width="92">
               <template #default="{ row }">{{ row.model || "-" }}</template>
             </el-table-column>
-            <el-table-column label="尺寸 cm" min-width="170">
+            <el-table-column :label="ui('common.dimensionsCm')" min-width="172">
               <template #default="{ row }">{{ row.lengthCm }} × {{ row.widthCm }} × {{ row.heightCm }}</template>
             </el-table-column>
-            <el-table-column label="数量" width="150">
+            <el-table-column :label="ui('common.quantity')" width="144">
               <template #default="{ row }">
                 <el-input-number v-model="row.quantity" :min="1" :step="1" size="small" controls-position="right" @change="touchCargoList" />
               </template>
             </el-table-column>
-            <el-table-column label="单重" width="110">
+            <el-table-column :label="ui('common.unitWeight')" width="132">
               <template #default="{ row }">{{ fmt(row.weightKg, 2) }} kg</template>
             </el-table-column>
-            <el-table-column label="小计体积" width="130">
+            <el-table-column :label="ui('common.subtotalVolume')" width="148">
               <template #default="{ row }">{{ fmt((row.lengthCm * row.widthCm * row.heightCm * row.quantity) / 1000000, 3) }} m³</template>
             </el-table-column>
-            <el-table-column label="类型" width="120">
+            <el-table-column :label="ui('common.type')" width="166">
               <template #default="{ row }">
-                <el-tag effect="plain">{{ cargoTypeText(row.type) }}</el-tag>
+                <el-tag class="cargo-type-tag" effect="plain">{{ cargoTypeText(row.type) }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="150" fixed="right">
+            <el-table-column :label="ui('common.actions')" width="144" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" @click="openCargoModal(row)">编辑</el-button>
-                <el-button link type="danger" @click="deleteCargo(row.id, row.name)">删除</el-button>
+                <el-button link type="primary" @click="openCargoModal(row)">{{ ui('common.edit') }}</el-button>
+                <el-button link type="danger" @click="deleteCargo(row.id, row.name)">{{ ui('common.delete') }}</el-button>
               </template>
             </el-table-column>
           </el-table>
-          <el-empty v-else description="还没有录入货物，可以先手动新增，或使用上方智能导入/CSV 导入表格。" />
+          <el-empty v-else :description="ui('app.emptyCargoList')" />
         </el-card>
       </section>
 
@@ -724,6 +724,7 @@ import { fetchAdminMe, logoutAdmin } from "./services/adminApi";
 import { clearSession, isSessionExpired, storedExpiresAt, storedToken, storedUser } from "./services/authSession";
 import { currentLocale, elementPlusLocale, t } from "./i18n";
 import { translateLegacyText } from "./i18n/legacyText";
+import { translateUiText } from "./i18n/uiText";
 import { cargoLabel, fmt, shortType, uid } from "./utils/format";
 
 const STORAGE_KEY = "cargo-planner-vue-state";
@@ -1526,7 +1527,10 @@ async function exportCurrentReport(format) {
       utilizationPercent: utilizationPercent.value,
       globalGapCm: globalGapCm.value,
       showMassBalance: showMassBalance.value,
-      locale: currentLocale.value
+      locale: currentLocale.value,
+      userName: userDisplayName.value,
+      username: currentUser.value?.username,
+      taskId: currentExportTaskId()
     });
     showToast(format === "pdf" ? "PDF 已导出。" : "图片已导出。");
   } catch (error) {
@@ -1555,7 +1559,10 @@ async function exportAllReportsZip() {
       utilizationPercent: utilizationPercent.value,
       globalGapCm: globalGapCm.value,
       showMassBalance: showMassBalance.value,
-      locale: currentLocale.value
+      locale: currentLocale.value,
+      userName: userDisplayName.value,
+      username: currentUser.value?.username,
+      taskId: currentExportTaskId()
     });
     showToast(hasUndetailedBoxes.value ? "已详算货舱报告 ZIP 已导出。" : "整套装箱报告 ZIP 已导出。");
   } catch (error) {
@@ -1575,6 +1582,11 @@ function printCurrentPlan() {
     return;
   }
   window.print();
+}
+
+function currentExportTaskId() {
+  const trace = selectedEvaluation.value?.trace || result.value?.trace || {};
+  return trace.taskId || trace.runId || result.value?.taskId || `cargo-${cargos.value.length}-${cargoTotalQuantity.value}`;
 }
 
 function normalizeEvaluationForExport(evaluation) {
@@ -1740,6 +1752,10 @@ function dateLocale() {
 
 function tr(value) {
   return translateLegacyText(value, currentLocale.value);
+}
+
+function ui(key, params) {
+  return translateUiText(key, currentLocale.value, params);
 }
 
 function trContainerName(value) {

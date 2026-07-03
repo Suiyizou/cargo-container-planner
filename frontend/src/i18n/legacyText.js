@@ -1,6 +1,81 @@
 import { getCurrentLocale } from "./index";
 
 const exactEn = {
+  "本地识别、校验和建议修改": "Local parsing, validation, and suggested edits",
+  "粘贴货物描述，提取标准规格": "Paste cargo descriptions and extract standard dimensions",
+  "标准字段、规则和示例": "Standard fields, rules, and examples",
+  "路径一：手动导入 Excel / CSV": "Path 1: Manual Excel / CSV Import",
+  "路径二：智能识别": "Path 2: Smart Recognition",
+  "浏览器直接识别表头、单位和规则，导入前先预览并标记异常行。": "The browser reads headers, units, and rules directly, then previews and flags issue rows before import.",
+  "直接粘贴聊天记录、报价明细或邮件里的货物描述；系统会交给后端智能识别流程提取标准规格并返回可导入清单。": "Paste chat records, quote details, or email cargo descriptions; the system sends them to the backend smart-recognition flow and returns an importable list.",
+  "正在智能识别货物信息": "Recognizing cargo information",
+  "后端会提取货物名称、型号、尺寸、数量、重量和备注，完成后自动生成可导入清单。": "The backend extracts cargo name, model, dimensions, quantity, weight, and notes, then generates an importable list.",
+  "已填入示例文本，点击智能识别后会由后端流程提取中文和英文 skid 明细。": "Sample text inserted. Click Smart Recognition to let the backend extract the mixed cargo and skid details.",
+  "智能识别中...": "Recognizing...",
+  "智能识别粘贴文本": "Smart Recognition Pasted Text",
+  "箱型尺寸资料库": "Container Size Reference",
+  "返回配置页": "Back to Setup",
+  "尺寸资料来自公开船司/箱东页面，只作为方案估算基准；实际装柜请以放箱柜号、场站实测、订舱设备和绑扎方案为准。普通货优先选择普柜/高柜，冷藏和平板作为特殊设备候选。": "Dimensions come from public carrier/container-owner references and are only a planning baseline; actual loading should follow the released unit number, yard measurements, booked equipment, and lashing plan. General and high-cube containers are preferred for normal cargo; reefer and flat rack are special-equipment candidates.",
+  "平板不计高度": "Flat rack height ignored",
+  "计算尺寸": "Calculation Size",
+  "最大载重": "Max Payload",
+  "尺寸依据": "Dimension Basis",
+  "手动录入尺寸": "Manual Dimensions",
+  "自定义箱型，请按实际设备复核。": "Custom container; verify against actual equipment.",
+  "用户自定义尺寸": "User-defined Dimensions",
+  "常用": "Common",
+  "少量使用": "Limited Use",
+  "特殊设备": "Special Equipment",
+  "公开规格为名义内尺寸，实际柜号可能因制造批次存在公差。": "Public specs are nominal internal dimensions; actual unit numbers may vary by manufacturing batch.",
+  "20HQ 不是最常见海运标配，订舱前请按实际设备确认。": "20HQ is not a common standard ocean container; confirm actual equipment before booking.",
+  "平板柜为开放设备；来源地板宽 219.4cm，超宽超高需按船司 OOG 与绑扎方案复核。": "Flat racks are open equipment; source deck width is 219.4 cm. Over-width or over-height cargo must be checked against carrier OOG and lashing plans.",
+  "平板柜为开放设备；来源地板宽 224.5cm，超宽超高需按船司 OOG 与绑扎方案复核。": "Flat racks are open equipment; source deck width is 224.5 cm. Over-width or over-height cargo must be checked against carrier OOG and lashing plans.",
+  "冷藏柜内尺寸受制冷机组、风道和装载线影响，订舱前请按实际柜号确认。": "Reefer internal dimensions are affected by the cooling unit, air ducts, and load line; confirm the actual unit before booking.",
+  "计算说明": "Calculation Notes",
+  "当前装箱算法与计算留痕": "Current Packing Algorithm and Calculation Trace",
+  "计算过程在哪执行": "Where the Calculation Runs",
+  "主页面只负责收集货物和箱型参数，点击计算或修改数量后，浏览器主线程通过 packingClient.js 创建 Web Worker，把数据复制给 packingWorker.js。真正的装箱、旋转、支撑判断、箱型对比都在 Worker 里完成，所以 3D 视图和表单不会被计算过程长时间阻塞。": "The main page only collects cargo and container parameters. After recalculation or quantity changes, the browser main thread creates a Web Worker through packingClient.js and passes the data to packingWorker.js. Packing, rotation, support checks, and container comparison all run inside the Worker, so the 3D view and forms stay responsive during calculation.",
+  "1. 货物展开": "1. Cargo Expansion",
+  "2. 多策略排序": "2. Multi-strategy Ordering",
+  "3. 旋转枚举": "3. Rotation Enumeration",
+  "4. 候选坐标": "4. Candidate Points",
+  "5. 支撑约束": "5. Support Constraints",
+  "6. 箱型推荐": "6. Container Recommendation",
+  "核心计算公式": "Core Formulas",
+  "当前计算留痕": "Current Calculation Trace",
+  "Worker 工作流程": "Worker Workflow",
+  "选中箱型": "Selected Container",
+  "计算模式": "Calculation Mode",
+  "货物展开": "Cargo Expansion",
+  "计划可用率": "Planned Utilization",
+  "水平间隙": "Horizontal Gap",
+  "首箱策略": "First-hold Strategy",
+  "首箱已摆": "First-hold Loaded",
+  "箱体体积": "Container Volume",
+  "可用体积": "Usable Volume",
+  "首箱占用体积": "First-hold Occupied Volume",
+  "首箱空间占用": "First-hold Space Used",
+  "几何箱数": "Geometry Boxes",
+  "重量箱数": "Weight Boxes",
+  "最终箱数": "Final Boxes",
+  "当前还没有计算结果，返回装箱计算页录入货物后会在这里显示实际计算留痕。": "No calculation result yet. Return to Packing Calculation and enter cargo to show the actual calculation trace here.",
+  "单件原始体积(m³) = 长 × 宽 × 高 ÷ 1,000,000": "Single-piece raw volume (m³) = L × W × H / 1,000,000",
+  "计入间隙长/宽(cm) = 原始长/宽 + 全局货物间隙 + 类型额外间隙": "Length/width with gap (cm) = raw length/width + global cargo gap + type extra gap",
+  "计入高度(cm) = 原始高度 + 类型额外高度余量；全局水平间隙不再层层累加到高度": "Height with allowance (cm) = raw height + type extra height allowance; global horizontal gap is not added to every layer height",
+  "单件占用体积(m³) = 计入长 × 计入宽 × 计入高 ÷ 1,000,000": "Single-piece occupied volume (m³) = adjusted L × adjusted W × adjusted H / 1,000,000",
+  "箱体体积(m³) = 箱长 × 箱宽 × 箱高 ÷ 1,000,000": "Container volume (m³) = container L × W × H / 1,000,000",
+  "计划可用体积(m³) = 箱体体积 × 计划可用率": "Planned usable volume (m³) = container volume × planned utilization",
+  "首箱空间占用率 = 首箱已摆放占用体积 ÷ 计划可用体积 × 100%": "First-hold space utilization = first-hold occupied volume / planned usable volume × 100%",
+  "重量箱数 = ceil(总重量 ÷ 箱型载重)": "Weight box count = ceil(total weight / container payload)",
+  "推荐箱数 = max(几何装箱箱数, 重量箱数)": "Recommended box count = max(geometry box count, weight box count)",
+  "单箱坐标复用 = 已验证摆放的 x/y/z + 尺寸全部落入新箱体边界，且总重量不超过新箱型载重": "Single-hold coordinate reuse = validated x/y/z and dimensions fit inside the new container boundary, and total weight does not exceed payload",
+  "货物编号与颜色图例": "Cargo Number and Color Legend",
+  "图中 #编号 对应录入货物顺序；A=长×宽、B=宽×高、C=长×高，不同底面会拆成 #2A/#2B。": "The # number follows cargo entry order; A=L x W, B=W x H, C=L x H. Different base faces split into #2A/#2B.",
+  "本层标注与堆放方式": "Layer Labels and Stacking Method",
+  "堆放方式：不可重压；可放在箱底或可承重货物顶面，本件不作为上层支撑。": "Stacking: non-stackable; can be placed on the floor or on stackable cargo, but this item cannot support upper cargo.",
+  "堆放方式：箱底铺放；可承重，可作为上层货物支撑面。": "Stacking: floor placement; load-bearing and can support upper cargo.",
+  "堆放方式：上层堆放；下方可承重重叠面积需达到 98.5%，本件可继续承重。": "Stacking: upper placement; lower load-bearing overlap must reach 98.5%, and this item can continue supporting upper cargo.",
+  "说明：分层按货物底面 z 坐标分组；A=长×宽底、B=宽×高底、C=长×高底；大批量同规格货物可能以组合块显示，件数按真实数量统计。": "Note: layers are grouped by cargo base z-coordinate; A=L x W base, B=W x H base, C=L x H base. Large same-size cargo may be displayed as grouped blocks while counts use real quantities.",
   "正在检查登录状态...": "Checking login status...",
   "货代装箱体积规划系统": "Cargo Container Planning System",
   "工作台": "Workspace",
@@ -736,8 +811,13 @@ export function localizeCanvasContext(ctx, locale = getCurrentLocale()) {
   if (!ctx || ctx.__cargoPlannerI18nPatched) return ctx;
   const fillText = ctx.fillText.bind(ctx);
   const strokeText = ctx.strokeText.bind(ctx);
-  ctx.fillText = (text, ...args) => fillText(translateLegacyText(text, locale), ...args);
-  ctx.strokeText = (text, ...args) => strokeText(translateLegacyText(text, locale), ...args);
+  const measureText = ctx.measureText.bind(ctx);
+  const translateText = (text) => translateLegacyText(text, locale);
+  ctx.fillText = (text, ...args) => fillText(translateText(text), ...args);
+  ctx.strokeText = (text, ...args) => strokeText(translateText(text), ...args);
+  ctx.measureText = (text, ...args) => measureText(translateText(text), ...args);
+  ctx.__cargoPlannerTranslateText = translateText;
+  ctx.__cargoPlannerLocale = locale;
   ctx.__cargoPlannerI18nPatched = true;
   return ctx;
 }

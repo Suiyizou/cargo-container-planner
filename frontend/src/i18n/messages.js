@@ -28,6 +28,23 @@ export const messages = {
     packingStatus: {
       commonReady: "常用箱型已出结果，特殊箱型补算中"
     },
+    smartImport: {
+      recognitionPlaceholder: "例如：\n蝶阀100 110*45*82cm 8件 单重180kg 木箱\n纸箱B 60*40*35cm 30件 单重12kg\n易碎品C 55×45×30cm 12件 单重18kg 不可重压",
+      recognitionSample: [
+        "蝶阀100 110*45*82cm 8件 单重180kg 木箱",
+        "蝶阀200 125*55*90cm 4件 总重960kg 木箱",
+        "纸箱B 60*40*35cm 30件 单重12kg",
+        "易碎品C 55×45×30cm 12件 单重18kg 不可重压",
+        "电子产品配件 型号K 长48.5cm 宽15cm 高11.7cm 数量1 单重1.2kg 朝上",
+        "",
+        "cargo:",
+        "E-Houses",
+        "2 skids - each 31.200 kgs / 1080 x 200 x 340 cm",
+        "3 skids - each 18.100 kgs / 660 x 200 x 340 cm",
+        "2 skids - each 33.700 kgs / 1.210 x 230 x 340 cm"
+      ].join("\n"),
+      sampleLoadedMessage: "已填入示例文本，点击智能识别后会由后端流程提取中文和英文 skid 明细。"
+    },
     planner: {
       supportRatio: "可承重支撑比例",
       nonStackSupportRatio: "不可重压支撑比例",
@@ -148,6 +165,28 @@ export const messages = {
     },
     packingStatus: {
       commonReady: "Common containers ready, special containers still running"
+    },
+    smartImport: {
+      recognitionPlaceholder: [
+        "Example:",
+        "Valve A 110*45*82cm 8 pcs unit weight 180kg wooden crate",
+        "Carton B 60*40*35cm 30 pcs unit weight 12kg",
+        "Fragile C 55*45*30cm 12 pcs unit weight 18kg non-stackable"
+      ].join("\n"),
+      recognitionSample: [
+        "Valve A 110*45*82cm 8 pcs unit weight 180kg wooden crate",
+        "Valve B 125*55*90cm 4 pcs total weight 960kg wooden crate",
+        "Carton B 60*40*35cm 30 pcs unit weight 12kg",
+        "Fragile C 55*45*30cm 12 pcs unit weight 18kg non-stackable",
+        "Electronic accessory model K length 48.5cm width 15cm height 11.7cm quantity 1 unit weight 1.2kg upright",
+        "",
+        "cargo:",
+        "E-Houses",
+        "2 skids - each 31.200 kgs / 1080 x 200 x 340 cm",
+        "3 skids - each 18.100 kgs / 660 x 200 x 340 cm",
+        "2 skids - each 33.700 kgs / 1.210 x 230 x 340 cm"
+      ].join("\n"),
+      sampleLoadedMessage: "Sample text inserted. Click Smart Recognition to let the backend extract the mixed cargo and skid details."
     },
     planner: {
       supportRatio: "Stackable Support Ratio",

@@ -13,7 +13,7 @@
       </div>
       <div class="toolbar-right">
         <el-switch v-model="sliceEnabled" :active-text="tr('剖切')" :inactive-text="tr('剖切')" />
-        <el-popover placement="bottom-end" trigger="click" width="260">
+        <el-popover placement="bottom-end" trigger="click" width="360" popper-class="visual-options-popper">
           <template #reference>
             <el-button :icon="Setting">{{ tr("显示选项") }}</el-button>
           </template>
