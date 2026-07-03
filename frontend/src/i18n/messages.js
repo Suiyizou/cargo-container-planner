@@ -80,6 +80,7 @@ export const messages = {
       }
     },
     decisionFlow: {
+      eyebrow: "决策流",
       title: "装箱决策流程",
       clear: "清空流程",
       waiting: "正在整理 Web Worker 决策流程...",
@@ -200,6 +201,7 @@ export const messages = {
       }
     },
     decisionFlow: {
+      eyebrow: "Decision Flow",
       title: "Packing Decision Flow",
       clear: "Clear Flow",
       waiting: "Building the worker decision flow...",

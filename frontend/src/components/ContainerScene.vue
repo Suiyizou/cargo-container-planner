@@ -166,6 +166,8 @@
       </aside>
     </div>
 
+    <slot name="box-switch"></slot>
+
     <el-card class="packing-bottom-actions" shadow="never">
       <div>
         <el-tag :type="balanceState.tagType" effect="light">{{ tr(balanceState.label) }}</el-tag>

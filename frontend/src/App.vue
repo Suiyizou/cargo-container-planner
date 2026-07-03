@@ -530,25 +530,28 @@
             @export-pdf="exportCurrentReport('pdf')"
             @export-zip="exportAllReportsZip"
             @print="printCurrentPlan"
-          />
-          <div class="box-switch visual-box-switch visual-box-switch-bottom" v-if="selectedEvaluation?.packedBoxes?.length > 1">
-            <span>{{ boxSwitchLabel }}</span>
-            <el-button
-              v-for="box in selectedEvaluation.packedBoxes"
-              :key="box.index"
-              :class="{ active: selectedBoxIndex === box.index }"
-              size="small"
-              :type="selectedBoxIndex === box.index ? 'primary' : 'default'"
-              @click="switchBox(box.index)"
-            >
-              {{ boxTabLabel(box) }}
-            </el-button>
-          </div>
+          >
+            <template #box-switch>
+              <div class="box-switch visual-box-switch visual-box-switch-bottom" v-if="selectedEvaluation?.packedBoxes?.length > 1">
+                <span>{{ boxSwitchLabel }}</span>
+                <el-button
+                  v-for="box in selectedEvaluation.packedBoxes"
+                  :key="box.index"
+                  :class="{ active: selectedBoxIndex === box.index }"
+                  size="small"
+                  :type="selectedBoxIndex === box.index ? 'primary' : 'default'"
+                  @click="switchBox(box.index)"
+                >
+                  {{ boxTabLabel(box) }}
+                </el-button>
+              </div>
+            </template>
+          </ContainerScene>
         </section>
         <section class="panel decision-flow-panel">
           <div class="section-head">
             <div>
-              <p>Decision Flow</p>
+              <p>{{ t("decisionFlow.eyebrow") }}</p>
               <h2>{{ t("decisionFlow.title") }}</h2>
             </div>
             <div class="view-actions">
@@ -573,7 +576,7 @@
                     {{ step.statusLabel }}
                   </el-tag>
                 </div>
-                <p>{{ step.hasLog ? tr(step.summary) : step.description }}</p>
+                <p>{{ step.hasLog ? step.summary : step.description }}</p>
                 <small v-if="step.count">{{ step.count }} {{ t("decisionFlow.records") }}</small>
               </div>
               <span v-if="index < decisionFlowSteps.length - 1" class="decision-flow-arrow">→</span>
@@ -1215,7 +1218,7 @@ function buildDecisionFlow(logs, isLoading) {
       statusLabel: t(`decisionFlow.status.${status}`),
       count: phaseLogs.length,
       hasLog: Boolean(summaryLog?.text),
-      summary: compactDecisionText(summaryLog?.text || description)
+      summary: compactDecisionText(summaryLog?.text ? tr(summaryLog.text) : description)
     };
   });
 }

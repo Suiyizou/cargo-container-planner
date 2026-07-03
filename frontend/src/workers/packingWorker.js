@@ -740,6 +740,8 @@ function generateOrientations(unit, options = {}) {
 }
 
 function packContainer(container, units) {
+  const { stackable, nonStack } = splitUnitsForFinalNonStackPass(units);
+  const stackableContainer = containerForStackablePhase(container, nonStack);
   const baseAttempts = [];
   const attempts = [];
   let rejectedByBalance = 0;
@@ -749,11 +751,11 @@ function packContainer(container, units) {
       level: "summary",
       text: `${container.name} · base strategy "${strategy.id}" started.`
     });
-    const ordered = orderUnits(units, strategy.unitOrder);
-    let attempt = packLayerLaff(container, ordered, strategy);
-    attempt = finalizeAttempt(container, attempt, strategy, rejectedByBalance);
+    const ordered = orderUnits(stackable, strategy.unitOrder);
+    const stackableAttempt = packLayerLaff(stackableContainer, ordered, strategy);
+    const attempt = finalizeWithDeferredNonStack(container, stackableAttempt, nonStack, strategy, rejectedByBalance);
     if (attempt.balanceValidation?.severity === "red") rejectedByBalance += 1;
-    baseAttempts.push(attempt);
+    baseAttempts.push(stackableAttempt);
     attempts.push(attempt);
     traceDecision({
       phase: "strategy",
@@ -772,17 +774,17 @@ function packContainer(container, units) {
       text: `${container.name} · refine only the best base strategy "${bestStrategy.id}" with block downgrade and local backfill.`
     });
     const beforeRefine = sumUnitQuantity(baseBest.unplaced);
-    let refined = enhanceWithBlockDowngrade(container, baseBest, bestStrategy);
+    let refined = enhanceWithBlockDowngrade(stackableContainer, baseBest, bestStrategy);
     if (refined.unplaced.length) {
-      refined = repairWithLocalSearch(container, refined, orderUnits(refined.unplaced.map(stripPlacement), bestStrategy.unitOrder), bestStrategy);
+      refined = repairWithLocalSearch(stackableContainer, refined, orderUnits(refined.unplaced.map(stripPlacement), bestStrategy.unitOrder), bestStrategy);
     }
-    refined = finalizeAttempt(container, refined, bestStrategy, rejectedByBalance);
-    if (refined.balanceValidation?.severity === "red") rejectedByBalance += 1;
-    attempts.push(refined);
+    const finalRefined = finalizeWithDeferredNonStack(container, refined, nonStack, bestStrategy, rejectedByBalance);
+    if (finalRefined.balanceValidation?.severity === "red") rejectedByBalance += 1;
+    attempts.push(finalRefined);
     traceDecision({
       phase: "repair",
       level: "summary",
-      text: `${container.name} · refined "${bestStrategy.id}": before ${beforeRefine} pcs remaining, after ${sumUnitQuantity(refined.unplaced)} pcs remaining, block passes ${refined.strategySummary?.blockDowngradePasses || 0}, refill passes ${refined.strategySummary?.refillPasses || 0}.`
+      text: `${container.name} · refined "${bestStrategy.id}": before ${beforeRefine} pcs stackable remaining, after ${sumUnitQuantity(finalRefined.unplaced)} pcs total remaining, block passes ${finalRefined.strategySummary?.blockDowngradePasses || 0}, refill passes ${finalRefined.strategySummary?.refillPasses || 0}.`
     });
   }
 
@@ -810,6 +812,51 @@ function packContainer(container, units) {
   fallback.balanceValidation = emptyWeightBalance(container);
   fallback.strategySummary.balanceRejectedCount = rejectedByBalance;
   return fallback;
+}
+
+function splitUnitsForFinalNonStackPass(units) {
+  const stackable = [];
+  const nonStack = [];
+  for (const unit of units || []) {
+    const clean = stripPlacement(unit);
+    if (clean.nonStack) nonStack.push(clean);
+    else stackable.push(clean);
+  }
+  return { stackable, nonStack };
+}
+
+function finalizeWithDeferredNonStack(container, stackableAttempt, deferredNonStack, strategy, rejectedByBalance = 0) {
+  const placed = (stackableAttempt.placed || []).filter((unit) => !unit.nonStack).map(copyUnit);
+  const stackableUnplaced = (stackableAttempt.unplaced || []).filter((unit) => !unit.nonStack).map(stripPlacement);
+  let nonStackTopPlacedCount = 0;
+  let nonStackUnplaced = [];
+
+  if (deferredNonStack.length) {
+    const nonStackResult = placeDeferredNonStackOnTop(container, placed, deferredNonStack, strategy);
+    nonStackTopPlacedCount = nonStackResult.placedCount;
+    nonStackUnplaced = nonStackResult.unplaced.map(stripPlacement);
+    traceDecision({
+      phase: "layer",
+      level: "summary",
+      text: `${container.name} - ${strategy.name} - global non-stack final pass: ${nonStackTopPlacedCount}/${sumUnitQuantity(deferredNonStack)} non-stack pcs placed after all stackable search/refill stages.`
+    });
+  }
+
+  const valid = validateAllPlacements(container, placed);
+  const attempt = makePackedBox(valid ? placed : stackableAttempt.placed.map(copyUnit), valid ? [...stackableUnplaced, ...nonStackUnplaced] : [
+    ...stackableUnplaced,
+    ...deferredNonStack.map(stripPlacement)
+  ], {
+    id: stackableAttempt.strategyId || strategy.id,
+    name: stackableAttempt.strategyName || strategy.name
+  }, {
+    ...(stackableAttempt.strategySummary || {}),
+    nonStackTopPlacedCount,
+    finalNonStackPass: deferredNonStack.length ? 1 : 0,
+    layerCount: countLayers(valid ? placed : stackableAttempt.placed)
+  });
+
+  return finalizeAttempt(container, attempt, strategy, rejectedByBalance);
 }
 
 function finalizeAttempt(container, attempt, strategy, rejectedByBalance = 0) {

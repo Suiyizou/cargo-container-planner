@@ -284,6 +284,7 @@ const exactEn = {
   "左右": "Left/Right",
   "左键旋转 · 右键平移 · 滚轮缩放": "Left drag rotate · Right drag pan · Mouse wheel zoom",
   "计算决策流": "Decision Stream",
+  "决策流": "Decision Flow",
   "计算中": "Calculating",
   "最近一次计算": "Latest Calculation",
   "清空日志": "Clear Log",
@@ -535,7 +536,18 @@ const exactEn = {
   "预计计算耗时": "Estimated Calculation Time",
   "货物种类较多，算法会保留更多候选组合；可以等待，或按项目/批次拆分后再算。": "There are many cargo types, so the solver will keep more candidate combinations. You can wait or split by project/batch before calculating.",
   "数量较大时系统会优先合并同规格货物，减少浏览器计算压力。": "For large quantities, the system first groups same-size cargo to reduce browser calculation load.",
-  "手动导入": "Manual Import"
+  "手动导入": "Manual Import",
+  "LAFF 大底面积优先": "LAFF Footprint First",
+  "LAFF 高度优先": "LAFF Height First",
+  "普通承重货物优先": "Support First",
+  "不可重压货物最后": "Non-stackable Last",
+  "蓝色/小件竖放支撑": "Small/Blue Vertical Fill",
+  "未知策略": "Unknown Strategy",
+  "可装": "Loadable",
+  "未形成完整方案": "No complete plan",
+  "暂无完整方案": "No complete plan",
+  "组合方案": "Mixed Plan",
+  "没有生成可推荐方案。": "No recommendation could be generated."
 };
 
 const patternEn = [
@@ -547,6 +559,24 @@ const patternEn = [
   [/^(.+)\s+平板柜$/, "$1 Flat Rack"],
   [/^(.+)\s+高柜$/, "$1 High Cube"],
   [/^(.+)\s+·\s+第\s+(.+)\s+货舱$/, (_, name, index) => `${translateCore(name, "en-US")} · Hold ${index}`],
+  [/^开始本机装箱：(.+)\s+类货物\s+\/\s+(.+)\s+件，评估\s+(.+)\s+个箱型；轻载阈值\s+(.+)t。$/, "Start local packing: $1 cargo types / $2 pcs, evaluating $3 container types; light-load threshold $4t."],
+  [/^评估箱型：(.+)，内尺寸\s+(.+)cm，最大载重\s+(.+)t。$/, (_, name, dims, payload) => `Evaluating container: ${translateDecisionTerm(name)}, internal size ${dims}cm, max payload ${payload}t.`],
+  [/^(.+)\s+·\s+启用同规格块化：原始\s+(.+)\s+件压缩为\s+(.+)\s+个搜索单元，最大组合块\s+(.+)\s+件。$/, (_, name, before, after, maxBlock) => `${translateDecisionTerm(name)} · Same-size grouping enabled: ${before} pcs compressed into ${after} search units, max block ${maxBlock} pcs.`],
+  [/^(.+)\s+·\s+计算完成：(.+)，(.+)，首箱利用率\s+(.+)%，平均利用率\s+(.+)%。$/, (_, name, status, boxes, firstFill, avgFill) => `${translateDecisionTerm(name)} · Calculation complete: ${translateDecisionTerm(status)}, ${translateDecisionTerm(boxes)}, first-hold utilization ${firstFill}%, average utilization ${avgFill}%.`],
+  [/^智能组合候选：(.+)，(.+)\s+箱，平均利用率\s+(.+)%。$/, (_, summary, boxes, avgFill) => `Smart mixed candidate: ${translateDecisionTerm(summary)}, ${boxes} boxes, average utilization ${avgFill}%.`],
+  [/^推荐结果：(.+)，(.+)，综合评分\s+(.+)。$/, (_, summary, boxes, score) => `Recommendation: ${translateDecisionTerm(summary)}, ${translateDecisionTerm(boxes)}, composite score ${score}.`],
+  [/^(.+)\s+·\s+第\s+(.+)\s+货舱开始：剩余\s+(.+)\s+件\s+\/\s+(.+)\s+个搜索单元。$/, (_, name, index, pieces, units) => `${translateDecisionTerm(name)} · Hold ${index} started: ${pieces} pcs remaining / ${units} search units.`],
+  [/^(.+)\s+·\s+第\s+(.+)\s+货舱完成：装入\s+(.+)\s+件，剩余\s+(.+)\s+件，采用「(.+)」。$/, (_, name, index, placed, remaining, strategy) => `${translateDecisionTerm(name)} · Hold ${index} complete: ${placed} pcs loaded, ${remaining} pcs remaining, strategy "${translateDecisionTerm(strategy)}".`],
+  [/^(.+)\s+·\s+base strategy "(.+)" started\.$/, (_, name, strategy) => `${translateDecisionTerm(name)} · base strategy "${translateDecisionTerm(strategy)}" started.`],
+  [/^(.+)\s+·\s+base strategy "(.+)" placed\s+(.+)\s+pcs,\s+remaining\s+(.+)\s+pcs,\s+(.+)\s+layers,\s+balance\s+(.+)\.$/, (_, name, strategy, placed, remaining, layers, balance) => `${translateDecisionTerm(name)} · base strategy "${translateDecisionTerm(strategy)}" placed ${placed} pcs, remaining ${remaining} pcs, ${layers} layers, balance ${translateDecisionTerm(balance)}.`],
+  [/^(.+)\s+·\s+refine only the best base strategy "(.+)" with block downgrade and local backfill\.$/, (_, name, strategy) => `${translateDecisionTerm(name)} · refine only the best base strategy "${translateDecisionTerm(strategy)}" with block downgrade and local backfill.`],
+  [/^(.+)\s+·\s+refined "(.+)": before\s+(.+)\s+pcs stackable remaining,\s+after\s+(.+)\s+pcs total remaining,\s+block passes\s+(.+),\s+refill passes\s+(.+)\.$/, (_, name, strategy, before, after, blockPasses, refillPasses) => `${translateDecisionTerm(name)} · refined "${translateDecisionTerm(strategy)}": before ${before} pcs stackable remaining, after ${after} pcs total remaining, block passes ${blockPasses}, refill passes ${refillPasses}.`],
+  [/^(.+)\s+-\s+(.+)\s+-\s+global non-stack final pass:\s+(.+)\/(.+)\s+non-stack pcs placed after all stackable search\/refill stages\.$/, (_, name, strategy, placed, total) => `${translateDecisionTerm(name)} · ${translateDecisionTerm(strategy)} · global non-stack final pass: ${placed}/${total} non-stack pcs placed after all stackable search/refill stages.`],
+  [/^(.+)\s+·\s+(.+)\s+·\s+第\s+(.+)\s+层选种子：(.+)\s+(.+)，底面积\s+(.+)cm²，放置\s+(.+)，层高上限\s+z=(.+)cm。$/, (_, name, strategy, layer, unit, dims, area, point, layerTop) => `${translateDecisionTerm(name)} · ${translateDecisionTerm(strategy)} · Layer ${layer} seed: ${translateDecisionTerm(unit)} ${dims}, footprint ${area}cm², placed at ${point}, layer top z=${layerTop}cm.`],
+  [/^(.+)\s+·\s+第\s+(.+)\s+层装入：(.+)\s+(.+)\s+→\s+(.+)，不超过当前层高\s+(.+)cm。$/, (_, name, layer, unit, dims, point, height) => `${translateDecisionTerm(name)} · Layer ${layer} loaded: ${translateDecisionTerm(unit)} ${dims} → ${point}, within current layer height ${height}cm.`],
+  [/^(.+)\s+·\s+第\s+(.+)\s+层跳过\s+(.+)\s+个较高搜索单元：高度超过本层\s+(.+)cm，保留到下一层继续作为候选。$/, (_, name, layer, count, height) => `${translateDecisionTerm(name)} · Layer ${layer} skipped ${count} taller search units: height exceeds this layer ${height}cm, kept for the next layer.`],
+  [/^(.+)\s+·\s+第\s+(.+)\s+层完成：本层装入\s+(.+)\s+件，累计\s+(.+)\s+件，剩余\s+(.+)\s+件；下一层从\s+z=(.+)cm\s+开始。$/, (_, name, layer, placed, total, remaining, nextZ) => `${translateDecisionTerm(name)} · Layer ${layer} complete: ${placed} pcs in this layer, ${total} pcs total, ${remaining} pcs remaining; next layer starts at z=${nextZ}cm.`],
+  [/^(.+)\s+·\s+(.+)\s+·\s+non-stack deferred:\s+stackable cargo first,\s+then\s+(.+)\/(.+)\s+non-stack pcs placed on top candidates\.$/, (_, name, strategy, placed, total) => `${translateDecisionTerm(name)} · ${translateDecisionTerm(strategy)} · non-stack deferred: stackable cargo first, then ${placed}/${total} non-stack pcs placed on top candidates.`],
   [/^生成时间：(.+)$/, "Generated At: $1"],
   [/^货物类别：(.+)\s+类\s+·\s+分层数量：(.+)\s+层$/, "Cargo Types: $1 · Layer Count: $2"],
   [/^(.+)\s+cm\s+\/\s+(.+)\s+件$/, "$1 cm / $2 pcs"],
@@ -626,6 +656,51 @@ const patternEn = [
   [/^(.+)；(.+)；(.+)$/, "$1; $2; $3"],
   [/^(.+)\s+\/\s+(.+)$/, "$1 / $2"]
 ];
+
+function translateDecisionTerm(value) {
+  return String(value || "")
+    .replace(/智能组合方案/g, "Smart Mixed Plan")
+    .replace(/LAFF 大底面积优先/g, "LAFF Footprint First")
+    .replace(/LAFF 高度优先/g, "LAFF Height First")
+    .replace(/普通承重货物优先/g, "Support First")
+    .replace(/不可重压货物最后/g, "Non-stackable Last")
+    .replace(/蓝色\/小件竖放支撑/g, "Small/Blue Vertical Fill")
+    .replace(/laff-footprint/g, "LAFF footprint")
+    .replace(/laff-height/g, "LAFF height")
+    .replace(/support-first/g, "support first")
+    .replace(/nonstack-last/g, "non-stackable last")
+    .replace(/blue-vertical/g, "small/blue vertical")
+    .replace(/40RF 冷藏高柜/g, "40RF Reefer High Cube")
+    .replace(/20RF 冷藏柜/g, "20RF Reefer")
+    .replace(/40FR 平板柜/g, "40FR Flat Rack")
+    .replace(/20FR 平板柜/g, "20FR Flat Rack")
+    .replace(/45HQ 高柜/g, "45HQ High Cube")
+    .replace(/40HQ 高柜/g, "40HQ High Cube")
+    .replace(/20HQ 高柜/g, "20HQ High Cube")
+    .replace(/40GP 普柜/g, "40GP General Purpose")
+    .replace(/20GP 普柜/g, "20GP General Purpose")
+    .replace(/冷藏高柜/g, "Reefer High Cube")
+    .replace(/冷藏柜/g, "Reefer")
+    .replace(/平板柜/g, "Flat Rack")
+    .replace(/45高柜/g, "45 High Cube")
+    .replace(/高柜/g, "High Cube")
+    .replace(/普柜/g, "General Purpose")
+    .replace(/约\s+(.+?)\s+箱/g, "approx. $1 boxes")
+    .replace(/(.+?)\s+箱/g, "$1 boxes")
+    .replace(/暂无完整方案/g, "No complete plan")
+    .replace(/未形成完整方案/g, "No complete plan")
+    .replace(/偏载拦截/g, "Load Balance Blocked")
+    .replace(/不可装/g, "Not Loadable")
+    .replace(/可装/g, "Loadable")
+    .replace(/轻载豁免/g, "Light Load Exempt")
+    .replace(/绿色合规/g, "Green Pass")
+    .replace(/黄色预警/g, "Yellow Warning")
+    .replace(/红色拦截/g, "Red Block")
+    .replace(/无重量数据/g, "No Balance Data")
+    .replace(/未知策略/g, "Unknown Strategy")
+    .replace(/^组合(.+)件\s+·\s+/, "Group of $1 · ")
+    .replace(/^单件\s+·\s+/, "Single · ");
+}
 
 function translateReportTerms(value) {
   return String(value || "")
