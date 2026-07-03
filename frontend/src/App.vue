@@ -531,32 +531,46 @@
             </el-button>
           </div>
         </section>
-        <section class="panel decision-log-panel">
+        <section class="panel decision-flow-panel">
           <div class="section-head">
             <div>
-              <p>Decision Stream</p>
-              <h2>{{ tr("计算决策流") }}</h2>
+              <p>Decision Flow</p>
+              <h2>{{ t("decisionFlow.title") }}</h2>
             </div>
             <div class="view-actions">
               <el-tag :type="loading ? 'warning' : 'info'" effect="light">{{ tr(loading ? "计算中" : "最近一次计算") }}</el-tag>
-              <el-button :disabled="!decisionLogs.length" @click="clearDecisionLogs">{{ tr("清空日志") }}</el-button>
+              <el-button :disabled="!decisionLogs.length" @click="clearDecisionLogs">{{ t("decisionFlow.clear") }}</el-button>
             </div>
           </div>
-          <div class="decision-log-list compact">
-            <div v-if="loading && !decisionLogs.length" class="decision-log-empty">
-              {{ tr("正在等待 Web Worker 输出装箱决策...") }}
-            </div>
+          <div v-if="loading && !decisionLogs.length" class="decision-flow-empty">
+            {{ t("decisionFlow.waiting") }}
+          </div>
+          <div v-else class="decision-flow-map">
             <div
-              v-for="(log, index) in decisionLogs"
-              :key="`${log.index || index}-${log.text}`"
-              :class="['decision-log-item', log.level || 'summary', log.phase || 'search']"
+              v-for="(step, index) in decisionFlowSteps"
+              :key="step.key"
+              :class="['decision-flow-step', step.status]"
             >
-              <span>{{ index + 1 }}</span>
-              <p>{{ tr(log.text) }}</p>
+              <div class="decision-flow-marker">{{ step.index }}</div>
+              <div class="decision-flow-copy">
+                <div class="decision-flow-title">
+                  <strong>{{ step.label }}</strong>
+                  <el-tag size="small" :type="step.status === 'done' ? 'success' : step.status === 'active' ? 'warning' : 'info'" effect="light">
+                    {{ step.statusLabel }}
+                  </el-tag>
+                </div>
+                <p>{{ step.hasLog ? tr(step.summary) : step.description }}</p>
+                <small v-if="step.count">{{ step.count }} {{ t("decisionFlow.records") }}</small>
+              </div>
+              <span v-if="index < decisionFlowSteps.length - 1" class="decision-flow-arrow">→</span>
             </div>
-            <div v-if="!loading && !decisionLogs.length" class="decision-log-empty">
-              {{ tr("暂无计算日志，点击“重新计算”后会显示关键装箱决策。") }}
-            </div>
+          </div>
+          <div v-if="decisionFlowLatest" class="decision-flow-highlight">
+            <span>{{ t("decisionFlow.keySummary") }}</span>
+            <p>{{ tr(decisionFlowLatest) }}</p>
+          </div>
+          <div v-else-if="!loading" class="decision-flow-empty">
+            {{ t("decisionFlow.empty") }}
           </div>
         </section>
       </section>
@@ -858,6 +872,14 @@ const resultSummary = computed(() => {
       : "暂无计算结果"
   };
 });
+const decisionFlowSteps = computed(() => {
+  currentLocale.value;
+  return buildDecisionFlow(decisionLogs.value, loading.value);
+});
+const decisionFlowLatest = computed(() => {
+  const latest = [...decisionLogs.value].reverse().find((item) => item?.level !== "detail" && item?.text);
+  return latest?.text || "";
+});
 const containerSourceRows = computed(() =>
   containers.value.map((container: any) => ({
     ...container,
@@ -1101,6 +1123,13 @@ async function recalculate() {
       onDecision(decisions) {
         if (seq !== calcSeq) return;
         appendDecisionLogs(decisions);
+      },
+      onPartialResult(partialResult) {
+        if (seq !== calcSeq || !partialResult) return;
+        result.value = normalizeResult(partialResult);
+        apiStatus.value = t("packingStatus.commonReady");
+        selectedContainerId.value = result.value.bestContainerId || result.value.evaluations[0]?.container.id || selectedContainerId.value;
+        selectedBoxIndex.value = 1;
       }
     });
     if (seq !== calcSeq) return;
@@ -1131,6 +1160,51 @@ function appendDecisionLogs(decisions: any[]) {
 
 function clearDecisionLogs() {
   decisionLogs.value = [];
+}
+
+function buildDecisionFlow(logs, isLoading) {
+  const phases = [
+    { key: "start", index: "01" },
+    { key: "prepare", index: "02" },
+    { key: "container", index: "03" },
+    { key: "strategy", index: "04" },
+    { key: "layer", index: "05" },
+    { key: "repair", index: "06" },
+    { key: "box", index: "07" },
+    { key: "recommendation", index: "08" }
+  ];
+  const source = Array.isArray(logs) ? logs : [];
+  const firstPendingIndex = phases.findIndex((phase) => !source.some((item) => decisionPhaseMatches(item?.phase, phase.key)));
+
+  return phases.map((phase, phaseIndex) => {
+    const phaseLogs = source.filter((item) => decisionPhaseMatches(item?.phase, phase.key));
+    const summaryLog = [...phaseLogs].reverse().find((item) => item?.level !== "detail") || phaseLogs[phaseLogs.length - 1];
+    const status = phaseLogs.length ? "done" : isLoading && phaseIndex === firstPendingIndex ? "active" : "idle";
+    const description = t(`decisionFlow.steps.${phase.key}.description`);
+    return {
+      ...phase,
+      label: t(`decisionFlow.steps.${phase.key}.label`),
+      description,
+      status,
+      statusLabel: t(`decisionFlow.status.${status}`),
+      count: phaseLogs.length,
+      hasLog: Boolean(summaryLog?.text),
+      summary: compactDecisionText(summaryLog?.text || description)
+    };
+  });
+}
+
+function decisionPhaseMatches(phase, key) {
+  const normalized = String(phase || "search");
+  if (key === "layer") return ["layer", "placement"].includes(normalized);
+  if (key === "strategy") return ["strategy", "search"].includes(normalized);
+  return normalized === key;
+}
+
+function compactDecisionText(text) {
+  const value = String(text || "").trim();
+  if (value.length <= 96) return value;
+  return `${value.slice(0, 94)}...`;
 }
 
 function normalizeResult(nextResult) {

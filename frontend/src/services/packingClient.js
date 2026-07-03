@@ -11,6 +11,7 @@ export function calculatePacking(payload, options = {}) {
   currentWorker = new Worker(new URL("../workers/packingWorker.js", import.meta.url), { type: "module" });
   const timeoutMs = packingTimeoutMs(payload);
   const onDecision = typeof options.onDecision === "function" ? options.onDecision : null;
+  const onPartialResult = typeof options.onPartialResult === "function" ? options.onPartialResult : null;
 
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => {
@@ -23,6 +24,10 @@ export function calculatePacking(payload, options = {}) {
       if (id !== jobId) return;
       if (type === "decision") {
         onDecision?.(Array.isArray(decisions) ? decisions : []);
+        return;
+      }
+      if (type === "partial") {
+        onPartialResult?.(result);
         return;
       }
       window.clearTimeout(timer);

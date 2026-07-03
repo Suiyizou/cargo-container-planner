@@ -24,6 +24,100 @@ export const messages = {
       lengthPercent: "长度 {value}%",
       lengthSuffix: " · 长度 {value}%",
       deckUtilizationWithLength: "甲板利用率 {value}%{length}"
+    },
+    packingStatus: {
+      commonReady: "常用箱型已出结果，特殊箱型补算中"
+    },
+    algorithmGuide: {
+      eyebrow: "装箱策略图解",
+      title: "当前计算如何从货物清单得到可视化方案",
+      lanes: {
+        prepare: {
+          title: "预处理",
+          text: "同规格货物先合并成搜索块，保留原始单件信息。"
+        },
+        base: {
+          title: "五策略快跑",
+          text: "每个箱型先用 5 种确定性顺序跑 LAFF + 极点，不做昂贵降级。"
+        },
+        refine: {
+          title: "只精修最优",
+          text: "选出当前箱型最优基础解后，再做 4 件块到 2 件块、单件回填。"
+        },
+        stage: {
+          title: "分阶段输出",
+          text: "20GP、40GP、40HQ、20HQ 等常用箱先返回结果，冷藏和平板继续补算。"
+        }
+      },
+      strategies: {
+        footprint: {
+          title: "LAFF 大底面积优先",
+          text: "优先选择底面积大的货物作为层种子，让同层尽量密铺。"
+        },
+        height: {
+          title: "LAFF 高度优先",
+          text: "先处理高货，避免后期剩余空间无法容纳高件。"
+        },
+        support: {
+          title: "可承重优先",
+          text: "可承重货物先形成底层支撑面，减少悬空和支撑失败。"
+        },
+        nonstack: {
+          title: "不可重压后放",
+          text: "不可重压货物不作为上层支撑，尽量放到后续层或顶部。"
+        },
+        vertical: {
+          title: "小件竖放补位",
+          text: "对小件和特定颜色/类型货物尝试竖放，填补窄高空间。"
+        }
+      }
+    },
+    decisionFlow: {
+      title: "装箱决策流程",
+      clear: "清空流程",
+      waiting: "正在整理 Web Worker 决策流程...",
+      empty: "暂无流程数据，点击“重新计算”后会显示关键阶段。",
+      records: "条记录",
+      keySummary: "关键摘要",
+      status: {
+        done: "已完成",
+        active: "进行中",
+        idle: "等待中"
+      },
+      steps: {
+        start: {
+          label: "准备数据",
+          description: "读取货物、箱型与装箱参数"
+        },
+        prepare: {
+          label: "块化预处理",
+          description: "同规格货物先聚合，降低浏览器搜索压力"
+        },
+        container: {
+          label: "箱型评估",
+          description: "逐个箱型检查尺寸、载重与可装性"
+        },
+        strategy: {
+          label: "策略搜索",
+          description: "执行 LAFF、极点与多排序策略"
+        },
+        layer: {
+          label: "分层装载",
+          description: "单层密铺后换下一层继续堆叠"
+        },
+        repair: {
+          label: "局部回填",
+          description: "用小块和单件回填剩余空隙"
+        },
+        box: {
+          label: "货舱汇总",
+          description: "统计每个货舱装入件数和剩余货物"
+        },
+        recommendation: {
+          label: "推荐输出",
+          description: "按箱数、利用率和合规状态生成推荐"
+        }
+      }
     }
   },
   "en-US": {
@@ -43,6 +137,100 @@ export const messages = {
       lengthPercent: "Length {value}%",
       lengthSuffix: " · Length {value}%",
       deckUtilizationWithLength: "Deck utilization {value}%{length}"
+    },
+    packingStatus: {
+      commonReady: "Common containers ready, special containers still running"
+    },
+    algorithmGuide: {
+      eyebrow: "Packing Strategy Map",
+      title: "How the calculator turns cargo lines into a visual plan",
+      lanes: {
+        prepare: {
+          title: "Preprocess",
+          text: "Identical cargo is grouped into solver blocks while original single-piece data is preserved."
+        },
+        base: {
+          title: "Five Fast Strategies",
+          text: "Each container first runs 5 deterministic LAFF + extreme-point orders without expensive downgrade."
+        },
+        refine: {
+          title: "Refine Only The Best",
+          text: "After the best base solution is selected, 4-piece blocks downgrade to 2-piece blocks and then single-piece backfill."
+        },
+        stage: {
+          title: "Stage Results",
+          text: "Common 20GP, 40GP, 40HQ, and 20HQ results return first; reefer and flat-rack containers continue in the background."
+        }
+      },
+      strategies: {
+        footprint: {
+          title: "LAFF Footprint First",
+          text: "Large floor-footprint cargo becomes the layer seed so each layer can be packed densely."
+        },
+        height: {
+          title: "LAFF Height First",
+          text: "Tall cargo is considered early so later remaining spaces do not exclude it."
+        },
+        support: {
+          title: "Support First",
+          text: "Stackable cargo forms stable lower support surfaces before fragile cargo is considered."
+        },
+        nonstack: {
+          title: "Non-stackable Last",
+          text: "Non-stackable cargo cannot support upper cargo and is pushed toward later layers or the top."
+        },
+        vertical: {
+          title: "Small Vertical Fill",
+          text: "Small or marked cargo may be rotated upright to occupy narrow vertical gaps."
+        }
+      }
+    },
+    decisionFlow: {
+      title: "Packing Decision Flow",
+      clear: "Clear Flow",
+      waiting: "Building the worker decision flow...",
+      empty: "No flow data yet. Click Recalculate to show key stages.",
+      records: "records",
+      keySummary: "Key Summary",
+      status: {
+        done: "Done",
+        active: "Running",
+        idle: "Waiting"
+      },
+      steps: {
+        start: {
+          label: "Prepare Data",
+          description: "Read cargo, container types, and packing parameters"
+        },
+        prepare: {
+          label: "Block Preprocessing",
+          description: "Group identical cargo first to reduce browser search load"
+        },
+        container: {
+          label: "Container Evaluation",
+          description: "Check dimensions, payload, and loadability by container"
+        },
+        strategy: {
+          label: "Strategy Search",
+          description: "Run LAFF, extreme points, and multiple sort strategies"
+        },
+        layer: {
+          label: "Layered Packing",
+          description: "Fill one layer densely, then continue on the next layer"
+        },
+        repair: {
+          label: "Local Backfill",
+          description: "Backfill remaining gaps with smaller blocks and single pieces"
+        },
+        box: {
+          label: "Hold Summary",
+          description: "Summarize loaded pieces and remaining cargo by hold"
+        },
+        recommendation: {
+          label: "Recommendation",
+          description: "Rank by box count, utilization, and compliance status"
+        }
+      }
     }
   }
 };

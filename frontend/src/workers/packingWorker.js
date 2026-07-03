@@ -55,7 +55,12 @@ if (workerScope?.addEventListener) {
     const trace = createWorkerTrace(id, payload?.traceOptions);
     activeTrace = trace;
     try {
-      const result = calculate(payload || {});
+      const result = calculate(payload || {}, {
+        onStageResult(stageResult) {
+          trace.flush();
+          workerScope.postMessage({ id, type: "partial", result: stageResult });
+        }
+      });
       trace.flush();
       workerScope.postMessage({ id, type: "result", result });
     } catch (error) {
@@ -107,20 +112,23 @@ function traceDecision(entry) {
   activeTrace?.log(entry);
 }
 
-export function calculate(request = {}) {
+export function calculate(request = {}, options = {}) {
   const globalGapCm = safeGlobalGapCm(request.globalGapCm);
   const cargos = request.cargos || [];
   const total = totals(request.cargos || []);
   const utilization = safeUtilizationPercent(request.utilizationPercent);
   const balanceSettings = normalizeBalanceSettings(request.balanceSettings);
   const evaluations = [];
+  const orderedContainers = orderContainersForCalculation(request.containers || []);
+  const primaryCount = orderedContainers.filter(isPrimaryCalculationContainer).length;
   traceDecision({
     phase: "start",
     level: "summary",
     text: `开始本机装箱：${cargos.length} 类货物 / ${total.totalQuantity} 件，评估 ${(request.containers || []).length} 个箱型；轻载阈值 ${round(balanceSettings.skipBelowWeightKg / 1000)}t。`
   });
 
-  for (const container of request.containers || []) {
+  for (let i = 0; i < orderedContainers.length; i += 1) {
+    const container = orderedContainers[i];
     const runtimeContainer = { ...container, balanceSettings };
     traceDecision({
       phase: "container",
@@ -138,6 +146,18 @@ export function calculate(request = {}) {
     const evaluation = evaluateContainer(runtimeContainer, units, total, utilization, globalGapCm);
     evaluation.container = { ...container };
     evaluations.push(evaluation);
+    if (i + 1 === primaryCount && primaryCount < orderedContainers.length && typeof options.onStageResult === "function") {
+      options.onStageResult(buildCalculationResult(evaluations, {
+        partial: true,
+        stage: "primary",
+        pendingContainers: orderedContainers.length - primaryCount
+      }));
+      traceDecision({
+        phase: "recommendation",
+        level: "summary",
+        text: `Primary container stage ready: ${primaryCount} common containers evaluated, ${orderedContainers.length - primaryCount} special containers still running.`
+      });
+    }
     traceDecision({
       phase: "container",
       level: "summary",
@@ -145,7 +165,7 @@ export function calculate(request = {}) {
     });
   }
 
-  const mixedEvaluation = safeBuildMixedContainerEvaluation(request.containers || [], cargos, total, utilization, globalGapCm, balanceSettings);
+  const mixedEvaluation = safeBuildMixedContainerEvaluation(orderedContainers, cargos, total, utilization, globalGapCm, balanceSettings);
   if (mixedEvaluation) {
     evaluations.push(mixedEvaluation);
     traceDecision({
@@ -167,6 +187,44 @@ export function calculate(request = {}) {
     bestContainerId: evaluations[0]?.container.id || null,
     evaluations
   };
+}
+
+function buildCalculationResult(evaluations, extra = {}) {
+  const sorted = [...evaluations].sort(compareEvaluation);
+  return {
+    bestContainerId: sorted[0]?.container.id || null,
+    evaluations: sorted,
+    ...extra
+  };
+}
+
+function orderContainersForCalculation(containers) {
+  const ordered = [...containers].sort((a, b) => containerCalculationRank(a) - containerCalculationRank(b));
+  const primary = ordered.filter(isPrimaryCalculationContainer);
+  const secondary = ordered.filter((container) => !isPrimaryCalculationContainer(container));
+  return [...primary, ...secondary];
+}
+
+function isPrimaryCalculationContainer(container) {
+  const meta = equipmentMeta(container);
+  if (container?.usagePriority === "special") return false;
+  return meta.equipmentClass === "GP" || meta.equipmentClass === "HQ";
+}
+
+function containerCalculationRank(container) {
+  const id = String(container?.id || "").toLowerCase();
+  const fixedOrder = ["20gp", "40gp", "40hq", "20hq", "45hq", "20rf", "40rf", "20fr", "40fr"];
+  const fixedIndex = fixedOrder.indexOf(id);
+  if (fixedIndex >= 0) return fixedIndex;
+  const meta = equipmentMeta(container);
+  const classRank = {
+    GP: 10,
+    HQ: 20,
+    RF: 60,
+    FR: 80
+  }[meta.equipmentClass] || 90;
+  const priorityPenalty = container?.usagePriority === "special" ? 20 : 0;
+  return classRank + priorityPenalty + Math.min(9, volumeM3(container) / 100);
 }
 
 function evaluateContainer(container, units, total, utilizationPercent, globalGapCm) {
@@ -679,38 +737,50 @@ function generateOrientations(unit, options = {}) {
 }
 
 function packContainer(container, units) {
+  const baseAttempts = [];
   const attempts = [];
   let rejectedByBalance = 0;
   for (const strategy of SEARCH_STRATEGIES) {
     traceDecision({
       phase: "strategy",
       level: "summary",
-      text: `${container.name} · 尝试策略「${strategy.name}」：按 ${strategy.unitOrder === "footprint" ? "底面积/体积" : strategy.unitOrder === "height" ? "高度" : strategy.unitOrder === "support" ? "可承重与重量" : "规则"} 排序。`
+      text: `${container.name} · base strategy "${strategy.id}" started.`
     });
     const ordered = orderUnits(units, strategy.unitOrder);
     let attempt = packLayerLaff(container, ordered, strategy);
-    if (attempt.unplaced.length) {
-      attempt = enhanceWithBlockDowngrade(container, attempt, strategy);
-    }
-    if (attempt.unplaced.length) {
-      const beforeRepair = sumUnitQuantity(attempt.unplaced);
-      attempt = repairWithLocalSearch(container, attempt, ordered, strategy);
-      traceDecision({
-        phase: "repair",
-        level: "summary",
-        text: `${container.name} · 策略「${strategy.name}」进入局部搜索：原剩余 ${beforeRepair} 件，回填后剩余 ${sumUnitQuantity(attempt.unplaced)} 件，执行 ${attempt.strategySummary?.refillPasses || 0} 轮。`
-      });
-    }
-    attempt = centerPackedLayout(container, attempt, strategy);
-    attempt = withBalanceValidation(container, attempt, rejectedByBalance);
+    attempt = finalizeAttempt(container, attempt, strategy, rejectedByBalance);
     if (attempt.balanceValidation?.severity === "red") rejectedByBalance += 1;
+    baseAttempts.push(attempt);
     attempts.push(attempt);
     traceDecision({
       phase: "strategy",
       level: "summary",
-      text: `${container.name} · 策略「${strategy.name}」结果：装入 ${sumUnitQuantity(attempt.placed)} 件，剩余 ${sumUnitQuantity(attempt.unplaced)} 件，${attempt.strategySummary?.layerCount || 0} 层，偏载 ${balanceDecisionText(attempt.balanceValidation)}。`
+      text: `${container.name} · base strategy "${strategy.id}" placed ${sumUnitQuantity(attempt.placed)} pcs, remaining ${sumUnitQuantity(attempt.unplaced)} pcs, ${attempt.strategySummary?.layerCount || 0} layers, balance ${balanceDecisionText(attempt.balanceValidation)}.`
     });
     if (!attempt.unplaced.length && attempt.balanceValidation?.severity !== "red") break;
+  }
+
+  const baseBest = selectBestAttempt(container, baseAttempts);
+  if (baseBest?.unplaced?.length) {
+    const bestStrategy = strategyById(baseBest.strategyId);
+    traceDecision({
+      phase: "repair",
+      level: "summary",
+      text: `${container.name} · refine only the best base strategy "${bestStrategy.id}" with block downgrade and local backfill.`
+    });
+    const beforeRefine = sumUnitQuantity(baseBest.unplaced);
+    let refined = enhanceWithBlockDowngrade(container, baseBest, bestStrategy);
+    if (refined.unplaced.length) {
+      refined = repairWithLocalSearch(container, refined, orderUnits(refined.unplaced.map(stripPlacement), bestStrategy.unitOrder), bestStrategy);
+    }
+    refined = finalizeAttempt(container, refined, bestStrategy, rejectedByBalance);
+    if (refined.balanceValidation?.severity === "red") rejectedByBalance += 1;
+    attempts.push(refined);
+    traceDecision({
+      phase: "repair",
+      level: "summary",
+      text: `${container.name} · refined "${bestStrategy.id}": before ${beforeRefine} pcs remaining, after ${sumUnitQuantity(refined.unplaced)} pcs remaining, block passes ${refined.strategySummary?.blockDowngradePasses || 0}, refill passes ${refined.strategySummary?.refillPasses || 0}.`
+    });
   }
 
   const accepted = attempts.filter((attempt) => attempt.balanceValidation?.severity !== "red");
@@ -737,6 +807,22 @@ function packContainer(container, units) {
   fallback.balanceValidation = emptyWeightBalance(container);
   fallback.strategySummary.balanceRejectedCount = rejectedByBalance;
   return fallback;
+}
+
+function finalizeAttempt(container, attempt, strategy, rejectedByBalance = 0) {
+  let next = centerPackedLayout(container, attempt, strategy);
+  next = withBalanceValidation(container, next, rejectedByBalance);
+  return next;
+}
+
+function selectBestAttempt(container, attempts) {
+  const accepted = attempts.filter((attempt) => attempt.balanceValidation?.severity !== "red");
+  const pool = accepted.length ? accepted : attempts.filter((attempt) => attempt.placed.length);
+  return pool.sort(comparePackAttempt(container))[0] || attempts[0] || null;
+}
+
+function strategyById(strategyId) {
+  return SEARCH_STRATEGIES.find((strategy) => strategy.id === strategyId) || SEARCH_STRATEGIES[0];
 }
 
 function packLayerLaff(container, units, strategy, fixedPlaced = []) {
@@ -1099,20 +1185,27 @@ function clamp(value, min, max) {
 }
 
 function pickLayerSeedIndex(units, container, placed, strategy, options = {}) {
-  let best = -1;
-  let bestScore = Infinity;
+  let bestStackable = -1;
+  let bestStackableScore = Infinity;
+  let bestNonStack = -1;
+  let bestNonStackScore = Infinity;
   for (let i = 0; i < units.length; i += 1) {
     const unit = units[i];
     const placement = packExtremePoint(container, placed, unit, strategy, options);
     if (!placement) continue;
     const area = placement.lengthCm * placement.widthCm;
     const score = placement.z * 1_000_000 - area * 100 - placement.heightCm;
-    if (score < bestScore) {
-      best = i;
-      bestScore = score;
+    if (unit.nonStack) {
+      if (score < bestNonStackScore) {
+        bestNonStack = i;
+        bestNonStackScore = score;
+      }
+    } else if (score < bestStackableScore) {
+      bestStackable = i;
+      bestStackableScore = score;
     }
   }
-  return best;
+  return bestStackable >= 0 ? bestStackable : bestNonStack;
 }
 
 function orderLayerCandidates(units, layerBottom, layerTop, strategy) {
@@ -1246,7 +1339,7 @@ function chooseRemovalSet(placed, unplaced, size, pass) {
 
 function orderUnits(units, strategyId) {
   return [...units].sort((a, b) => {
-    if ((strategyId === "support" || strategyId === "nonstack-last") && a.nonStack !== b.nonStack) return a.nonStack ? 1 : -1;
+    if (a.nonStack !== b.nonStack) return a.nonStack ? 1 : -1;
     if (strategyId === "small-vertical") {
       const smallDiff = smallItemRank(a) - smallItemRank(b);
       if (smallDiff) return smallDiff;

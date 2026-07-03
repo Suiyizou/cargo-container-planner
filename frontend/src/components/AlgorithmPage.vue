@@ -10,6 +10,27 @@
       <p>主页面只负责收集货物和箱型参数，点击计算或修改数量后，浏览器主线程通过 <code>packingClient.js</code> 创建 Web Worker，把数据复制给 <code>packingWorker.js</code>。真正的装箱、旋转、支撑判断、箱型对比都在 Worker 里完成，所以 3D 视图和表单不会被计算过程长时间阻塞。</p>
     </div>
 
+    <div class="algorithm-visual-guide">
+      <div class="algorithm-visual-head">
+        <p>{{ t("algorithmGuide.eyebrow") }}</p>
+        <h3>{{ t("algorithmGuide.title") }}</h3>
+      </div>
+      <div class="algorithm-guide-lanes">
+        <div v-for="lane in guideLanes" :key="lane.step" class="algorithm-guide-lane">
+          <span>{{ lane.step }}</span>
+          <strong>{{ lane.title }}</strong>
+          <p>{{ lane.text }}</p>
+        </div>
+      </div>
+      <div class="algorithm-guide-strategies">
+        <article v-for="strategy in guideStrategies" :key="strategy.id">
+          <span>{{ strategy.id }}</span>
+          <strong>{{ strategy.title }}</strong>
+          <p>{{ strategy.text }}</p>
+        </article>
+      </div>
+    </div>
+
     <div class="algorithm-grid">
       <article>
         <strong>1. 货物展开</strong>
@@ -82,6 +103,7 @@
 
 <script setup>
 import { computed } from "vue";
+import { currentLocale, t } from "../i18n";
 
 const props = defineProps({
   evaluation: { type: Object, default: null }
@@ -103,6 +125,61 @@ const fallbackFormulas = [
 
 const trace = computed(() => props.evaluation?.trace || null);
 const formulas = computed(() => trace.value?.formulas?.length ? trace.value.formulas : fallbackFormulas);
+const guideLanes = computed(() => {
+  currentLocale.value;
+  return [
+    {
+      step: "01",
+      title: t("algorithmGuide.lanes.prepare.title"),
+      text: t("algorithmGuide.lanes.prepare.text")
+    },
+    {
+      step: "02",
+      title: t("algorithmGuide.lanes.base.title"),
+      text: t("algorithmGuide.lanes.base.text")
+    },
+    {
+      step: "03",
+      title: t("algorithmGuide.lanes.refine.title"),
+      text: t("algorithmGuide.lanes.refine.text")
+    },
+    {
+      step: "04",
+      title: t("algorithmGuide.lanes.stage.title"),
+      text: t("algorithmGuide.lanes.stage.text")
+    }
+  ];
+});
+const guideStrategies = computed(() => {
+  currentLocale.value;
+  return [
+    {
+      id: "S1",
+      title: t("algorithmGuide.strategies.footprint.title"),
+      text: t("algorithmGuide.strategies.footprint.text")
+    },
+    {
+      id: "S2",
+      title: t("algorithmGuide.strategies.height.title"),
+      text: t("algorithmGuide.strategies.height.text")
+    },
+    {
+      id: "S3",
+      title: t("algorithmGuide.strategies.support.title"),
+      text: t("algorithmGuide.strategies.support.text")
+    },
+    {
+      id: "S4",
+      title: t("algorithmGuide.strategies.nonstack.title"),
+      text: t("algorithmGuide.strategies.nonstack.text")
+    },
+    {
+      id: "S5",
+      title: t("algorithmGuide.strategies.vertical.title"),
+      text: t("algorithmGuide.strategies.vertical.text")
+    }
+  ];
+});
 
 function fmt(value, digits = 2) {
   return Number(value || 0).toLocaleString("zh-CN", {
