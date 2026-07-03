@@ -174,6 +174,20 @@
                 </div>
                 <el-slider v-model="globalGapCm" :min="0" :max="8" />
               </div>
+              <div class="slider-row">
+                <div>
+                  <span class="field-label">{{ t("planner.supportRatio") }}</span>
+                  <el-tag type="success" effect="light">{{ supportRatioPercent }}%</el-tag>
+                </div>
+                <el-slider v-model="supportRatioPercent" :min="50" :max="100" :step="5" />
+              </div>
+              <div class="slider-row">
+                <div>
+                  <span class="field-label">{{ t("planner.nonStackSupportRatio") }}</span>
+                  <el-tag type="warning" effect="light">{{ nonStackSupportRatioPercent }}%</el-tag>
+                </div>
+                <el-slider v-model="nonStackSupportRatioPercent" :min="80" :max="100" :step="0.5" />
+              </div>
               <div class="balance-settings-box">
                 <div class="balance-settings-head">
                   <div>
@@ -805,6 +819,8 @@ const selectedContainerId = ref("");
 const selectedBoxIndex = ref(1);
 const utilizationPercent = ref(90);
 const globalGapCm = ref(1);
+const supportRatioPercent = ref(80);
+const nonStackSupportRatioPercent = ref(98.5);
 const balanceSettings = ref(normalizeBalanceSettings());
 const activeBalancePreset = ref("standard");
 const loading = ref(false);
@@ -905,6 +921,8 @@ const packingWorkloadHint = computed(() => estimatePackingWorkload({
   containers: containers.value,
   utilizationPercent: utilizationPercent.value,
   globalGapCm: globalGapCm.value,
+  supportRatioPercent: supportRatioPercent.value,
+  nonStackSupportRatioPercent: nonStackSupportRatioPercent.value,
   balanceSettings: balanceSettings.value
 }));
 const showPackingWorkloadHint = computed(() =>
@@ -948,7 +966,7 @@ onUnmounted(() => {
   window.removeEventListener("auth-expired", handleAuthExpired);
 });
 
-watch([cargos, containers, utilizationPercent, globalGapCm, balanceSettings], () => {
+watch([cargos, containers, utilizationPercent, globalGapCm, supportRatioPercent, nonStackSupportRatioPercent, balanceSettings], () => {
   persistState();
   window.clearTimeout(timer);
   timer = window.setTimeout(recalculate, 400);
@@ -1034,6 +1052,8 @@ function restoreState() {
     containers.value = mergeDefaultContainers(saved.containers || []);
     utilizationPercent.value = saved.utilizationPercent || 90;
     globalGapCm.value = saved.globalGapCm ?? 1;
+    supportRatioPercent.value = clampNumber(saved.supportRatioPercent, 50, 100, 80);
+    nonStackSupportRatioPercent.value = clampNumber(saved.nonStackSupportRatioPercent, 80, 100, 98.5);
     balanceSettings.value = normalizeBalanceSettings(saved.balanceSettings);
     activeBalancePreset.value = saved.balancePreset || detectBalancePreset(balanceSettings.value);
     showRemaining.value = saved.showRemaining ?? true;
@@ -1051,6 +1071,8 @@ function persistState() {
     containers: containers.value,
     utilizationPercent: utilizationPercent.value,
     globalGapCm: globalGapCm.value,
+    supportRatioPercent: supportRatioPercent.value,
+    nonStackSupportRatioPercent: nonStackSupportRatioPercent.value,
     balanceSettings: balanceSettings.value,
     balancePreset: activeBalancePreset.value,
     showRemaining: showRemaining.value,
@@ -1105,6 +1127,8 @@ async function recalculate() {
     containers: containers.value,
     utilizationPercent: utilizationPercent.value,
     globalGapCm: globalGapCm.value,
+    supportRatioPercent: supportRatioPercent.value,
+    nonStackSupportRatioPercent: nonStackSupportRatioPercent.value,
     balanceSettings: balanceSettings.value
   });
   loading.value = true;
@@ -1116,6 +1140,8 @@ async function recalculate() {
       containers: containers.value,
       utilizationPercent: utilizationPercent.value,
       globalGapCm: globalGapCm.value,
+      supportRatioPercent: supportRatioPercent.value,
+      nonStackSupportRatioPercent: nonStackSupportRatioPercent.value,
       balanceSettings: balanceSettings.value
     }, {
       maxDecisionEntries: 80,
@@ -1378,6 +1404,8 @@ function clampNumber(value, min, max, fallback) {
 function applyUserSettings(settings) {
   utilizationPercent.value = Number(settings.utilizationPercent || utilizationPercent.value);
   globalGapCm.value = Number(settings.globalGapCm ?? globalGapCm.value);
+  supportRatioPercent.value = clampNumber(settings.supportRatioPercent, 50, 100, supportRatioPercent.value);
+  nonStackSupportRatioPercent.value = clampNumber(settings.nonStackSupportRatioPercent, 80, 100, nonStackSupportRatioPercent.value);
   const nextDisplayName = String(settings.displayName || "").trim();
   if (nextDisplayName) {
     currentUser.value = {

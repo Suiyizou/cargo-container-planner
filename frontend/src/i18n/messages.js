@@ -28,6 +28,13 @@ export const messages = {
     packingStatus: {
       commonReady: "常用箱型已出结果，特殊箱型补算中"
     },
+    planner: {
+      supportRatio: "可承重支撑比例",
+      nonStackSupportRatio: "不可重压支撑比例",
+      supportRatioTrace: "可承重 / 不可重压支撑阈值",
+      supportConstraintNote: "如果货物不在箱底，下方必须由可承重货物的顶面覆盖达到当前配置的支撑比例；不可重压货物不会作为上层支撑。",
+      supportFormula: "上层支撑条件 = 下方可承重重叠面积 ÷ 当前底面积 ≥ 当前配置支撑比例"
+    },
     algorithmGuide: {
       eyebrow: "装箱策略图解",
       title: "当前计算如何从货物清单得到可视化方案",
@@ -140,6 +147,13 @@ export const messages = {
     },
     packingStatus: {
       commonReady: "Common containers ready, special containers still running"
+    },
+    planner: {
+      supportRatio: "Stackable Support Ratio",
+      nonStackSupportRatio: "Non-stack Support Ratio",
+      supportRatioTrace: "Stackable / Non-stack Support Thresholds",
+      supportConstraintNote: "If cargo is not on the container floor, the lower stackable top surface must cover the configured support ratio; non-stack cargo cannot support upper cargo.",
+      supportFormula: "Support condition = lower stackable overlap area / current footprint >= configured support ratio"
     },
     algorithmGuide: {
       eyebrow: "Packing Strategy Map",

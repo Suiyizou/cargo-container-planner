@@ -50,7 +50,7 @@
       </article>
       <article>
         <strong>5. 支撑约束</strong>
-        <p>如果货物不在箱底，下方必须由“可承重货物”的顶面覆盖至少 98.5% 的底面积；不可重压货物不会作为上层支撑。</p>
+        <p>{{ t("planner.supportConstraintNote") }}</p>
       </article>
       <article>
         <strong>6. 箱型推荐</strong>
@@ -74,7 +74,7 @@
           <div><span>货物展开</span><b>{{ trace.parameters.unitCount }} 件</b></div>
           <div><span>计划可用率</span><b>{{ trace.parameters.utilizationPercent }}%</b></div>
           <div><span>水平间隙</span><b>{{ trace.parameters.globalGapCm }} cm</b></div>
-          <div><span>支撑阈值</span><b>{{ trace.supportRatioPercent }}%</b></div>
+          <div><span>{{ t("planner.supportRatioTrace") }}</span><b>{{ trace.supportRatioPercent }}% / {{ trace.nonStackSupportRatioPercent || 98.5 }}%</b></div>
           <div><span>首箱策略</span><b>{{ trace.selectedStrategy || "-" }}</b></div>
           <div><span>首箱已摆</span><b>{{ trace.firstBox.placedCount }} / {{ trace.parameters.unitCount }} 件</b></div>
           <div><span>箱体体积</span><b>{{ fmt(trace.current.containerVolumeM3) }} m³</b></div>
@@ -119,7 +119,7 @@ const fallbackFormulas = [
   "首箱空间占用率 = 首箱已摆放占用体积 ÷ 计划可用体积 × 100%",
   "重量箱数 = ceil(总重量 ÷ 箱型载重)",
   "推荐箱数 = max(几何装箱箱数, 重量箱数)",
-  "上层支撑条件 = 下方可承重重叠面积 ÷ 当前底面积 ≥ 98.5%",
+  t("planner.supportFormula"),
   "单箱坐标复用 = 已验证摆放的 x/y/z + 尺寸全部落入新箱体边界，且总重量不超过新箱型载重"
 ];
 

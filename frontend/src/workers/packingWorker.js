@@ -7,12 +7,14 @@ const TYPE_RULES = {
 
 const COLORS = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3", "#ca8a04", "#475569"];
 const EPS = 0.0001;
-const SUPPORT_RATIO = 0.985;
+const DEFAULT_SUPPORT_RATIO = 0.8;
+const DEFAULT_NONSTACK_SUPPORT_RATIO = 0.985;
 const MAX_DETAILED_BOXES = 24;
 const LOCAL_SEARCH_PASSES = 5;
 const GROUPING_MIN_TOTAL_UNITS = 120;
 const GROUPING_MIN_CARGO_QUANTITY = 24;
 const GROUPING_MAX_BLOCK_QUANTITY = 4;
+const NON_STACK_TOP_LAYER_CANDIDATES = 16;
 const MIXED_PLAN_MAX_SOLVER_UNITS = 120;
 const BALANCE_GREEN_LIMIT_PERCENT = 2.5;
 const BALANCE_RED_LIMIT_PERCENT = 5;
@@ -118,6 +120,7 @@ export function calculate(request = {}, options = {}) {
   const total = totals(request.cargos || []);
   const utilization = safeUtilizationPercent(request.utilizationPercent);
   const balanceSettings = normalizeBalanceSettings(request.balanceSettings);
+  const supportSettings = normalizeSupportSettings(request);
   const evaluations = [];
   const orderedContainers = orderContainersForCalculation(request.containers || []);
   const primaryCount = orderedContainers.filter(isPrimaryCalculationContainer).length;
@@ -129,7 +132,7 @@ export function calculate(request = {}, options = {}) {
 
   for (let i = 0; i < orderedContainers.length; i += 1) {
     const container = orderedContainers[i];
-    const runtimeContainer = { ...container, balanceSettings };
+    const runtimeContainer = { ...container, balanceSettings, supportSettings };
     traceDecision({
       phase: "container",
       level: "summary",
@@ -165,7 +168,7 @@ export function calculate(request = {}, options = {}) {
     });
   }
 
-  const mixedEvaluation = safeBuildMixedContainerEvaluation(orderedContainers, cargos, total, utilization, globalGapCm, balanceSettings);
+  const mixedEvaluation = safeBuildMixedContainerEvaluation(orderedContainers, cargos, total, utilization, globalGapCm, balanceSettings, supportSettings);
   if (mixedEvaluation) {
     evaluations.push(mixedEvaluation);
     traceDecision({
@@ -410,17 +413,17 @@ function packMultiple(container, allUnits) {
   };
 }
 
-function safeBuildMixedContainerEvaluation(containers, cargos, total, utilizationPercent, globalGapCm, balanceSettings) {
+function safeBuildMixedContainerEvaluation(containers, cargos, total, utilizationPercent, globalGapCm, balanceSettings, supportSettings) {
   try {
-    return buildMixedContainerEvaluation(containers, cargos, total, utilizationPercent, globalGapCm, balanceSettings);
+    return buildMixedContainerEvaluation(containers, cargos, total, utilizationPercent, globalGapCm, balanceSettings, supportSettings);
   } catch (error) {
     return null;
   }
 }
 
-function buildMixedContainerEvaluation(containers, cargos, total, utilizationPercent, globalGapCm, balanceSettings) {
+function buildMixedContainerEvaluation(containers, cargos, total, utilizationPercent, globalGapCm, balanceSettings, supportSettings) {
   if (!Array.isArray(containers) || containers.length < 2 || !total.totalQuantity) return null;
-  const runtimeContainers = containers.map((container) => ({ ...container, balanceSettings }));
+  const runtimeContainers = containers.map((container) => ({ ...container, balanceSettings, supportSettings }));
   const seedContainer = pickMixedSeedContainer(runtimeContainers);
   let remaining = buildUnits(cargos, globalGapCm, seedContainer, total).map(copyUnit);
   if (remaining.length > MIXED_PLAN_MAX_SOLVER_UNITS) return null;
@@ -458,7 +461,7 @@ function buildMixedContainerEvaluation(containers, cargos, total, utilizationPer
 
     const selectedBox = {
       ...selected.packed,
-      container: { ...selected.container, balanceSettings: undefined }
+      container: { ...selected.container, balanceSettings: undefined, supportSettings: undefined }
     };
     packedBoxes.push(selectedBox);
     if (selected.fitStatus === FIT_STATUS.BALANCE_BLOCKED) balanceBlocked = true;
@@ -829,19 +832,26 @@ function packLayerLaff(container, units, strategy, fixedPlaced = []) {
   const placed = fixedPlaced.map(copyUnit);
   const unplaced = [];
   const originalActive = units.map(stripPlacement);
-  const active = originalActive.map(copyUnit);
+  const deferredNonStack = [];
+  const active = [];
+  for (const unit of originalActive) {
+    const clean = copyUnit(unit);
+    if (clean.nonStack) deferredNonStack.push(clean);
+    else active.push(clean);
+  }
+  const stackableContainer = containerForStackablePhase(container, deferredNonStack);
   let nextLayerBottom = 0;
   let layerNo = countLayers(placed);
 
   while (active.length) {
-    const seedIndex = pickLayerSeedIndex(active, container, placed, strategy, { layerBottom: nextLayerBottom });
+    const seedIndex = pickLayerSeedIndex(active, stackableContainer, placed, strategy, { layerBottom: nextLayerBottom });
     if (seedIndex < 0) {
       unplaced.push(...active.splice(0));
       break;
     }
 
     const seed = active.splice(seedIndex, 1)[0];
-    const seedPlacement = packExtremePoint(container, placed, seed, strategy, { layerBottom: nextLayerBottom });
+    const seedPlacement = packExtremePoint(stackableContainer, placed, seed, strategy, { layerBottom: nextLayerBottom });
     if (!seedPlacement) {
       unplaced.push(seed);
       continue;
@@ -866,7 +876,7 @@ function packLayerLaff(container, units, strategy, fixedPlaced = []) {
       for (const unit of layerCandidates) {
         const index = active.findIndex((item) => item.unitKey === unit.unitKey);
         if (index < 0) continue;
-        const placement = packExtremePoint(container, placed, unit, strategy, { layerBottom, layerTop });
+        const placement = packExtremePoint(stackableContainer, placed, unit, strategy, { layerBottom, layerTop });
         if (!placement) continue;
         active.splice(index, 1);
         placed.push(applyPlacement(unit, placement));
@@ -898,13 +908,85 @@ function packLayerLaff(container, units, strategy, fixedPlaced = []) {
     nextLayerBottom = Math.max(nextLayerBottom, layerTop);
   }
 
+  let nonStackTopPlacedCount = 0;
+  if (deferredNonStack.length) {
+    const nonStackResult = placeDeferredNonStackOnTop(container, placed, deferredNonStack, strategy);
+    nonStackTopPlacedCount = nonStackResult.placedCount;
+    unplaced.push(...nonStackResult.unplaced);
+    traceDecision({
+      phase: "layer",
+      level: "summary",
+      text: `${container.name} · ${strategy.name} · non-stack deferred: stackable cargo first, then ${nonStackTopPlacedCount}/${sumUnitQuantity(deferredNonStack)} non-stack pcs placed on top candidates.`
+    });
+  }
+
   const valid = validateAllPlacements(container, placed);
   return makePackedBox(valid ? placed : fixedPlaced.map(copyUnit), valid ? unplaced : originalActive, strategy, {
     localSearchPasses: 0,
     repairedCount: 0,
     fixedPlacedCount: fixedPlaced.length,
-    layerCount: countLayers(placed)
+    layerCount: countLayers(placed),
+    nonStackTopPlacedCount
   });
+}
+
+function placeDeferredNonStackOnTop(container, placed, units, strategy) {
+  const ordered = orderUnits(units.map(stripPlacement), strategy.unitOrder);
+  const unplaced = [];
+  let placedCount = 0;
+
+  for (const unit of ordered) {
+    const placement = findTopOnlyPlacement(container, placed, unit, strategy);
+    if (placement) {
+      placed.push(applyPlacement(unit, placement));
+      placedCount += unitQuantity(unit);
+    } else {
+      unplaced.push(unit);
+    }
+  }
+
+  return { placedCount, unplaced };
+}
+
+function containerForStackablePhase(container, deferredNonStack) {
+  if (!deferredNonStack.length || container.ignoreHeightLimit) return container;
+  const reserveHeight = maxMinOrientationHeight(deferredNonStack);
+  if (reserveHeight <= EPS) return container;
+  const heightLimit = containerHeightLimit(container);
+  const reservedHeight = Math.max(0, heightLimit - reserveHeight);
+  if (reservedHeight <= EPS) return container;
+  return {
+    ...container,
+    heightCm: reservedHeight,
+    originalHeightCm: container.heightCm
+  };
+}
+
+function maxMinOrientationHeight(units) {
+  return units.reduce((maxHeight, unit) => {
+    const heights = generateOrientations(unit).map((dims) => Number(dims.heightCm || 0)).filter((value) => value > EPS);
+    if (!heights.length) return maxHeight;
+    return Math.max(maxHeight, Math.min(...heights));
+  }, 0);
+}
+
+function findTopOnlyPlacement(container, placed, unit, strategy) {
+  const layerBottoms = topCandidateLayerBottoms(placed);
+  for (const layerBottom of layerBottoms) {
+    const placement = packExtremePoint(container, placed, unit, strategy, { layerBottom, denseTop: true });
+    if (!placement) continue;
+    const candidate = applyPlacement(unit, placement);
+    if (!hasAnyBoxInColumnAbove(candidate, placed)) return placement;
+  }
+  return null;
+}
+
+function topCandidateLayerBottoms(placed) {
+  if (!placed.length) return [0];
+  return uniqueSorted(placed.map((box) => box.z + box.heightCm), Number.NaN)
+    .filter((value) => Number.isFinite(value) && value > EPS)
+    .sort((a, b) => b - a)
+    .slice(0, NON_STACK_TOP_LAYER_CANDIDATES);
 }
 
 function enhanceWithBlockDowngrade(container, attempt, strategy) {
@@ -1046,12 +1128,27 @@ function backfillSingleUnits(container, attempt, strategy) {
   const unplaced = [];
   let placedCount = 0;
   const ordered = orderUnits(attempt.unplaced.map(stripPlacement), strategy.unitOrder);
-  for (const unit of ordered) {
+  const stackable = ordered.filter((unit) => !unit.nonStack);
+  const nonStack = ordered.filter((unit) => unit.nonStack);
+  for (const unit of stackable) {
     if (unitQuantity(unit) > 1) {
       unplaced.push(unit);
       continue;
     }
     const placement = packExtremePoint(container, placed, unit, strategy);
+    if (placement) {
+      placed.push(applyPlacement(unit, placement));
+      placedCount += 1;
+    } else {
+      unplaced.push(unit);
+    }
+  }
+  for (const unit of nonStack) {
+    if (unitQuantity(unit) > 1) {
+      unplaced.push(unit);
+      continue;
+    }
+    const placement = findTopOnlyPlacement(container, placed, unit, strategy);
     if (placement) {
       placed.push(applyPlacement(unit, placement));
       placedCount += 1;
@@ -1072,11 +1169,12 @@ function backfillSingleUnits(container, attempt, strategy) {
 function packExtremePoint(container, placed, unit, strategy, options = {}) {
   let best = null;
   const orientations = generateOrientations(unit, { preferVertical: strategy.blueVertical });
+  const supportRatio = supportRatioForUnit(container, unit, strategy, options);
   for (const dims of orientations) {
     if (!fitsContainerDims(container, dims)) continue;
     for (const point of extremePoints(container, placed, dims, options)) {
       const placement = { ...point, ...dims };
-      const validation = validatePlacement(container, placed, unit, placement);
+      const validation = validatePlacement(container, placed, unit, placement, supportRatio);
       if (!validation.valid) continue;
       const score = placementScore(placement, unit, container, strategy, placed);
       if (!best || score < best.score) best = { ...placement, score };
@@ -1102,7 +1200,9 @@ function repairWithLocalSearch(container, attempt, originalUnits, strategy) {
     const unplaced = [];
 
     for (const unit of orderedRetry) {
-      const placement = packExtremePoint(container, placed, unit, strategy);
+      const placement = unit.nonStack
+        ? findTopOnlyPlacement(container, placed, unit, strategy)
+        : packExtremePoint(container, placed, unit, strategy);
       if (placement) placed.push(applyPlacement(unit, placement));
       else unplaced.push(unit);
     }
@@ -1120,11 +1220,11 @@ function repairWithLocalSearch(container, attempt, originalUnits, strategy) {
   return best;
 }
 
-function validatePlacement(container, placed, unit, placement) {
+function validatePlacement(container, placed, unit, placement, supportRatio = DEFAULT_SUPPORT_RATIO) {
   if (!fitsContainerDims(container, placement)) return { valid: false, reason: "out-of-bounds" };
   if (placed.some((box) => intersects(placement, box))) return { valid: false, reason: "intersects" };
-  if (!hasSupport(placement, placed)) return { valid: false, reason: "unsupported" };
-  if (unit.nonStack && hasAnyBoxAbove(placement, placed)) return { valid: false, reason: "nonstack-under-load" };
+  if (!hasSupport(placement, placed, supportRatio)) return { valid: false, reason: "unsupported" };
+  if (unit.nonStack && hasAnyBoxInColumnAbove(placement, placed)) return { valid: false, reason: "nonstack-under-load" };
   return { valid: true, reason: "" };
 }
 
@@ -1136,8 +1236,8 @@ function validateAllPlacements(container, placed) {
       if (intersects(current, placed[j])) return false;
     }
     const below = placed.filter((_, index) => index !== i);
-    if (!hasSupport(current, below)) return false;
-    if (current.nonStack && hasAnyBoxAbove(current, below)) return false;
+    if (!hasSupport(current, below, supportRatioForUnit(container, current))) return false;
+    if (current.nonStack && hasAnyBoxInColumnAbove(current, below)) return false;
   }
   return true;
 }
@@ -1269,6 +1369,13 @@ function extremePoints(container, placed, dims, options = {}) {
     for (const x of xs) add(x, 0, z);
     for (const y of ys) add(0, y, z);
   }
+  if (options.denseTop) {
+    for (const z of zs) {
+      for (const x of xs) {
+        for (const y of ys) add(x, y, z);
+      }
+    }
+  }
 
   return [...points.values()].sort((a, b) => {
     if (Math.abs(a.z - b.z) > EPS) return a.z - b.z;
@@ -1277,21 +1384,33 @@ function extremePoints(container, placed, dims, options = {}) {
   });
 }
 
-function hasSupport(placement, placed) {
+function hasSupport(placement, placed, supportRatio = DEFAULT_SUPPORT_RATIO) {
   if (placement.z <= EPS) return true;
+  const requiredRatio = clampNumber(supportRatio, 0.5, 1, DEFAULT_SUPPORT_RATIO);
   const target = { x: placement.x, y: placement.y, lengthCm: placement.lengthCm, widthCm: placement.widthCm };
   const supports = placed
     .filter((box) => !box.nonStack && Math.abs(box.z + box.heightCm - placement.z) < EPS)
     .map((box) => overlapRect(target, { x: box.x, y: box.y, lengthCm: box.lengthCm, widthCm: box.widthCm }))
     .filter(Boolean);
   if (!supports.length) return false;
-  return unionArea(supports) >= placement.lengthCm * placement.widthCm * SUPPORT_RATIO;
+  return unionArea(supports) + EPS >= placement.lengthCm * placement.widthCm * requiredRatio;
 }
 
 function hasAnyBoxAbove(unit, placed) {
   const top = unit.z + unit.heightCm;
   return placed.some((box) =>
     Math.abs(box.z - top) < EPS
+    && overlapRect(
+      { x: unit.x, y: unit.y, lengthCm: unit.lengthCm, widthCm: unit.widthCm },
+      { x: box.x, y: box.y, lengthCm: box.lengthCm, widthCm: box.widthCm }
+    )
+  );
+}
+
+function hasAnyBoxInColumnAbove(unit, placed) {
+  const top = unit.z + unit.heightCm;
+  return placed.some((box) =>
+    box.z >= top - EPS
     && overlapRect(
       { x: unit.x, y: unit.y, lengthCm: unit.lengthCm, widthCm: unit.widthCm },
       { x: box.x, y: box.y, lengthCm: box.lengthCm, widthCm: box.widthCm }
@@ -1317,6 +1436,7 @@ function makePackedBox(placed, unplaced, strategy, stats) {
       blockDowngradePasses: Number(stats.blockDowngradePasses || 0),
       blockDowngradePlacedCount: Number(stats.blockDowngradePlacedCount || 0),
       singleBackfillPlacedCount: Number(stats.singleBackfillPlacedCount || 0),
+      nonStackTopPlacedCount: Number(stats.nonStackTopPlacedCount || 0),
       layerCount: Number(stats.layerCount || countLayers(placed)),
       balanceSeverity: stats.balanceValidation?.severity || "",
       balanceScore: round(stats.balanceValidation?.score || 0),
@@ -2202,6 +2322,7 @@ function buildTrace(container, units, total, multi, metrics) {
   const firstBox = multi.firstBox || { placed: [], unplaced: [] };
   const containerVolume = volumeM3(container);
   const rules = balanceRuleSettings(container);
+  const supportRules = supportRuleSettings(container);
   return {
     worker: "frontend/src/workers/packingWorker.js",
     mode: "Browser WebWorker 本机计算",
@@ -2218,7 +2339,8 @@ function buildTrace(container, units, total, multi, metrics) {
     ],
     strategies: SEARCH_STRATEGIES.map((strategy) => strategy.name),
     selectedStrategy: firstBox.strategyName || "",
-    supportRatioPercent: round(SUPPORT_RATIO * 100),
+    supportRatioPercent: round(supportRules.supportRatio * 100),
+    nonStackSupportRatioPercent: round(supportRules.nonStackSupportRatio * 100),
     balanceRules: {
       frontRearAxis: "container length / X",
       leftRightAxis: "container width / Y",
@@ -2244,7 +2366,8 @@ function buildTrace(container, units, total, multi, metrics) {
       "单件原始体积(m3) = 长 x 宽 x 高 / 1,000,000",
       "计入间隙长/宽(cm) = 原始长/宽 + 全局货物间隙 + 类型额外间隙",
       "计入高度(cm) = 原始高度 + 类型额外高度余量",
-      "上层支撑条件 = 下方可承重重叠面积 / 当前底面积 >= 98.5%",
+      `Stackable support rule = lower stackable overlap area / current footprint >= ${round(supportRules.supportRatio * 100)}%`,
+      `Non-stack support rule = lower stackable overlap area / current footprint >= ${round(supportRules.nonStackSupportRatio * 100)}%`,
       "不可重压货物可以放在可承重货物上方，但不能作为上层货物的支撑面"
     ],
     current: {
@@ -2437,6 +2560,49 @@ function normalizeBalanceSettings(settings = {}) {
 
 function balanceRuleSettings(container = {}) {
   return normalizeBalanceSettings(container.balanceSettings || {});
+}
+
+function normalizeSupportSettings(settings = {}) {
+  const raw = settings.supportSettings || settings || {};
+  return {
+    supportRatio: normalizeSupportRatioValue(
+      raw.supportRatio,
+      raw.supportRatioPercent ?? raw.supportPercent,
+      0.5,
+      1,
+      DEFAULT_SUPPORT_RATIO
+    ),
+    nonStackSupportRatio: normalizeSupportRatioValue(
+      raw.nonStackSupportRatio,
+      raw.nonStackSupportRatioPercent ?? raw.nonStackSupportPercent,
+      0.8,
+      1,
+      DEFAULT_NONSTACK_SUPPORT_RATIO
+    )
+  };
+}
+
+function normalizeSupportRatioValue(ratioValue, percentValue, min, max, fallback) {
+  const percentNumber = Number(percentValue);
+  if (Number.isFinite(percentNumber)) return clampNumber(percentNumber / 100, min, max, fallback);
+  return clampNumber(ratioValue, min, max, fallback);
+}
+
+function supportRuleSettings(container = {}) {
+  return normalizeSupportSettings(container.supportSettings || {});
+}
+
+function supportRatioForUnit(container = {}, unit = {}, strategy = {}, options = {}) {
+  const optionRatio = unit?.nonStack
+    ? options.nonStackSupportRatio ?? strategy.nonStackSupportRatio
+    : options.supportRatio ?? strategy.supportRatio;
+  if (Number.isFinite(Number(optionRatio))) {
+    return unit?.nonStack
+      ? clampNumber(optionRatio, 0.8, 1, DEFAULT_NONSTACK_SUPPORT_RATIO)
+      : clampNumber(optionRatio, 0.5, 1, DEFAULT_SUPPORT_RATIO);
+  }
+  const rules = supportRuleSettings(container);
+  return unit?.nonStack ? rules.nonStackSupportRatio : rules.supportRatio;
 }
 
 function clampNumber(value, min, max, fallback) {
