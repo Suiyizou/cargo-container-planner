@@ -12,6 +12,8 @@ export interface ContainerLike {
   widthCm: number;
   heightCm: number;
   payloadKg?: number;
+  ignoreHeightLimit?: boolean;
+  equipmentClass?: string;
 }
 
 export interface PlacementLike {
@@ -30,6 +32,8 @@ export interface PlacementLike {
   widthCm: number;
   heightCm: number;
   weightKg?: number;
+  volumeM3?: number;
+  geometryVolumeM3?: number;
   groupQuantity?: number;
   bottomFaceDetail?: string;
   orientationLabel?: string;
@@ -66,6 +70,8 @@ export interface SceneStats {
   totalVolumeM3: number;
   totalWeightKg: number;
   utilizationPercent: number;
+  utilizationLabel: string;
+  lengthUtilizationPercent?: number;
   cargoCount: number;
   performanceMode: boolean;
 }

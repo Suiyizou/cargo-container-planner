@@ -110,10 +110,10 @@ function evaluateContainerFromReusable(container, units, total, utilizationPerce
 
 function buildEvaluation(container, units, total, utilizationPercent, globalGapCm, multi) {
   const usableVolume = volumeM3(container) * utilizationPercent / 100;
-  const firstPackedRawVolume = multi.firstBox.placed.reduce((sum, unit) => sum + unit.volumeM3, 0);
-  const firstPackedOccupiedVolume = multi.firstBox.placed.reduce((sum, unit) => sum + occupiedVolumeM3(unit), 0);
-  const detailedPackedOccupiedVolume = multi.packedBoxes.reduce((sum, box) => sum + sumOccupiedVolumeM3(box.placed), 0);
-  const fillPercent = usableVolume > 0 ? firstPackedOccupiedVolume / usableVolume * 100 : 0;
+  const usage = usageMetricsForPackedBoxes(container, multi.packedBoxes, utilizationPercent);
+  const firstPackedRawVolume = sumCargoVolumeM3(multi.firstBox.placed);
+  const firstPackedOccupiedVolume = firstPackedRawVolume;
+  const fillPercent = usage.firstFillPercent;
   const rawFillPercent = usableVolume > 0 ? firstPackedRawVolume / usableVolume * 100 : 0;
   const remainingVolume = usableVolume - firstPackedOccupiedVolume;
   const weightBoxes = container.payloadKg > 0 ? Math.ceil(total.totalWeightKg / container.payloadKg) : 0;
@@ -130,8 +130,8 @@ function buildEvaluation(container, units, total, utilizationPercent, globalGapC
     : balanceBlocked
       ? FIT_STATUS.BALANCE_BLOCKED
       : FIT_STATUS.FIT;
-  const averageFillPercent = geometryFeasible && boxes > 0 && usableVolume > 0
-    ? detailedPackedOccupiedVolume / Math.max(EPS, usableVolume * boxes) * 100
+  const averageFillPercent = geometryFeasible && boxes > 0
+    ? averageUsagePercentForBoxCount(container, multi.packedBoxes, utilizationPercent, boxes, total)
     : 0;
 
   const evaluation = {
@@ -150,9 +150,13 @@ function buildEvaluation(container, units, total, utilizationPercent, globalGapC
     usableVolumeM3: round(usableVolume),
     totalRawVolumeM3: round(total.totalRawVolumeM3),
     totalWeightKg: round(total.totalWeightKg),
+    usageMode: usage.mode,
     firstBoxFillPercent: round(fillPercent),
     firstBoxRawFillPercent: round(rawFillPercent),
     averageFillPercent: round(averageFillPercent),
+    firstBoxDeckAreaPercent: round(usage.firstDeckAreaPercent),
+    firstBoxLengthPercent: round(usage.firstLengthPercent),
+    averageDeckAreaPercent: round(usage.averageDeckAreaPercent),
     firstBoxOccupiedVolumeM3: round(firstPackedOccupiedVolume),
     firstBoxRemainingVolumeM3: round(Math.max(0, remainingVolume)),
     estimatedBoxes: multi.estimated,
@@ -167,6 +171,8 @@ function buildEvaluation(container, units, total, utilizationPercent, globalGapC
       firstPackedOccupiedVolume,
       fillPercent,
       rawFillPercent,
+      usage,
+      averageFillPercent,
       remainingVolume,
       weightBoxes,
       boxes
@@ -339,13 +345,18 @@ function buildMixedContainerEvaluation(containers, cargos, total, utilizationPer
   const evaluation = buildEvaluation(mixedContainer, units, total, utilizationPercent, globalGapCm, multi);
   evaluation.isMixedPlan = true;
   const totalUsableVolume = packedBoxes.reduce((sum, box) => sum + volumeM3(box.container) * utilizationPercent / 100, 0);
-  const totalOccupiedVolume = packedBoxes.reduce((sum, box) => sum + sumOccupiedVolumeM3(box.placed), 0);
+  const totalOccupiedVolume = packedBoxes.reduce((sum, box) => sum + sumCargoVolumeM3(box.placed), 0);
+  const usage = usageMetricsForPackedBoxes(mixedContainer, packedBoxes, utilizationPercent);
   evaluation.usableVolumeM3 = round(totalUsableVolume);
   evaluation.firstBoxOccupiedVolumeM3 = round(totalOccupiedVolume);
   evaluation.firstBoxRemainingVolumeM3 = round(Math.max(0, totalUsableVolume - totalOccupiedVolume));
-  evaluation.firstBoxFillPercent = totalUsableVolume > 0 ? round(totalOccupiedVolume / totalUsableVolume * 100) : 0;
+  evaluation.usageMode = usage.mode;
+  evaluation.firstBoxFillPercent = round(usage.averageFillPercent);
   evaluation.firstBoxRawFillPercent = evaluation.firstBoxFillPercent;
   evaluation.averageFillPercent = evaluation.firstBoxFillPercent;
+  evaluation.firstBoxDeckAreaPercent = round(usage.firstDeckAreaPercent);
+  evaluation.firstBoxLengthPercent = round(usage.firstLengthPercent);
+  evaluation.averageDeckAreaPercent = round(usage.averageDeckAreaPercent);
   evaluation.mixedPlan = {
     summary: mixedPlanSummary(packedBoxes),
     boxes: packedBoxes.map((box, index) => ({
@@ -362,9 +373,9 @@ function buildMixedContainerEvaluation(containers, cargos, total, utilizationPer
 function mixedBoxCandidateScore(container, packed, remaining, utilizationPercent, fitStatus) {
   const placedQuantity = sumUnitQuantity(packed.placed);
   const totalQuantity = Math.max(1, sumUnitQuantity(remaining));
-  const placedVolume = sumOccupiedVolumeM3(packed.placed);
-  const usableVolume = Math.max(EPS, volumeM3(container) * utilizationPercent / 100);
-  const fillPercent = placedVolume / usableVolume * 100;
+  const placedVolume = sumCargoVolumeM3(packed.placed);
+  const usableCapacity = Math.max(EPS, usageCapacity(container, utilizationPercent));
+  const fillPercent = usageUsedCapacity(container, packed.placed) / usableCapacity * 100;
   const meta = equipmentMeta(container);
   const placedRatio = placedQuantity / totalQuantity;
   const completesAll = placedQuantity >= totalQuantity;
@@ -638,15 +649,14 @@ function packLayerLaff(container, units, strategy) {
     const placedSeed = applyPlacement(seed, seedPlacement);
     placed.push(placedSeed);
 
-    const layerTop = placedSeed.z + placedSeed.heightCm;
     let changed = true;
     while (changed) {
       changed = false;
-      const layerCandidates = orderLayerCandidates(active, placedSeed.z, layerTop, strategy);
+      const layerCandidates = orderLayerCandidates(active, placedSeed.z, null, strategy);
       for (const unit of layerCandidates) {
         const index = active.findIndex((item) => item.unitKey === unit.unitKey);
         if (index < 0) continue;
-        const placement = packExtremePoint(container, placed, unit, strategy, { layerTop });
+        const placement = packExtremePoint(container, placed, unit, strategy);
         if (!placement) continue;
         active.splice(index, 1);
         placed.push(applyPlacement(unit, placement));
@@ -798,6 +808,9 @@ function pickLayerSeedIndex(units, container, placed, strategy) {
 function orderLayerCandidates(units, layerBottom, layerTop, strategy) {
   return [...units].sort((a, b) => {
     if (a.nonStack !== b.nonStack) return a.nonStack ? 1 : -1;
+    if (layerTop == null || !Number.isFinite(Number(layerTop))) {
+      return orderUnits([a, b], strategy.unitOrder)[0].unitKey === a.unitKey ? -1 : 1;
+    }
     const aCanShare = a.orientations.some((dims) => dims.heightCm <= layerTop - layerBottom + EPS);
     const bCanShare = b.orientations.some((dims) => dims.heightCm <= layerTop - layerBottom + EPS);
     if (aCanShare !== bCanShare) return aCanShare ? -1 : 1;
@@ -1475,6 +1488,104 @@ function sumOccupiedVolumeM3(units) {
   return units.reduce((sum, unit) => sum + occupiedVolumeM3(unit), 0);
 }
 
+function sumCargoVolumeM3(units) {
+  return units.reduce((sum, unit) => sum + cargoVolumeM3(unit), 0);
+}
+
+function cargoVolumeM3(unit) {
+  const explicit = Number(unit?.volumeM3);
+  if (Number.isFinite(explicit) && explicit >= 0) return explicit;
+  const quantity = unitQuantity(unit);
+  const length = Number(unit?.baseLengthCm || unit?.lengthCm || 0);
+  const width = Number(unit?.baseWidthCm || unit?.widthCm || 0);
+  const height = Number(unit?.baseHeightCm || unit?.heightCm || 0);
+  return length * width * height * quantity / 1_000_000;
+}
+
+function usageMetricsForPackedBoxes(container, packedBoxes, utilizationPercent) {
+  const boxes = Array.isArray(packedBoxes) ? packedBoxes : [];
+  const firstBox = boxes[0] || { placed: [], container };
+  const firstContainer = firstBox.container || container;
+  const modes = new Set(boxes.map((box) => usageMode(box.container || container)));
+  const mode = modes.size === 1 ? [...modes][0] : "mixed";
+  const firstUsed = usageUsedCapacity(firstContainer, firstBox.placed || []);
+  const firstCapacity = usageCapacity(firstContainer, utilizationPercent);
+  const totals = boxes.reduce((acc, box) => {
+    const boxContainer = box.container || container;
+    acc.used += usageUsedCapacity(boxContainer, box.placed || []);
+    acc.capacity += usageCapacity(boxContainer, utilizationPercent);
+    if (usageMode(boxContainer) === "deck") {
+      acc.deckUsed += placementDeckAreaM2(box.placed || []);
+      acc.deckCapacity += deckAreaM2(boxContainer) * utilizationPercent / 100;
+    }
+    return acc;
+  }, { used: 0, capacity: 0, deckUsed: 0, deckCapacity: 0 });
+
+  return {
+    mode,
+    firstFillPercent: firstCapacity > 0 ? firstUsed / firstCapacity * 100 : 0,
+    averageFillPercent: totals.capacity > 0 ? totals.used / totals.capacity * 100 : 0,
+    firstDeckAreaPercent: deckAreaPercent(firstContainer, firstBox.placed || [], utilizationPercent),
+    firstLengthPercent: lengthUtilizationPercent(firstContainer, firstBox.placed || []),
+    averageDeckAreaPercent: totals.deckCapacity > 0 ? totals.deckUsed / totals.deckCapacity * 100 : 0
+  };
+}
+
+function averageUsagePercentForBoxCount(container, packedBoxes, utilizationPercent, boxes, total) {
+  const boxCount = Math.max(1, Number(boxes || 1));
+  if (usageMode(container) === "volume") {
+    const capacity = usageCapacity(container, utilizationPercent) * boxCount;
+    return capacity > 0 ? Number(total?.totalRawVolumeM3 || 0) / capacity * 100 : 0;
+  }
+  const detailedUsed = (packedBoxes || []).reduce((sum, box) => sum + usageUsedCapacity(box.container || container, box.placed || []), 0);
+  const detailedCapacity = (packedBoxes || []).reduce((sum, box) => sum + usageCapacity(box.container || container, utilizationPercent), 0);
+  return detailedCapacity > 0 ? detailedUsed / detailedCapacity * 100 : 0;
+}
+
+function usageMode(container) {
+  return isFlatRackUsage(container) ? "deck" : "volume";
+}
+
+function isFlatRackUsage(container = {}) {
+  return isHeightUnlimited(container) || equipmentMeta(container).equipmentClass === "FR";
+}
+
+function usageCapacity(container, utilizationPercent) {
+  if (isFlatRackUsage(container)) return deckAreaM2(container) * utilizationPercent / 100;
+  return volumeM3(container) * utilizationPercent / 100;
+}
+
+function usageUsedCapacity(container, placed) {
+  if (isFlatRackUsage(container)) return placementDeckAreaM2(placed);
+  return sumCargoVolumeM3(placed);
+}
+
+function deckAreaM2(container) {
+  return Number(container?.lengthCm || 0) * Number(container?.widthCm || 0) / 10_000;
+}
+
+function placementDeckAreaM2(placed) {
+  const rects = (placed || []).map((unit) => ({
+    x: Number(unit.x || 0),
+    y: Number(unit.y || 0),
+    lengthCm: Number(unit.lengthCm || 0),
+    widthCm: Number(unit.widthCm || 0)
+  })).filter((rect) => rect.lengthCm > EPS && rect.widthCm > EPS);
+  return unionArea(rects) / 10_000;
+}
+
+function deckAreaPercent(container, placed, utilizationPercent) {
+  const capacity = deckAreaM2(container) * utilizationPercent / 100;
+  return capacity > 0 ? placementDeckAreaM2(placed) / capacity * 100 : 0;
+}
+
+function lengthUtilizationPercent(container, placed) {
+  if (!isFlatRackUsage(container) || !placed?.length || Number(container?.lengthCm || 0) <= 0) return 0;
+  const minX = Math.min(...placed.map((unit) => Number(unit.x || 0)));
+  const maxX = Math.max(...placed.map((unit) => Number(unit.x || 0) + Number(unit.lengthCm || 0)));
+  return Math.max(0, maxX - minX) / Number(container.lengthCm) * 100;
+}
+
 function maxTop(units) {
   return units.length ? Math.max(...units.map((unit) => Number(unit.z || 0) + Number(unit.heightCm || 0))) : 0;
 }
@@ -1696,7 +1807,10 @@ function buildTrace(container, units, total, multi, metrics) {
       firstBoxRemainingVolumeM3: round(Math.max(0, metrics.remainingVolume)),
       firstBoxFillPercent: round(metrics.fillPercent),
       firstBoxRawFillPercent: round(metrics.rawFillPercent),
-      averageFillPercent: round(multi.packedBoxes?.length ? multi.packedBoxes.reduce((sum, box) => sum + sumOccupiedVolumeM3(box.placed), 0) / Math.max(EPS, metrics.usableVolume * Math.max(1, metrics.boxes)) * 100 : metrics.fillPercent),
+      averageFillPercent: round(metrics.averageFillPercent || metrics.usage?.averageFillPercent || metrics.fillPercent),
+      usageMode: metrics.usage?.mode || "volume",
+      firstBoxDeckAreaPercent: round(metrics.usage?.firstDeckAreaPercent || 0),
+      firstBoxLengthPercent: round(metrics.usage?.firstLengthPercent || 0),
       geometryBoxes: multi.boxes,
       weightBoxes: metrics.weightBoxes,
       finalBoxes: metrics.boxes,
@@ -1762,6 +1876,8 @@ function toPlacementDto(unit) {
     yCm: round(unit.y),
     zCm: round(unit.z),
     weightKg: round(unit.weightKg),
+    volumeM3: round(cargoVolumeM3(unit)),
+    geometryVolumeM3: round(occupiedVolumeM3(unit)),
     groupQuantity: unitQuantity(unit),
     groupCols: Number(unit.groupCols || 1),
     groupRows: Number(unit.groupRows || 1),

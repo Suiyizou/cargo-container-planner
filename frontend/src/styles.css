@@ -2148,6 +2148,13 @@ select {
   line-height: 1.2;
 }
 
+.stats-grid.compact small {
+  display: block;
+  margin-top: 4px;
+  color: #7890aa;
+  font-size: 12px;
+}
+
 .visual-performance-alert {
   margin-top: 12px;
 }

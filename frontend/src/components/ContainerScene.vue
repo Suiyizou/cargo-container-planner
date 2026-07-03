@@ -84,8 +84,9 @@
               <b>{{ sceneData.stats.totalVolumeM3.toFixed(2) }} m³</b>
             </div>
             <div>
-              <span>空间利用率</span>
+              <span>{{ t(sceneData.stats.utilizationLabel) }}</span>
               <b>{{ sceneData.stats.utilizationPercent.toFixed(1) }}%</b>
+              <small v-if="sceneData.stats.lengthUtilizationPercent">{{ t("metrics.lengthPercent", { value: sceneData.stats.lengthUtilizationPercent.toFixed(1) }) }}</small>
             </div>
             <div>
               <span>总毛重</span>
@@ -196,6 +197,7 @@ import { buildPackingSceneData, formatSigned, formatWeight } from "../visualizat
 import { resolveBalanceState } from "../visualization/packingSceneBalance";
 import { PackingSceneRenderer } from "../visualization/packingSceneRenderer";
 import type { SceneCargo, SceneViewMode, SceneViewPreset, SliceAxis } from "../visualization/packingSceneTypes";
+import { t } from "../i18n";
 
 const props = defineProps({
   container: { type: Object, default: null },

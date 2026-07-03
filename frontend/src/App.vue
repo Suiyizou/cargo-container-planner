@@ -662,7 +662,7 @@ import { calculatePacking, estimatePackingWorkload } from "./services/packingCli
 import { cloneDefaultContainers, isDefaultContainerId, mergeDefaultContainers, restoreDefaultContainer } from "./services/localData";
 import { fetchAdminMe, logoutAdmin } from "./services/adminApi";
 import { clearSession, isSessionExpired, storedExpiresAt, storedToken, storedUser } from "./services/authSession";
-import { elementPlusLocale } from "./i18n";
+import { elementPlusLocale, t } from "./i18n";
 import { cargoLabel, fmt, shortType, uid } from "./utils/format";
 
 const STORAGE_KEY = "cargo-planner-vue-state";
@@ -1527,6 +1527,11 @@ function evaluationCardSubtitle(evaluation) {
 
 function evaluationCardMetric(evaluation) {
   const fill = evaluationAverageFill(evaluation);
+  if (evaluation?.usageMode === "deck") {
+    const lengthPercent = Number(evaluation?.firstBoxLengthPercent || 0);
+    const lengthText = lengthPercent ? t("metrics.lengthSuffix", { value: fmt(lengthPercent, 1) }) : "";
+    return t("metrics.deckUtilizationWithLength", { value: fmt(fill, 1), length: lengthText });
+  }
   return `${Number(evaluation?.boxes || 0) > 1 || evaluation?.isMixedPlan ? "平均" : "空间"}利用率 ${fmt(fill, 1)}%`;
 }
 

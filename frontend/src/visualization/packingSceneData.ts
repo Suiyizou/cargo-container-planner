@@ -83,7 +83,9 @@ function normalizeCargo(placement: PlacementLike, index: number, colorMap: Map<s
       yCm: yCm + widthCm / 2,
       zCm: zCm + heightCm / 2
     },
-    volumeM3: lengthCm * widthCm * heightCm / 1_000_000
+    volumeM3: Number.isFinite(Number(placement.volumeM3))
+      ? Number(placement.volumeM3)
+      : lengthCm * widthCm * heightCm / 1_000_000
   };
 }
 
@@ -115,16 +117,90 @@ function buildStats(container: ContainerLike | null, cargos: SceneCargo[], evalu
   const containerVolumeM3 = container
     ? Number(container.lengthCm || 0) * Number(container.widthCm || 0) * Number(container.heightCm || 0) / 1_000_000
     : 0;
-  const utilizationPercent = Number.isFinite(Number(evaluation?.firstBoxFillPercent))
-    ? Number(evaluation.firstBoxFillPercent)
-    : containerVolumeM3 > 0 ? totalVolumeM3 / containerVolumeM3 * 100 : 0;
+  const plannedUtilizationPercent = clampPercent(Number(evaluation?.trace?.parameters?.utilizationPercent || 100));
+  const flatRack = isFlatRack(container, evaluation);
+  const deckArea = flatRack ? deckAreaM2(container) : 0;
+  const usedDeckArea = flatRack ? cargoDeckAreaM2(cargos) : 0;
+  const lengthUtilizationPercent = flatRack ? cargoLengthUtilizationPercent(container, cargos) : undefined;
+  const usableDeckArea = deckArea * plannedUtilizationPercent / 100;
+  const usableVolumeM3 = containerVolumeM3 * plannedUtilizationPercent / 100;
+  const utilizationPercent = flatRack
+    ? usableDeckArea > 0 ? usedDeckArea / usableDeckArea * 100 : 0
+    : usableVolumeM3 > 0 ? totalVolumeM3 / usableVolumeM3 * 100 : 0;
 
   return {
     totalPieces,
     totalVolumeM3,
     totalWeightKg,
     utilizationPercent,
+    utilizationLabel: flatRack ? "metrics.deckUtilization" : "metrics.spaceUtilization",
+    lengthUtilizationPercent,
     cargoCount: cargos.length,
     performanceMode: cargos.length > 100
   };
+}
+
+function isFlatRack(container: ContainerLike | null, evaluation: any) {
+  const text = `${container?.id || ""} ${container?.name || ""} ${container?.equipmentClass || ""} ${evaluation?.recommendation?.equipmentClass || ""}`.toLowerCase();
+  return Boolean(container?.ignoreHeightLimit) || /fr|flat|\u5e73\u677f/.test(text);
+}
+
+function deckAreaM2(container: ContainerLike | null) {
+  return Number(container?.lengthCm || 0) * Number(container?.widthCm || 0) / 10_000;
+}
+
+function cargoDeckAreaM2(cargos: SceneCargo[]) {
+  return unionAreaCm2(cargos.map((cargo) => ({
+    x: Number(cargo.xCm || 0),
+    y: Number(cargo.yCm || 0),
+    length: Number(cargo.lengthCm || 0),
+    width: Number(cargo.widthCm || 0)
+  })).filter((rect) => rect.length > 0 && rect.width > 0)) / 10_000;
+}
+
+function cargoLengthUtilizationPercent(container: ContainerLike | null, cargos: SceneCargo[]) {
+  if (!container?.lengthCm || !cargos.length) return 0;
+  const minX = Math.min(...cargos.map((cargo) => Number(cargo.xCm || 0)));
+  const maxX = Math.max(...cargos.map((cargo) => Number(cargo.xCm || 0) + Number(cargo.lengthCm || 0)));
+  return Math.max(0, maxX - minX) / Number(container.lengthCm) * 100;
+}
+
+function unionAreaCm2(rects: Array<{ x: number; y: number; length: number; width: number }>) {
+  const xs = [...new Set(rects.flatMap((rect) => [round3(rect.x), round3(rect.x + rect.length)]))].sort((a, b) => a - b);
+  let area = 0;
+  for (let i = 0; i < xs.length - 1; i += 1) {
+    const x1 = xs[i];
+    const x2 = xs[i + 1];
+    const width = x2 - x1;
+    if (width <= 0) continue;
+    const spans = rects
+      .filter((rect) => rect.x < x2 && rect.x + rect.length > x1)
+      .map((rect) => [rect.y, rect.y + rect.width])
+      .sort((a, b) => a[0] - b[0]);
+    let start: number | null = null;
+    let end = 0;
+    for (const [spanStart, spanEnd] of spans) {
+      if (start === null) {
+        start = spanStart;
+        end = spanEnd;
+      } else if (spanStart <= end) {
+        end = Math.max(end, spanEnd);
+      } else {
+        area += width * (end - start);
+        start = spanStart;
+        end = spanEnd;
+      }
+    }
+    if (start !== null) area += width * (end - start);
+  }
+  return area;
+}
+
+function round3(value: number) {
+  return Math.round(Number(value || 0) * 1000) / 1000;
+}
+
+function clampPercent(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return 100;
+  return Math.min(100, Math.max(1, value));
 }
