@@ -96,6 +96,47 @@ button:not(.el-button).wide {
   width: 100%;
 }
 
+.language-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid #cbd8e8;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 6px 18px rgba(20, 34, 52, 0.08);
+}
+
+.language-switcher button:not(.el-button) {
+  min-height: 26px;
+  min-width: 34px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #47617c;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: none;
+}
+
+.language-switcher button:not(.el-button).active {
+  background: #165dff;
+  color: #fff;
+}
+
+.global-language-switcher {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 130;
+}
+
+.topbar-language-switcher {
+  margin-bottom: 2px;
+}
+
 input:not(.el-input__inner),
 select {
   border: 1px solid #b9c8da;

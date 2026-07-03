@@ -1,5 +1,6 @@
 import { calculateMassBalance } from "../utils/massBalance";
 import { cargoLabel } from "../utils/format";
+import { localizeCanvasContext } from "../i18n/legacyText";
 
 const REPORT_COLORS = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3", "#ca8a04", "#475569"];
 const PAGE_WIDTH = 1800;
@@ -64,7 +65,7 @@ export function renderReportCanvas(options) {
   const canvas = document.createElement("canvas");
   canvas.width = PAGE_WIDTH;
   canvas.height = height;
-  const ctx = canvas.getContext("2d");
+  const ctx = localizeCanvasContext(canvas.getContext("2d"));
 
   ctx.fillStyle = "#f4f7fb";
   ctx.fillRect(0, 0, canvas.width, canvas.height);

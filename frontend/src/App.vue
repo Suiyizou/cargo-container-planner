@@ -1,4 +1,6 @@
 <template>
+  <el-config-provider :locale="elementPlusLocale">
+  <LanguageSwitcher v-if="!authChecked || !currentUser" class="global-language-switcher" />
   <LoginPage v-if="authChecked && !currentUser" @logged-in="handleLoggedIn" />
   <div v-else-if="!authChecked" class="auth-loading-shell">
     <div class="spinner"></div>
@@ -26,6 +28,7 @@
         <el-breadcrumb-item v-if="activePage === 'planner'">{{ activePlannerStepLabel }}</el-breadcrumb-item>
       </el-breadcrumb>
       <div class="top-user">
+        <LanguageSwitcher class="topbar-language-switcher" />
         <el-tag effect="plain" type="primary">{{ pageTitle }}</el-tag>
         <el-button type="primary" plain class="user-button" @click="profileOpen = true">
           <strong>{{ userDisplayName }}</strong>
@@ -615,6 +618,7 @@
       </div>
     </div>
   </Transition>
+  </el-config-provider>
 </template>
 
 <script setup lang="ts">
@@ -650,6 +654,7 @@ import CargoModal from "./components/CargoModal.vue";
 import ContainerModal from "./components/ContainerModal.vue";
 import ContainerReferencePage from "./components/ContainerReferencePage.vue";
 import ContainerScene from "./components/ContainerScene.vue";
+import LanguageSwitcher from "./components/LanguageSwitcher.vue";
 import { exportPackingReportsZip, exportPackingReport } from "./services/exportReport";
 import { assignCargoModels } from "./services/excelImport";
 import { buildPreviewInWorker, readWorkbookInWorker } from "./services/excelImportClient";
@@ -657,6 +662,7 @@ import { calculatePacking, estimatePackingWorkload } from "./services/packingCli
 import { cloneDefaultContainers, isDefaultContainerId, mergeDefaultContainers, restoreDefaultContainer } from "./services/localData";
 import { fetchAdminMe, logoutAdmin } from "./services/adminApi";
 import { clearSession, isSessionExpired, storedExpiresAt, storedToken, storedUser } from "./services/authSession";
+import { elementPlusLocale } from "./i18n";
 import { cargoLabel, fmt, shortType, uid } from "./utils/format";
 
 const STORAGE_KEY = "cargo-planner-vue-state";
