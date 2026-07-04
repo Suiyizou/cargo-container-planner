@@ -15,7 +15,7 @@ const GROUPING_MIN_TOTAL_UNITS = 120;
 const GROUPING_MIN_CARGO_QUANTITY = 24;
 const GROUPING_MAX_BLOCK_QUANTITY = 4;
 const NON_STACK_TOP_LAYER_CANDIDATES = 16;
-const LOWER_GAP_SWAP_MAX_BLUE_MOVERS = 8;
+const LOWER_GAP_SWAP_MAX_BLUE_MOVERS = 24;
 const LOWER_GAP_SWAP_MAX_LATE_MOVERS = 3;
 const LOWER_GAP_SWAP_MIN_DROP_CM = 5;
 const MIXED_PLAN_MAX_SOLVER_UNITS = 120;
@@ -771,7 +771,8 @@ function packContainer(container, units) {
   const baseBest = selectBestAttempt(container, baseAttempts);
   if (baseBest?.placed?.length) {
     const bestStrategy = strategyById(baseBest.strategyId);
-    const gapSwapped = optimizeLowerGapSwaps(stackableContainer, baseBest, bestStrategy);
+    let gapSwapped = optimizeLowerGapSwaps(stackableContainer, baseBest, bestStrategy);
+    gapSwapped = optimizeBlueSideRows(stackableContainer, gapSwapped, bestStrategy);
     if (gapSwapped !== baseBest) {
       const finalGapSwapped = finalizeWithDeferredNonStack(container, gapSwapped, nonStack, bestStrategy, rejectedByBalance);
       if (finalGapSwapped.balanceValidation?.severity === "red") rejectedByBalance += 1;
@@ -796,6 +797,7 @@ function packContainer(container, units) {
       refined = repairWithLocalSearch(stackableContainer, refined, orderUnits(refined.unplaced.map(stripPlacement), bestStrategy.unitOrder), bestStrategy);
     }
     refined = optimizeLowerGapSwaps(stackableContainer, refined, bestStrategy);
+    refined = optimizeBlueSideRows(stackableContainer, refined, bestStrategy);
     const finalRefined = finalizeWithDeferredNonStack(container, refined, nonStack, bestStrategy, rejectedByBalance);
     if (finalRefined.balanceValidation?.severity === "red") rejectedByBalance += 1;
     attempts.push(finalRefined);
@@ -844,7 +846,7 @@ function splitUnitsForFinalNonStackPass(units) {
 }
 
 function finalizeWithDeferredNonStack(container, stackableAttempt, deferredNonStack, strategy, rejectedByBalance = 0) {
-  const placed = (stackableAttempt.placed || []).filter((unit) => !unit.nonStack).map(copyUnit);
+  let placed = (stackableAttempt.placed || []).filter((unit) => !unit.nonStack).map(copyUnit);
   const stackableUnplaced = (stackableAttempt.unplaced || []).filter((unit) => !unit.nonStack).map(stripPlacement);
   let nonStackTopPlacedCount = 0;
   let nonStackUnplaced = [];
@@ -1029,9 +1031,6 @@ function findTopOnlyPlacement(container, placed, unit, strategy) {
 }
 
 function findTopExposedPlacement(container, placed, unit, strategy) {
-  const directPlacement = packExtremePoint(container, placed, unit, strategy, { denseTop: true, exposedTop: true });
-  if (directPlacement) return directPlacement;
-
   const layerBottoms = topCandidateLayerBottoms(placed);
   for (const layerBottom of layerBottoms) {
     const placement = packExtremePoint(container, placed, unit, strategy, { layerBottom, denseTop: true, exposedTop: true });
@@ -1039,6 +1038,9 @@ function findTopExposedPlacement(container, placed, unit, strategy) {
     const candidate = applyPlacement(unit, placement);
     if (!hasAnyBoxInColumnAbove(candidate, placed)) return placement;
   }
+
+  const directPlacement = packExtremePoint(container, placed, unit, strategy, { denseTop: true, exposedTop: true });
+  if (directPlacement) return directPlacement;
   return null;
 }
 
@@ -1284,21 +1286,22 @@ function repairWithLocalSearch(container, attempt, originalUnits, strategy) {
 
 function optimizeLowerGapSwaps(container, attempt, strategy) {
   if (!attempt?.placed?.length) return attempt;
-  const placed = attempt.placed.map(copyUnit);
+  const sourceAttempt = expandAttemptPlacementsForFineTuning(container, attempt);
+  const placed = sourceAttempt.placed.map(copyUnit);
   const blueCandidates = lowerGapBlueCandidates(container, placed);
   if (!blueCandidates.length) return attempt;
 
   const lateCandidates = lowerGapLateCandidates(container, placed, blueCandidates);
   const maxBlue = Math.min(LOWER_GAP_SWAP_MAX_BLUE_MOVERS, blueCandidates.length);
   const maxLate = Math.min(LOWER_GAP_SWAP_MAX_LATE_MOVERS, lateCandidates.length);
-  let best = cloneAttempt(attempt);
+  let best = cloneAttempt(sourceAttempt);
 
   for (let lateCount = 0; lateCount <= maxLate; lateCount += 1) {
     const blueLimit = Math.min(maxBlue, lateCount ? LOWER_GAP_SWAP_MAX_BLUE_MOVERS : 4);
     for (let blueCount = 1; blueCount <= blueLimit; blueCount += 1) {
       const candidate = buildLowerGapSwapAttempt(
         container,
-        attempt,
+        sourceAttempt,
         strategy,
         blueCandidates.slice(0, blueCount),
         lateCandidates.slice(0, lateCount)
@@ -1312,6 +1315,22 @@ function optimizeLowerGapSwaps(container, attempt, strategy) {
   return Number(best.strategySummary?.lowerGapSwapCount || 0) > Number(attempt.strategySummary?.lowerGapSwapCount || 0)
     ? best
     : attempt;
+}
+
+function expandAttemptPlacementsForFineTuning(container, attempt) {
+  if (!attempt?.placed?.some((unit) => unitQuantity(unit) > 1)) return attempt;
+  const placed = expandGroupedPlacements(attempt.placed).map((unit) => (
+    isBlueLikeCargo(unit) && !unit.nonStack
+      ? { ...unit, supportRatioOverride: unit.supportRatioOverride ?? lowerGapSwapSupportRatio(container, unit) }
+      : unit
+  ));
+  return makePackedBox(placed, attempt.unplaced.map(stripPlacement), {
+    id: attempt.strategyId,
+    name: attempt.strategyName
+  }, {
+    ...(attempt.strategySummary || {}),
+    layerCount: countLayers(attempt.placed)
+  });
 }
 
 function lowerGapBlueCandidates(container, placed) {
@@ -1372,9 +1391,10 @@ function buildLowerGapSwapAttempt(container, attempt, strategy, blueMovers, late
 
   for (const unit of orderUnits(blueMovers.map(stripPlacement), "small-vertical")) {
     const original = originalByKey.get(unit.unitKey);
-    const placement = packExtremePoint(container, placed, unit, strategy);
+    const supportRatio = lowerGapSwapSupportRatio(container, unit);
+    const placement = packExtremePoint(container, placed, unit, strategy, { supportRatio });
     if (placement && original && placement.z < Number(original.z || 0) - LOWER_GAP_SWAP_MIN_DROP_CM) {
-      placed.push(applyPlacement(unit, placement));
+      placed.push({ ...applyPlacement(unit, placement), supportRatioOverride: supportRatio });
       movedCount += unitQuantity(unit);
       movedDepthCm += (Number(original.z || 0) - placement.z) * unitQuantity(unit);
     } else {
@@ -1431,6 +1451,176 @@ function isBlueLikeCargo(unit) {
   return String(unit.color || "").toLowerCase() === "#3b82f6" || /\bblue\b/.test(text);
 }
 
+function optimizeBlueSideRows(container, attempt, strategy) {
+  if (!attempt?.placed?.length) return attempt;
+  const sourceAttempt = expandAttemptPlacementsForFineTuning(container, attempt);
+  let current = cloneAttempt(sourceAttempt);
+  let movedTotal = 0;
+
+  for (let pass = 0; pass < 6; pass += 1) {
+    const candidate = buildBestBlueSideRowRepack(container, current, strategy);
+    if (!candidate) break;
+    movedTotal += candidate.movedCount;
+    current = makePackedBox(candidate.placed, current.unplaced.map(stripPlacement), {
+      id: current.strategyId,
+      name: current.strategyName
+    }, {
+      ...(current.strategySummary || {}),
+      blueSideRowRepackCount: Number(current.strategySummary?.blueSideRowRepackCount || 0) + candidate.movedCount,
+      layerCount: countLayers(candidate.placed)
+    });
+  }
+
+  return movedTotal ? current : attempt;
+}
+
+function buildBestBlueSideRowRepack(container, attempt, strategy) {
+  let best = null;
+  for (const row of blueSideRows(container, attempt.placed)) {
+    const candidate = buildBlueSideRowCandidate(container, attempt.placed, row, strategy);
+    if (!candidate) continue;
+    if (!best || candidate.score > best.score + EPS) best = candidate;
+  }
+  return best;
+}
+
+function blueSideRows(container, placed) {
+  const groups = new Map();
+  for (const unit of placed) {
+    if (!isBlueLikeCargo(unit) || unit.nonStack) continue;
+    if (Number(unit.lengthCm || 0) <= Number(unit.widthCm || 0) + EPS) continue;
+    if (Number(unit.y || 0) + Number(unit.lengthCm || 0) > Number(container.widthCm || 0) + EPS) continue;
+    const key = [
+      round3(unit.z),
+      round3(unit.y),
+      round3(unit.lengthCm),
+      round3(unit.widthCm),
+      round3(unit.heightCm)
+    ].join("/");
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(unit);
+  }
+
+  return [...groups.values()]
+    .map((units) => {
+      const sample = units[0];
+      const targetLength = Number(sample.widthCm || 0);
+      const targetWidth = Number(sample.lengthCm || 0);
+      const minX = Math.min(...units.map((unit) => Number(unit.x || 0)));
+      const capacity = Math.floor((Number(container.lengthCm || 0) - minX + EPS) / Math.max(1, targetLength));
+      return {
+        units: [...units].sort((a, b) => Number(a.x || 0) - Number(b.x || 0)),
+        z: Number(sample.z || 0),
+        y: Number(sample.y || 0),
+        height: Number(sample.heightCm || 0),
+        targetLength,
+        targetWidth,
+        minX,
+        capacity,
+        extraSlots: capacity - units.length
+      };
+    })
+    .filter((row) =>
+      row.units.length >= 3
+      && row.extraSlots > 0
+      && row.y + row.targetWidth <= Number(container.widthCm || 0) + EPS
+      && !hasBlueRowOverlapAfterRotate(row, placed)
+    )
+    .sort((a, b) => {
+      if (b.extraSlots !== a.extraSlots) return b.extraSlots - a.extraSlots;
+      if (Math.abs(a.z - b.z) > EPS) return a.z - b.z;
+      return b.y - a.y;
+    });
+}
+
+function hasBlueRowOverlapAfterRotate(row, placed) {
+  return placed.some((unit) => {
+    if (!isBlueLikeCargo(unit) || unit.nonStack) return false;
+    if (row.units.some((rowUnit) => rowUnit.unitKey === unit.unitKey)) return false;
+    if (Math.abs(Number(unit.z || 0) - row.z) > EPS) return false;
+    if (Number(unit.y || 0) >= row.y + row.targetWidth - EPS) return false;
+    if (Number(unit.y || 0) + Number(unit.widthCm || 0) <= row.y + EPS) return false;
+    return true;
+  });
+}
+
+function buildBlueSideRowCandidate(container, placed, row, strategy) {
+  const rowKeys = new Set(row.units.map((unit) => unit.unitKey));
+  const extras = placed
+    .filter((unit) =>
+      isBlueLikeCargo(unit)
+      && !unit.nonStack
+      && !rowKeys.has(unit.unitKey)
+      && !hasAnyBoxInColumnAbove(unit, placed)
+      && Number(unit.z || 0) > row.z + LOWER_GAP_SWAP_MIN_DROP_CM
+      && orientationForDims(unit, row.targetLength, row.targetWidth, row.height)
+    )
+    .sort((a, b) => {
+      const topDiff = (b.z + b.heightCm) - (a.z + a.heightCm);
+      if (Math.abs(topDiff) > EPS) return topDiff;
+      return Number(a.x || 0) - Number(b.x || 0);
+    });
+  const extraCandidates = extras.slice(0, row.extraSlots);
+  if (!extraCandidates.length) return null;
+
+  const moving = [...row.units, ...extraCandidates];
+  const movingKeys = new Set(moving.map((unit) => unit.unitKey));
+  const nextPlaced = placed
+    .filter((unit) => !movingKeys.has(unit.unitKey))
+    .map(copyUnit);
+  const supportRatio = lowerGapSwapSupportRatio(container, row.units[0]);
+  const moved = [];
+
+  for (let index = 0; index < moving.length; index += 1) {
+    const source = moving[index];
+    const unit = stripPlacement(source);
+    const orientation = orientationForDims(unit, row.targetLength, row.targetWidth, row.height);
+    if (!orientation) return null;
+    const placement = {
+      ...orientation,
+      x: round3(row.minX + index * row.targetLength),
+      y: round3(row.y),
+      z: round3(row.z)
+    };
+    const validation = validatePlacement(container, nextPlaced, unit, placement, supportRatio);
+    if (!validation.valid) {
+      if (index >= row.units.length) {
+        nextPlaced.push(...moving.slice(index).map(copyUnit));
+        break;
+      }
+      return null;
+    }
+    nextPlaced.push({ ...applyPlacement(unit, placement), supportRatioOverride: supportRatio });
+    if (index >= row.units.length) moved.push(source);
+  }
+
+  if (!moved.length) return null;
+
+  const finalValidation = validateAllPlacementsDetailed(container, nextPlaced);
+  if (!finalValidation.valid) return null;
+  const movedDepth = moved.reduce((sum, unit) => sum + (Number(unit.z || 0) - row.z) * unitQuantity(unit), 0);
+  return {
+    placed: nextPlaced,
+    movedCount: sumUnitQuantity(moved),
+    score: sumUnitQuantity(moved) * 100000 + movedDepth - row.z
+  };
+}
+
+function orientationForDims(unit, lengthCm, widthCm, heightCm) {
+  return generateOrientations(unit).find((dims) =>
+    Math.abs(Number(dims.lengthCm || 0) - lengthCm) < EPS
+    && Math.abs(Number(dims.widthCm || 0) - widthCm) < EPS
+    && Math.abs(Number(dims.heightCm || 0) - heightCm) < EPS
+  );
+}
+
+function lowerGapSwapSupportRatio(container, unit) {
+  if (!isBlueLikeCargo(unit)) return supportRatioForUnit(container, unit);
+  const ratio = supportRuleSettings(container).supportRatio;
+  const overhangBasedSupport = 1 - clampNumber(ratio, 0, 1, DEFAULT_SUPPORT_RATIO);
+  return clampNumber(Math.min(ratio, overhangBasedSupport), 0.1, 1, DEFAULT_SUPPORT_RATIO);
+}
+
 function validatePlacement(container, placed, unit, placement, supportRatio = DEFAULT_SUPPORT_RATIO) {
   if (!fitsContainerDims(container, placement)) return { valid: false, reason: "out-of-bounds" };
   if (placed.some((box) => intersects(placement, box))) return { valid: false, reason: "intersects" };
@@ -1440,17 +1630,23 @@ function validatePlacement(container, placed, unit, placement, supportRatio = DE
 }
 
 function validateAllPlacements(container, placed) {
+  return validateAllPlacementsDetailed(container, placed).valid;
+}
+
+function validateAllPlacementsDetailed(container, placed) {
   for (let i = 0; i < placed.length; i += 1) {
     const current = placed[i];
-    if (!fitsContainerDims(container, current)) return false;
+    if (!fitsContainerDims(container, current)) return { valid: false, reason: "out-of-bounds", unit: current.unitKey };
     for (let j = i + 1; j < placed.length; j += 1) {
-      if (intersects(current, placed[j])) return false;
+      if (intersects(current, placed[j])) return { valid: false, reason: "intersects", unit: current.unitKey, other: placed[j].unitKey };
     }
     const below = placed.filter((_, index) => index !== i);
-    if (!hasSupport(current, below, supportRatioForUnit(container, current))) return false;
-    if (current.nonStack && hasAnyBoxInColumnAbove(current, below)) return false;
+    if (!hasSupport(current, below, supportRatioForUnit(container, current))) {
+      return { valid: false, reason: "unsupported", unit: current.unitKey, z: current.z, x: current.x, y: current.y };
+    }
+    if (current.nonStack && hasAnyBoxInColumnAbove(current, below)) return { valid: false, reason: "nonstack-under-load", unit: current.unitKey };
   }
-  return true;
+  return { valid: true };
 }
 
 function centerPackedLayout(container, attempt, strategy) {
@@ -1597,7 +1793,7 @@ function extremePoints(container, placed, dims, options = {}) {
 
 function hasSupport(placement, placed, supportRatio = DEFAULT_SUPPORT_RATIO) {
   if (placement.z <= EPS) return true;
-  const requiredRatio = clampNumber(supportRatio, 0.5, 1, DEFAULT_SUPPORT_RATIO);
+  const requiredRatio = clampNumber(supportRatio, 0.1, 1, DEFAULT_SUPPORT_RATIO);
   const target = { x: placement.x, y: placement.y, lengthCm: placement.lengthCm, widthCm: placement.widthCm };
   const supports = placed
     .filter((box) => !box.nonStack && Math.abs(box.z + box.heightCm - placement.z) < EPS)
@@ -1648,6 +1844,7 @@ function makePackedBox(placed, unplaced, strategy, stats) {
       blockDowngradePlacedCount: Number(stats.blockDowngradePlacedCount || 0),
       singleBackfillPlacedCount: Number(stats.singleBackfillPlacedCount || 0),
       nonStackTopPlacedCount: Number(stats.nonStackTopPlacedCount || 0),
+      blueSideRowRepackCount: Number(stats.blueSideRowRepackCount || 0),
       lowerGapSwapCount: Number(stats.lowerGapSwapCount || 0),
       lowerGapSwapLiftedCount: Number(stats.lowerGapSwapLiftedCount || 0),
       lowerGapSwapDepthCm: round(stats.lowerGapSwapDepthCm || 0),
@@ -2537,6 +2734,7 @@ function buildTrace(container, units, total, multi, metrics) {
   const containerVolume = volumeM3(container);
   const rules = balanceRuleSettings(container);
   const supportRules = supportRuleSettings(container);
+  const effectiveNonStackSupport = effectiveNonStackSupportRatio(container);
   return {
     worker: "frontend/src/workers/packingWorker.js",
     mode: "Browser WebWorker 本机计算",
@@ -2554,7 +2752,7 @@ function buildTrace(container, units, total, multi, metrics) {
     strategies: SEARCH_STRATEGIES.map((strategy) => strategy.name),
     selectedStrategy: firstBox.strategyName || "",
     supportRatioPercent: round(supportRules.supportRatio * 100),
-    nonStackSupportRatioPercent: round(supportRules.nonStackSupportRatio * 100),
+    nonStackSupportRatioPercent: round(effectiveNonStackSupport * 100),
     balanceRules: {
       frontRearAxis: "container length / X",
       leftRightAxis: "container width / Y",
@@ -2581,7 +2779,7 @@ function buildTrace(container, units, total, multi, metrics) {
       "计入间隙长/宽(cm) = 原始长/宽 + 全局货物间隙 + 类型额外间隙",
       "计入高度(cm) = 原始高度 + 类型额外高度余量",
       `Stackable support rule = lower stackable overlap area / current footprint >= ${round(supportRules.supportRatio * 100)}%`,
-      `Non-stack support rule = lower stackable overlap area / current footprint >= ${round(supportRules.nonStackSupportRatio * 100)}%`,
+      `Non-stack support rule = lower stackable overlap area / current footprint >= ${round(effectiveNonStackSupport * 100)}%`,
       "不可重压货物可以放在可承重货物上方，但不能作为上层货物的支撑面"
     ],
     current: {
@@ -2806,7 +3004,15 @@ function supportRuleSettings(container = {}) {
   return normalizeSupportSettings(container.supportSettings || {});
 }
 
+function effectiveNonStackSupportRatio(container = {}) {
+  const rules = supportRuleSettings(container);
+  return Math.min(rules.nonStackSupportRatio, rules.supportRatio);
+}
+
 function supportRatioForUnit(container = {}, unit = {}, strategy = {}, options = {}) {
+  if (Number.isFinite(Number(unit?.supportRatioOverride))) {
+    return clampNumber(unit.supportRatioOverride, 0.1, 1, DEFAULT_SUPPORT_RATIO);
+  }
   const optionRatio = unit?.nonStack
     ? options.nonStackSupportRatio ?? strategy.nonStackSupportRatio
     : options.supportRatio ?? strategy.supportRatio;
@@ -2816,7 +3022,7 @@ function supportRatioForUnit(container = {}, unit = {}, strategy = {}, options =
       : clampNumber(optionRatio, 0.5, 1, DEFAULT_SUPPORT_RATIO);
   }
   const rules = supportRuleSettings(container);
-  return unit?.nonStack ? rules.nonStackSupportRatio : rules.supportRatio;
+  return unit?.nonStack ? effectiveNonStackSupportRatio(container) : rules.supportRatio;
 }
 
 function clampNumber(value, min, max, fallback) {
