@@ -773,6 +773,8 @@ function packContainer(container, units) {
     const bestStrategy = strategyById(baseBest.strategyId);
     let gapSwapped = optimizeLowerGapSwaps(stackableContainer, baseBest, bestStrategy);
     gapSwapped = optimizeBlueSideRows(stackableContainer, gapSwapped, bestStrategy);
+    gapSwapped = optimizeLowerGapSwaps(stackableContainer, gapSwapped, bestStrategy);
+    gapSwapped = optimizeBlueSideRows(stackableContainer, gapSwapped, bestStrategy);
     if (gapSwapped !== baseBest) {
       const finalGapSwapped = finalizeWithDeferredNonStack(container, gapSwapped, nonStack, bestStrategy, rejectedByBalance);
       if (finalGapSwapped.balanceValidation?.severity === "red") rejectedByBalance += 1;
@@ -796,6 +798,8 @@ function packContainer(container, units) {
     if (refined.unplaced.length) {
       refined = repairWithLocalSearch(stackableContainer, refined, orderUnits(refined.unplaced.map(stripPlacement), bestStrategy.unitOrder), bestStrategy);
     }
+    refined = optimizeLowerGapSwaps(stackableContainer, refined, bestStrategy);
+    refined = optimizeBlueSideRows(stackableContainer, refined, bestStrategy);
     refined = optimizeLowerGapSwaps(stackableContainer, refined, bestStrategy);
     refined = optimizeBlueSideRows(stackableContainer, refined, bestStrategy);
     const finalRefined = finalizeWithDeferredNonStack(container, refined, nonStack, bestStrategy, rejectedByBalance);
@@ -1460,13 +1464,13 @@ function optimizeBlueSideRows(container, attempt, strategy) {
   for (let pass = 0; pass < 6; pass += 1) {
     const candidate = buildBestBlueSideRowRepack(container, current, strategy);
     if (!candidate) break;
-    movedTotal += candidate.movedCount;
+    movedTotal += candidate.changedCount;
     current = makePackedBox(candidate.placed, current.unplaced.map(stripPlacement), {
       id: current.strategyId,
       name: current.strategyName
     }, {
       ...(current.strategySummary || {}),
-      blueSideRowRepackCount: Number(current.strategySummary?.blueSideRowRepackCount || 0) + candidate.movedCount,
+      blueSideRowRepackCount: Number(current.strategySummary?.blueSideRowRepackCount || 0) + candidate.changedCount,
       layerCount: countLayers(candidate.placed)
     });
   }
@@ -1478,6 +1482,11 @@ function buildBestBlueSideRowRepack(container, attempt, strategy) {
   let best = null;
   for (const row of blueSideRows(container, attempt.placed)) {
     const candidate = buildBlueSideRowCandidate(container, attempt.placed, row, strategy);
+    if (!candidate) continue;
+    if (!best || candidate.score > best.score + EPS) best = candidate;
+  }
+  for (const band of blueSideBands(container, attempt.placed)) {
+    const candidate = buildBlueSideBandCandidate(container, attempt.placed, band, strategy);
     if (!candidate) continue;
     if (!best || candidate.score > best.score + EPS) best = candidate;
   }
@@ -1544,6 +1553,102 @@ function hasBlueRowOverlapAfterRotate(row, placed) {
   });
 }
 
+function blueSideBands(container, placed) {
+  const rowGroups = new Map();
+  for (const unit of placed) {
+    if (!isBlueLikeCargo(unit) || unit.nonStack) continue;
+    if (Number(unit.lengthCm || 0) <= Number(unit.widthCm || 0) + EPS) continue;
+    if (Number(unit.y || 0) + Number(unit.lengthCm || 0) > Number(container.widthCm || 0) + EPS) continue;
+    const key = [
+      round3(unit.z),
+      round3(unit.y),
+      round3(unit.lengthCm),
+      round3(unit.widthCm),
+      round3(unit.heightCm)
+    ].join("/");
+    if (!rowGroups.has(key)) rowGroups.set(key, []);
+    rowGroups.get(key).push(unit);
+  }
+
+  const rows = [...rowGroups.values()]
+    .map((units) => {
+      const sample = units[0];
+      return {
+        units: [...units].sort((a, b) => Number(a.x || 0) - Number(b.x || 0)),
+        z: Number(sample.z || 0),
+        y: Number(sample.y || 0),
+        width: Number(sample.widthCm || 0),
+        length: Number(sample.lengthCm || 0),
+        height: Number(sample.heightCm || 0),
+        targetLength: Number(sample.widthCm || 0),
+        targetWidth: Number(sample.lengthCm || 0),
+        minX: Math.min(...units.map((unit) => Number(unit.x || 0)))
+      };
+    })
+    .filter((row) => row.units.length >= 3 && row.y + row.targetWidth <= Number(container.widthCm || 0) + EPS)
+    .sort((a, b) => {
+      const zDiff = a.z - b.z;
+      if (Math.abs(zDiff) > EPS) return zDiff;
+      return a.y - b.y;
+    });
+
+  const bands = [];
+  for (let start = 0; start < rows.length; start += 1) {
+    const bandRows = [rows[start]];
+    for (let end = start + 1; end < rows.length; end += 1) {
+      const previous = bandRows[bandRows.length - 1];
+      const next = rows[end];
+      if (!sameBlueBandShape(previous, next)) break;
+      if (Math.abs(next.y - (previous.y + previous.width)) > EPS) break;
+      bandRows.push(next);
+      const minX = Math.min(...bandRows.map((row) => row.minX));
+      const capacity = Math.floor((Number(container.lengthCm || 0) - minX + EPS) / Math.max(1, rows[start].targetLength));
+      if (capacity <= 0) continue;
+      const units = bandRows.flatMap((row) => row.units);
+      const targetRows = Math.ceil(units.length / capacity);
+      const extraSlots = targetRows * capacity - units.length;
+      const originalWidth = bandRows.reduce((sum, row) => sum + row.width, 0);
+      const targetWidth = targetRows * rows[start].targetWidth;
+      if (targetRows >= bandRows.length && targetWidth >= originalWidth - EPS && extraSlots <= 0) continue;
+      if (rows[start].y + targetWidth > Number(container.widthCm || 0) + EPS) continue;
+      bands.push({
+        rows: bandRows.map((row) => ({ ...row, units: [...row.units] })),
+        units: [...units].sort((a, b) => {
+          const yDiff = Number(a.y || 0) - Number(b.y || 0);
+          if (Math.abs(yDiff) > EPS) return yDiff;
+          return Number(a.x || 0) - Number(b.x || 0);
+        }),
+        z: rows[start].z,
+        y: rows[start].y,
+        height: rows[start].height,
+        targetLength: rows[start].targetLength,
+        targetWidth: rows[start].targetWidth,
+        minX,
+        capacity,
+        targetRows,
+        extraSlots,
+        savedRows: bandRows.length - targetRows
+      });
+    }
+  }
+
+  return bands.sort((a, b) => {
+    if (b.savedRows !== a.savedRows) return b.savedRows - a.savedRows;
+    if (b.extraSlots !== a.extraSlots) return b.extraSlots - a.extraSlots;
+    if (Math.abs(b.z - a.z) > EPS) return b.z - a.z;
+    return b.y - a.y;
+  });
+}
+
+function sameBlueBandShape(a, b) {
+  return Math.abs(a.z - b.z) < EPS
+    && Math.abs(a.length - b.length) < EPS
+    && Math.abs(a.width - b.width) < EPS
+    && Math.abs(a.height - b.height) < EPS
+    && Math.abs(a.targetLength - b.targetLength) < EPS
+    && Math.abs(a.targetWidth - b.targetWidth) < EPS;
+}
+
 function buildBlueSideRowCandidate(container, placed, row, strategy) {
   const rowKeys = new Set(row.units.map((unit) => unit.unitKey));
   const extras = placed
@@ -1561,8 +1666,6 @@ function buildBlueSideRowCandidate(container, placed, row, strategy) {
       return Number(a.x || 0) - Number(b.x || 0);
     });
   const extraCandidates = extras.slice(0, row.extraSlots);
-  if (!extraCandidates.length) return null;
-
   const moving = [...row.units, ...extraCandidates];
   const movingKeys = new Set(moving.map((unit) => unit.unitKey));
   const nextPlaced = placed
@@ -1594,15 +1697,77 @@ function buildBlueSideRowCandidate(container, placed, row, strategy) {
     if (index >= row.units.length) moved.push(source);
   }
 
-  if (!moved.length) return null;
-
   const finalValidation = validateAllPlacementsDetailed(container, nextPlaced);
   if (!finalValidation.valid) return null;
   const movedDepth = moved.reduce((sum, unit) => sum + (Number(unit.z || 0) - row.z) * unitQuantity(unit), 0);
+  const compactedCount = sumUnitQuantity(row.units);
   return {
     placed: nextPlaced,
     movedCount: sumUnitQuantity(moved),
-    score: sumUnitQuantity(moved) * 100000 + movedDepth - row.z
+    changedCount: compactedCount + sumUnitQuantity(moved),
+    score: sumUnitQuantity(moved) * 100000 + row.extraSlots * 20000 + movedDepth + row.z
+  };
+}
+
+function buildBlueSideBandCandidate(container, placed, band, strategy) {
+  const bandKeys = new Set(band.units.map((unit) => unit.unitKey));
+  const extras = placed
+    .filter((unit) =>
+      isBlueLikeCargo(unit)
+      && !unit.nonStack
+      && !bandKeys.has(unit.unitKey)
+      && !hasAnyBoxInColumnAbove(unit, placed)
+      && Number(unit.z || 0) > band.z + LOWER_GAP_SWAP_MIN_DROP_CM
+      && orientationForDims(unit, band.targetLength, band.targetWidth, band.height)
+    )
+    .sort((a, b) => {
+      const topDiff = (b.z + b.heightCm) - (a.z + a.heightCm);
+      if (Math.abs(topDiff) > EPS) return topDiff;
+      return Number(a.x || 0) - Number(b.x || 0);
+    });
+  const extraCandidates = extras.slice(0, Math.max(0, band.extraSlots));
+  const moving = [...band.units, ...extraCandidates];
+  const movingKeys = new Set(moving.map((unit) => unit.unitKey));
+  const nextPlaced = placed
+    .filter((unit) => !movingKeys.has(unit.unitKey))
+    .map(copyUnit);
+  const supportRatio = lowerGapSwapSupportRatio(container, band.units[0]);
+  const moved = [];
+
+  for (let index = 0; index < moving.length; index += 1) {
+    const source = moving[index];
+    const unit = stripPlacement(source);
+    const orientation = orientationForDims(unit, band.targetLength, band.targetWidth, band.height);
+    if (!orientation) return null;
+    const rowIndex = Math.floor(index / band.capacity);
+    const columnIndex = index % band.capacity;
+    const placement = {
+      ...orientation,
+      x: round3(band.minX + columnIndex * band.targetLength),
+      y: round3(band.y + rowIndex * band.targetWidth),
+      z: round3(band.z)
+    };
+    const validation = validatePlacement(container, nextPlaced, unit, placement, supportRatio);
+    if (!validation.valid) {
+      if (index >= band.units.length) {
+        nextPlaced.push(...moving.slice(index).map(copyUnit));
+        break;
+      }
+      return null;
+    }
+    nextPlaced.push({ ...applyPlacement(unit, placement), supportRatioOverride: supportRatio });
+    if (index >= band.units.length) moved.push(source);
+  }
+
+  const finalValidation = validateAllPlacementsDetailed(container, nextPlaced);
+  if (!finalValidation.valid) return null;
+  const movedDepth = moved.reduce((sum, unit) => sum + (Number(unit.z || 0) - band.z) * unitQuantity(unit), 0);
+  const compactedCount = sumUnitQuantity(band.units);
+  return {
+    placed: nextPlaced,
+    movedCount: sumUnitQuantity(moved),
+    changedCount: compactedCount + sumUnitQuantity(moved),
+    score: sumUnitQuantity(moved) * 120000 + band.savedRows * 50000 + band.extraSlots * 15000 + movedDepth + band.z
   };
 }
 
