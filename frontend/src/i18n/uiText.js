@@ -280,7 +280,11 @@ const uiText = {
   "scene.lengthCm": { zh: "长 {value} cm", en: "Length {value} cm" },
   "scene.widthCm": { zh: "宽 {value} cm", en: "Width {value} cm" },
   "scene.heightCm": { zh: "高 {value} cm", en: "Height {value} cm" },
-  "scene.corner": { zh: "角 {value}", en: "Corner {value}" }
+  "scene.corner": { zh: "角 {value}", en: "Corner {value}" },
+  "scene.origin": { zh: "原点 O", en: "Origin O" },
+  "scene.axisX": { zh: "X 箱长", en: "X Length" },
+  "scene.axisY": { zh: "Y 箱宽", en: "Y Width" },
+  "scene.axisZ": { zh: "Z 高度", en: "Z Height" }
 };
 
 function interpolate(text, params = {}) {

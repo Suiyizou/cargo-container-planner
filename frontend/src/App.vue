@@ -563,31 +563,15 @@
           <div v-if="loading && !decisionLogs.length" class="decision-flow-empty">
             {{ t("decisionFlow.waiting") }}
           </div>
-          <div v-else-if="decisionFlowCurrent" class="decision-broadcast">
-            <div class="decision-broadcast-current">
-              <div>
-                <span>{{ t("decisionFlow.currentDecision") }}</span>
-                <h3>{{ decisionFlowCurrent.phaseLabel }}</h3>
+          <div v-else-if="decisionFlowCurrent" class="decision-live-strip" :aria-label="t('decisionFlow.broadcast')">
+            <Transition name="decision-line-slide" mode="out-in">
+              <div :key="decisionFlowCurrent.index" class="decision-live-line">
+                <span class="decision-live-kicker">{{ t("decisionFlow.currentDecision") }}</span>
+                <strong class="decision-live-phase">{{ decisionFlowCurrent.phaseLabel }}</strong>
+                <p>{{ tr(decisionFlowCurrent.text) }}</p>
+                <small>{{ t("decisionFlow.recordIndex", { index: decisionFlowCurrent.index }) }} / {{ t("decisionFlow.recordTotal", { count: decisionLogTotal }) }}</small>
               </div>
-              <div class="decision-broadcast-meta">
-                <el-tag type="primary" effect="light">{{ t("decisionFlow.recordIndex", { index: decisionFlowCurrent.index }) }}</el-tag>
-                <small>{{ t("decisionFlow.recordTotal", { count: decisionLogTotal }) }}</small>
-              </div>
-              <p>{{ tr(decisionFlowCurrent.text) }}</p>
-            </div>
-            <div class="decision-broadcast-list" :aria-label="t('decisionFlow.broadcast')">
-              <article
-                v-for="item in decisionBroadcastLogs"
-                :key="`${item.index}-${item.phase}-${item.text}`"
-                :class="['decision-broadcast-item', item.phaseKey]"
-              >
-                <span>#{{ item.index }}</span>
-                <div>
-                  <strong>{{ item.phaseLabel }}</strong>
-                  <p>{{ tr(item.text) }}</p>
-                </div>
-              </article>
-            </div>
+            </Transition>
           </div>
           <div v-else-if="!loading" class="decision-flow-empty">
             {{ t("decisionFlow.empty") }}
@@ -963,12 +947,6 @@ const decisionFlowCurrent = computed(() => {
   const latest = [...decisionLogs.value].reverse().find((item) => item?.level !== "detail" && item?.text);
   return latest ? enrichDecisionLog(latest) : null;
 });
-const decisionBroadcastLogs = computed(() =>
-  [...decisionLogs.value]
-    .slice(-48)
-    .reverse()
-    .map(enrichDecisionLog)
-);
 const decisionLogTotal = computed(() => {
   const latestIndex = Number(decisionFlowCurrent.value?.index || 0);
   return Math.max(decisionLogs.value.length, latestIndex);

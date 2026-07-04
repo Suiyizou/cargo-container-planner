@@ -2114,121 +2114,81 @@ select {
   background: #fff;
 }
 
-.decision-broadcast {
-  display: grid;
-  grid-template-columns: minmax(260px, 0.72fr) minmax(0, 1fr);
-  gap: 14px;
-  align-items: stretch;
-}
-
-.decision-broadcast-current {
-  display: grid;
-  align-content: start;
-  gap: 14px;
-  min-height: 230px;
-  padding: 18px;
-  border: 1px solid #b8d2f3;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #f8fbff 0%, #eef6ff 100%);
-  box-shadow: 0 12px 26px rgba(24, 76, 138, 0.08);
-}
-
-.decision-broadcast-current span {
-  color: #165DFF;
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.decision-broadcast-current h3 {
-  margin: 6px 0 0;
-  color: #102033;
-  font-size: 22px;
-  line-height: 1.24;
-  overflow-wrap: anywhere;
-}
-
-.decision-broadcast-current p {
-  margin: 0;
-  color: #203752;
-  font-size: 16px;
-  line-height: 1.72;
-  overflow-wrap: anywhere;
-}
-
-.decision-broadcast-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
-
-.decision-broadcast-meta small {
-  color: #64748b;
-  font-weight: 800;
-}
-
-.decision-broadcast-list {
-  display: grid;
-  align-content: start;
-  gap: 8px;
-  max-height: 260px;
-  overflow: auto;
-  padding: 10px;
-  border: 1px solid #d8e4f2;
+.decision-live-strip {
+  position: relative;
+  min-height: 54px;
+  overflow: hidden;
+  border: 1px solid #cfe0f5;
   border-radius: 8px;
   background: #f8fbff;
-  scroll-behavior: smooth;
 }
 
-.decision-broadcast-item {
+.decision-live-line {
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr);
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid #dbe7f4;
-  border-left: 4px solid #8bb7ef;
-  border-radius: 8px;
-  background: #fff;
+  grid-template-columns: auto minmax(120px, 180px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 54px;
+  padding: 10px 14px;
 }
 
-.decision-broadcast-item > span {
+.decision-live-kicker {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 46px;
-  height: 30px;
+  min-height: 28px;
+  padding: 0 10px;
   border-radius: 999px;
-  background: #eaf2ff;
   color: #165DFF;
-  font-size: 13px;
+  background: #eaf2ff;
+  font-size: 12px;
   font-weight: 900;
+  white-space: nowrap;
 }
 
-.decision-broadcast-item strong {
+.decision-live-phase {
   color: #102033;
-  font-size: 14px;
+  font-size: 16px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.decision-broadcast-item p {
-  margin: 4px 0 0;
-  color: #4f647d;
-  font-size: 14px;
-  line-height: 1.55;
-  overflow-wrap: anywhere;
+.decision-live-line p {
+  margin: 0;
+  overflow: hidden;
+  color: #24415f;
+  font-size: 15px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.decision-broadcast-item.layer {
-  border-left-color: #22a06b;
+.decision-live-line small {
+  color: #60738a;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
-.decision-broadcast-item.repair {
-  border-left-color: #f59e0b;
+.decision-line-slide-enter-active,
+.decision-line-slide-leave-active {
+  transition: transform 0.24s ease, opacity 0.24s ease;
 }
 
-.decision-broadcast-item.recommendation {
-  border-left-color: #6366f1;
+.decision-line-slide-enter-from {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.decision-line-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-20px);
+}
+
+.decision-line-slide-leave-active {
+  position: absolute;
+  inset: 0;
 }
 
 .decision-progress-shell {
@@ -4797,12 +4757,16 @@ select {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .decision-broadcast {
-    grid-template-columns: 1fr;
-  }
-
   .decision-progress-row {
     grid-template-columns: 38px 128px minmax(0, 1fr) 86px;
+  }
+
+  .decision-live-line {
+    grid-template-columns: auto minmax(96px, 150px) minmax(0, 1fr);
+  }
+
+  .decision-live-line small {
+    grid-column: 2 / -1;
   }
 
   .timeout-stat-grid {
@@ -4940,8 +4904,23 @@ select {
     white-space: normal;
   }
 
-  .decision-broadcast-item {
-    grid-template-columns: 50px minmax(0, 1fr);
+  .decision-live-line {
+    grid-template-columns: 1fr;
+    align-items: start;
+    gap: 6px;
+  }
+
+  .decision-live-kicker {
+    width: fit-content;
+  }
+
+  .decision-live-phase,
+  .decision-live-line p {
+    white-space: normal;
+  }
+
+  .decision-live-line small {
+    grid-column: auto;
   }
 
   .timeout-modal {

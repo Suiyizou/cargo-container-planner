@@ -18,6 +18,9 @@ const NON_STACK_TOP_LAYER_CANDIDATES = 16;
 const LOWER_GAP_SWAP_MAX_EDGE_MOVERS = 24;
 const LOWER_GAP_SWAP_MAX_LATE_MOVERS = 3;
 const LOWER_GAP_SWAP_MIN_DROP_CM = 5;
+const SPARSE_TAIL_SPREAD_MIN_FREE_CM = 10;
+const SPARSE_TAIL_SPREAD_MAX_INSERT_GAP_CM = 45;
+const SPARSE_TAIL_SPREAD_MAX_CANDIDATES = 10;
 const EDGE_ORIENTATION_REPACK_MAX_CANDIDATES = 6;
 const EDGE_ORIENTATION_REPACK_MAX_BAND_ROWS = 6;
 const NON_STACK_DISPLACEMENT_MAX_SWAPS = 2;
@@ -780,6 +783,7 @@ function packContainer(container, units) {
     gapSwapped = optimizeEdgeOrientationRows(stackableContainer, gapSwapped, bestStrategy);
     gapSwapped = optimizeLowerGapSwaps(stackableContainer, gapSwapped, bestStrategy);
     gapSwapped = optimizeEdgeOrientationRows(stackableContainer, gapSwapped, bestStrategy);
+    gapSwapped = optimizeSparseTailSupport(stackableContainer, gapSwapped, bestStrategy);
     if (gapSwapped !== baseBest) {
       const finalGapSwapped = finalizeWithDeferredNonStack(container, gapSwapped, nonStack, bestStrategy, rejectedByBalance);
       if (finalGapSwapped.balanceValidation?.severity === "red") rejectedByBalance += 1;
@@ -787,7 +791,7 @@ function packContainer(container, units) {
       traceDecision({
         phase: "repair",
         level: "summary",
-        text: `${container.name} - ${bestStrategy.id}: lower-gap swap moved ${gapSwapped.strategySummary?.lowerGapSwapCount || 0} edge pcs down and lifted ${gapSwapped.strategySummary?.lowerGapSwapLiftedCount || 0} late pcs.`
+        text: `${container.name} - ${bestStrategy.id}: lower-gap/support tuning moved ${gapSwapped.strategySummary?.lowerGapSwapCount || 0} edge pcs down, spread ${gapSwapped.strategySummary?.sparseTailSpreadCount || 0} tail pcs, and backfilled ${gapSwapped.strategySummary?.sparseTailBackfillPlacedCount || 0} pcs.`
       });
     }
   }
@@ -807,13 +811,14 @@ function packContainer(container, units) {
     refined = optimizeEdgeOrientationRows(stackableContainer, refined, bestStrategy);
     refined = optimizeLowerGapSwaps(stackableContainer, refined, bestStrategy);
     refined = optimizeEdgeOrientationRows(stackableContainer, refined, bestStrategy);
+    refined = optimizeSparseTailSupport(stackableContainer, refined, bestStrategy);
     const finalRefined = finalizeWithDeferredNonStack(container, refined, nonStack, bestStrategy, rejectedByBalance);
     if (finalRefined.balanceValidation?.severity === "red") rejectedByBalance += 1;
     attempts.push(finalRefined);
     traceDecision({
       phase: "repair",
       level: "summary",
-      text: `${container.name} · refined "${bestStrategy.id}": before ${beforeRefine} pcs stackable remaining, after ${sumUnitQuantity(finalRefined.unplaced)} pcs total remaining, block passes ${finalRefined.strategySummary?.blockDowngradePasses || 0}, refill passes ${finalRefined.strategySummary?.refillPasses || 0}.`
+      text: `${container.name} · refined "${bestStrategy.id}": before ${beforeRefine} pcs stackable remaining, after ${sumUnitQuantity(finalRefined.unplaced)} pcs total remaining, block passes ${finalRefined.strategySummary?.blockDowngradePasses || 0}, refill passes ${finalRefined.strategySummary?.refillPasses || 0}, sparse tail spread ${finalRefined.strategySummary?.sparseTailSpreadCount || 0} pcs.`
     });
   }
 
@@ -1696,6 +1701,175 @@ function isLowerGapSwapBetter(container, candidate, best) {
   if (comparison < 0) return true;
   if (comparison > 0) return false;
   return Number(candidate.strategySummary?.lowerGapSwapDepthCm || 0) > Number(best.strategySummary?.lowerGapSwapDepthCm || 0) + EPS;
+}
+
+function optimizeSparseTailSupport(container, attempt, strategy) {
+  if (!attempt?.placed?.length) return attempt;
+  const sourceAttempt = expandAttemptPlacementsForFineTuning(container, attempt);
+  let current = cloneAttempt(sourceAttempt);
+  let spreadTotal = 0;
+  let backfillTotal = 0;
+  let supportGainTotal = 0;
+
+  for (let pass = 0; pass < 3; pass += 1) {
+    const candidate = buildBestSparseTailSupport(container, current, strategy);
+    if (!candidate) break;
+    spreadTotal += candidate.spreadCount;
+    backfillTotal += candidate.backfillPlacedCount;
+    supportGainTotal += candidate.supportGain;
+    current = makePackedBox(candidate.placed, candidate.unplaced, {
+      id: current.strategyId,
+      name: current.strategyName
+    }, {
+      ...(current.strategySummary || {}),
+      sparseTailSpreadCount: Number(current.strategySummary?.sparseTailSpreadCount || 0) + candidate.spreadCount,
+      sparseTailBackfillPlacedCount: Number(current.strategySummary?.sparseTailBackfillPlacedCount || 0) + candidate.backfillPlacedCount,
+      sparseTailSupportGain: Number(current.strategySummary?.sparseTailSupportGain || 0) + candidate.supportGain,
+      layerCount: countLayers(candidate.placed)
+    });
+  }
+
+  if (!spreadTotal && !backfillTotal && supportGainTotal <= EPS) return attempt;
+  return current;
+}
+
+function buildBestSparseTailSupport(container, attempt, strategy) {
+  const baseSupportScore = sparseTailSupportScore(attempt.placed, container);
+  let best = null;
+  for (const row of sparseTailRows(container, attempt.placed)) {
+    const candidate = buildSparseTailSupportCandidate(container, attempt, strategy, row, baseSupportScore);
+    if (!candidate) continue;
+    if (!best || candidate.score > best.score + EPS) best = candidate;
+  }
+  return best;
+}
+
+function sparseTailRows(container, placed) {
+  const rows = new Map();
+  for (const unit of placed) {
+    if (unit.nonStack || hasAnyBoxInColumnAbove(unit, placed)) continue;
+    const key = [
+      round3(unit.z),
+      round3(unit.y),
+      round3(unit.lengthCm),
+      round3(unit.widthCm),
+      round3(unit.heightCm)
+    ].join("/");
+    if (!rows.has(key)) rows.set(key, []);
+    rows.get(key).push(unit);
+  }
+
+  return [...rows.values()]
+    .map((units) => {
+      const ordered = [...units].sort((a, b) => Number(a.x || 0) - Number(b.x || 0));
+      const sample = ordered[0];
+      const length = Number(sample.lengthCm || 0);
+      const minX = Math.min(...ordered.map((unit) => Number(unit.x || 0)));
+      const availableLength = Number(container.lengthCm || 0) - minX;
+      const usedLength = ordered.length * length;
+      const freeLength = availableLength - usedLength;
+      const insertGap = ordered.length > 1 ? freeLength / (ordered.length - 1) : 0;
+      return {
+        units: ordered,
+        z: Number(sample.z || 0),
+        y: Number(sample.y || 0),
+        length,
+        width: Number(sample.widthCm || 0),
+        height: Number(sample.heightCm || 0),
+        minX,
+        freeLength,
+        insertGap
+      };
+    })
+    .filter((row) =>
+      row.units.length >= 2
+      && row.length > EPS
+      && row.freeLength >= SPARSE_TAIL_SPREAD_MIN_FREE_CM
+      && row.insertGap > EPS
+      && row.insertGap <= Math.max(SPARSE_TAIL_SPREAD_MAX_INSERT_GAP_CM, row.length * 0.75) + EPS
+    )
+    .sort((a, b) => {
+      const zDiff = a.z - b.z;
+      if (Math.abs(zDiff) > EPS) return zDiff;
+      if (Math.abs(b.freeLength - a.freeLength) > EPS) return b.freeLength - a.freeLength;
+      return b.units.length - a.units.length;
+    })
+    .slice(0, SPARSE_TAIL_SPREAD_MAX_CANDIDATES);
+}
+
+function buildSparseTailSupportCandidate(container, attempt, strategy, row, baseSupportScore) {
+  const rowKeys = new Set(row.units.map((unit) => unit.unitKey));
+  const placed = attempt.placed
+    .filter((unit) => !rowKeys.has(unit.unitKey))
+    .map(copyUnit);
+  let changedCount = 0;
+
+  for (let index = 0; index < row.units.length; index += 1) {
+    const source = row.units[index];
+    const unit = stripPlacement(source);
+    const orientation = orientationForDims(unit, row.length, row.width, row.height);
+    if (!orientation) return null;
+    const placement = {
+      ...orientation,
+      x: round3(row.minX + index * (row.length + row.insertGap)),
+      y: round3(row.y),
+      z: round3(row.z)
+    };
+    const supportRatio = supportRatioForUnit(container, unit, strategy);
+    const validation = validatePlacement(container, placed, unit, placement, supportRatio);
+    if (!validation.valid) return null;
+    if (placementChanged(source, placement)) changedCount += unitQuantity(source);
+    placed.push({ ...applyPlacement(unit, placement), supportRatioOverride: unit.supportRatioOverride });
+  }
+
+  if (!changedCount) return null;
+  let unplaced = attempt.unplaced.map(stripPlacement);
+  let backfillPlacedCount = 0;
+  const retry = orderUnits(unplaced, strategy.unitOrder);
+  unplaced = [];
+  for (const unit of retry) {
+    const placement = unit.nonStack
+      ? findTopExposedPlacement(container, placed, unit, strategy)
+      : packExtremePoint(container, placed, unit, strategy);
+    if (placement) {
+      placed.push(applyPlacement(unit, placement));
+      backfillPlacedCount += unitQuantity(unit);
+    } else {
+      unplaced.push(unit);
+    }
+  }
+
+  const finalValidation = validateAllPlacementsDetailed(container, placed);
+  if (!finalValidation.valid) return null;
+  const supportGain = sparseTailSupportScore(placed, container) - baseSupportScore;
+  const placedGain = sumUnitQuantity(placed) - sumUnitQuantity(attempt.placed);
+  const unplacedReduction = sumUnitQuantity(attempt.unplaced || []) - sumUnitQuantity(unplaced);
+  if (placedGain <= 0 && unplacedReduction <= 0 && supportGain < row.freeLength * row.width * 0.5) return null;
+
+  return {
+    placed,
+    unplaced,
+    spreadCount: changedCount,
+    backfillPlacedCount,
+    supportGain,
+    score: placedGain * 2_000_000
+      + unplacedReduction * 1_000_000
+      + backfillPlacedCount * 400_000
+      + supportGain * 20
+      + row.freeLength * 100
+      - row.z
+  };
+}
+
+function sparseTailSupportScore(placed, container) {
+  return placed
+    .filter((unit) => !unit.nonStack)
+    .reduce((score, unit) => {
+      const top = Number(unit.z || 0) + Number(unit.heightCm || 0);
+      const heightWeight = container.heightCm > 0 ? Math.max(0.2, 1 - top / container.heightCm) : 1;
+      const xReach = Number(unit.x || 0) + Number(unit.lengthCm || 0);
+      return score + xReach * Number(unit.widthCm || 0) * heightWeight;
+    }, 0);
 }
 
 function isEdgeRepackCargo(unit) {
@@ -2773,6 +2947,9 @@ function makePackedBox(placed, unplaced, strategy, stats) {
       lowerGapSwapCount: Number(stats.lowerGapSwapCount || 0),
       lowerGapSwapLiftedCount: Number(stats.lowerGapSwapLiftedCount || 0),
       lowerGapSwapDepthCm: round(stats.lowerGapSwapDepthCm || 0),
+      sparseTailSpreadCount: Number(stats.sparseTailSpreadCount || 0),
+      sparseTailBackfillPlacedCount: Number(stats.sparseTailBackfillPlacedCount || 0),
+      sparseTailSupportGain: round(stats.sparseTailSupportGain || 0),
       layerCount: Number(stats.layerCount || countLayers(placed)),
       balanceSeverity: stats.balanceValidation?.severity || "",
       balanceScore: round(stats.balanceValidation?.score || 0),

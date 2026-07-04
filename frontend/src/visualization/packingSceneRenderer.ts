@@ -199,6 +199,7 @@ export class PackingSceneRenderer {
     this.root.scale.setScalar(scale);
 
     this.addFloor(container);
+    this.addCoordinateAxes(container);
     if (this.options.showShell) this.addContainerShell(container);
     if (this.options.showHeatmap && !this.data.stats.performanceMode) this.addHeatmap(container);
     if (this.options.showRemaining && !this.data.stats.performanceMode) this.addRemainingSpaces(container);
@@ -262,6 +263,38 @@ export class PackingSceneRenderer {
     ].forEach(([cx, cz], index) => {
       this.root.add(createTextSprite(this.t("scene.corner", { value: index + 1 }), new THREE.Vector3(cx, 8, cz), "#64748b", 28));
     });
+  }
+
+  private addCoordinateAxes(container: any) {
+    const origin = new THREE.Vector3(-container.lengthCm / 2, 4, -container.widthCm / 2);
+    const xLength = Math.max(70, Math.min(container.lengthCm * 0.28, 160));
+    const yLength = Math.max(55, Math.min(container.widthCm * 0.42, 120));
+    const zLength = Math.max(60, Math.min(container.heightCm * 0.42, 130));
+    const headLength = Math.max(10, Math.min(xLength, yLength, zLength) * 0.18);
+    const headWidth = headLength * 0.48;
+
+    this.root.add(this.axisArrow(new THREE.Vector3(1, 0, 0), origin, xLength, "#ef4444", headLength, headWidth));
+    this.root.add(this.axisArrow(new THREE.Vector3(0, 0, 1), origin, yLength, "#10b981", headLength, headWidth));
+    this.root.add(this.axisArrow(new THREE.Vector3(0, 1, 0), origin, zLength, "#2563eb", headLength, headWidth));
+    this.root.add(createTextSprite(this.t("scene.origin"), origin.clone().add(new THREE.Vector3(-18, 12, -10)), "#0f172a", 30));
+    this.root.add(createTextSprite(this.t("scene.axisX"), origin.clone().add(new THREE.Vector3(xLength + 18, 5, 0)), "#ef4444", 34));
+    this.root.add(createTextSprite(this.t("scene.axisY"), origin.clone().add(new THREE.Vector3(0, 5, yLength + 18)), "#10b981", 34));
+    this.root.add(createTextSprite(this.t("scene.axisZ"), origin.clone().add(new THREE.Vector3(0, zLength + 16, 0)), "#2563eb", 34));
+  }
+
+  private axisArrow(direction: THREE.Vector3, origin: THREE.Vector3, length: number, color: string, headLength: number, headWidth: number) {
+    const arrow = new THREE.ArrowHelper(direction, origin, length, color, headLength, headWidth);
+    arrow.renderOrder = 96;
+    arrow.traverse((item: any) => {
+      item.renderOrder = 96;
+      if (item.material) {
+        item.material.depthTest = false;
+        item.material.depthWrite = false;
+        item.material.transparent = true;
+        item.material.opacity = 0.94;
+      }
+    });
+    return arrow;
   }
 
   private t(key: string, params: Record<string, unknown> = {}) {
