@@ -522,11 +522,12 @@
             :balance-validation="selectedBox?.balanceValidation"
             v-model:show-remaining="showRemaining"
             v-model:show-mass-balance="showMassBalance"
-            :busy="loading || switchingBox"
+            :busy="visualBusy"
             :exporting="exportingReport"
             :export-zip-label="exportZipLabel"
             :can-export="selectedPlanExportable"
             :can-export-zip="selectedPlanExportable && Boolean(selectedEvaluation?.packedBoxes?.length)"
+            @render-state="handleSceneRenderState"
             @export-image="exportCurrentReport('png')"
             @export-pdf="exportCurrentReport('pdf')"
             @export-zip="exportAllReportsZip"
@@ -555,43 +556,37 @@
               <p>{{ t("decisionFlow.eyebrow") }}</p>
               <h2>{{ t("decisionFlow.title") }}</h2>
             </div>
-            <div class="view-actions">
-              <el-tag :type="loading ? 'warning' : 'info'" effect="light">{{ t(loading ? "decisionFlow.calculating" : "decisionFlow.latest") }}</el-tag>
-              <el-button :disabled="!decisionLogs.length" @click="clearDecisionLogs">{{ t("decisionFlow.clear") }}</el-button>
+          </div>
+          <div class="packing-progress-card">
+            <div class="packing-progress-main">
+              <span>{{ packingProgressState.kicker }}</span>
+              <strong>{{ packingProgressState.title }}</strong>
+              <small>{{ packingProgressState.meta }}</small>
             </div>
-          </div>
-          <div v-if="loading && !decisionLogs.length" class="decision-flow-empty">
-            {{ t("decisionFlow.waiting") }}
-          </div>
-          <div v-else-if="decisionFlowCurrent" class="decision-live-strip" :aria-label="t('decisionFlow.broadcast')">
-            <Transition name="decision-line-slide" mode="out-in">
-              <div :key="decisionFlowCurrent.index" class="decision-live-line">
-                <span class="decision-live-kicker">{{ t("decisionFlow.currentDecision") }}</span>
-                <strong class="decision-live-phase">{{ decisionFlowCurrent.phaseLabel }}</strong>
-                <p>{{ tr(decisionFlowCurrent.text) }}</p>
-                <small>{{ t("decisionFlow.recordIndex", { index: decisionFlowCurrent.index }) }} / {{ t("decisionFlow.recordTotal", { count: decisionLogTotal }) }}</small>
-              </div>
-            </Transition>
-          </div>
-          <div v-else-if="!loading" class="decision-flow-empty">
-            {{ t("decisionFlow.empty") }}
-          </div>
-          <div class="decision-progress-shell">
-            <div class="decision-progress-head">
-              <strong>{{ t("decisionFlow.progressTitle") }}</strong>
-              <span>{{ t("decisionFlow.progressHint") }}</span>
-            </div>
-            <div class="decision-progress-list">
+            <el-progress
+              :percentage="packingProgressState.percent"
+              :stroke-width="12"
+              :show-text="false"
+            />
+            <div class="packing-progress-track" :aria-label="t('decisionFlow.progressTitle')">
               <div
-                v-for="step in decisionFlowSteps"
-                :key="step.key"
-                :class="['decision-progress-row', step.status]"
+                v-for="stage in packingProgressState.stages"
+                :key="stage.key"
+                :class="['packing-progress-stage', stage.status]"
               >
-                <span class="decision-progress-no">{{ step.index }}</span>
-                <strong>{{ step.label }}</strong>
-                <p>{{ step.hasLog ? step.summary : step.description }}</p>
-                <small>{{ step.count ? t("decisionFlow.recordCount", { count: step.count }) : step.statusLabel }}</small>
+                <i></i>
+                <span>{{ stage.label }}</span>
               </div>
+            </div>
+            <div class="packing-progress-live" :aria-label="t('decisionFlow.broadcast')">
+              <Transition name="decision-line-slide" mode="out-in">
+                <div :key="packingProgressState.liveKey" class="decision-live-line">
+                  <span class="decision-live-kicker">{{ packingProgressState.liveKicker }}</span>
+                  <strong class="decision-live-phase">{{ packingProgressState.phaseLabel }}</strong>
+                  <p>{{ packingProgressState.liveText }}</p>
+                  <small>{{ packingProgressState.liveMeta }}</small>
+                </div>
+              </Transition>
             </div>
           </div>
         </section>
@@ -875,6 +870,7 @@ const activeBalancePreset = ref("standard");
 const loading = ref(false);
 const fileImporting = ref(false);
 const switchingBox = ref(false);
+const sceneRendering = ref(false);
 const showRemaining = ref(true);
 const showMassBalance = ref(true);
 const cargoModalOpen = ref(false);
@@ -946,6 +942,17 @@ const decisionFlowSteps = computed(() => {
 const decisionFlowCurrent = computed(() => {
   const latest = [...decisionLogs.value].reverse().find((item) => item?.level !== "detail" && item?.text);
   return latest ? enrichDecisionLog(latest) : null;
+});
+const visualBusy = computed(() => switchingBox.value || sceneRendering.value);
+const packingProgressState = computed(() => {
+  currentLocale.value;
+  return buildPackingProgressState({
+    current: decisionFlowCurrent.value,
+    logTotal: decisionLogTotal.value,
+    loading: loading.value,
+    rendering: sceneRendering.value || switchingBox.value,
+    hasResult: Boolean(selectedEvaluation.value?.packedBoxes?.length)
+  });
 });
 const decisionLogTotal = computed(() => {
   const latestIndex = Number(decisionFlowCurrent.value?.index || 0);
@@ -1233,8 +1240,8 @@ async function recalculate() {
       nonStackSupportRatioPercent: nonStackSupportRatioPercent.value,
       balanceSettings: balanceSettings.value
     }, {
-      maxDecisionEntries: 220,
-      decisionBatchSize: 8,
+      maxDecisionEntries: 800,
+      decisionBatchSize: 10,
       onDecision(decisions) {
         if (seq !== calcSeq) return;
         appendDecisionLogs(decisions);
@@ -1276,11 +1283,146 @@ function appendDecisionLogs(decisions: any[]) {
     }))
     .filter((item) => item.text);
   if (!normalized.length) return;
-  decisionLogs.value = [...decisionLogs.value, ...normalized].slice(-220);
+  decisionLogs.value = [...decisionLogs.value, ...normalized].slice(-300);
 }
 
 function clearDecisionLogs() {
   decisionLogs.value = [];
+}
+
+function handleSceneRenderState(active) {
+  sceneRendering.value = Boolean(active);
+}
+
+function buildPackingProgressState({ current, logTotal, loading: isLoading, rendering, hasResult }) {
+  const stages = packingProgressStages();
+  const currentPhase = current?.phaseKey || "start";
+  const activeStageKey = rendering
+    ? "render"
+    : isLoading
+      ? packingStageKeyForPhase(currentPhase)
+      : hasResult
+        ? "done"
+        : "start";
+  const activeIndex = stages.findIndex((stage) => stage.key === activeStageKey);
+  const percent = packingProgressPercent(activeStageKey, currentPhase, logTotal, isLoading, rendering, hasResult);
+  const enrichedStages = stages.map((stage, index) => ({
+    ...stage,
+    status: hasResult && !isLoading && !rendering
+      ? "done"
+      : index < activeIndex
+        ? "done"
+        : index === activeIndex
+          ? "active"
+          : "idle"
+  }));
+
+  if (rendering) {
+    return {
+      percent,
+      stages: enrichedStages,
+      kicker: t("decisionFlow.renderKicker"),
+      title: t("decisionFlow.renderStage"),
+      meta: t("decisionFlow.renderMeta"),
+      liveKey: `render-${selectedContainerId.value}-${selectedBoxIndex.value}`,
+      liveKicker: t("decisionFlow.currentProgress"),
+      phaseLabel: t("decisionFlow.renderStage"),
+      liveText: t("decisionFlow.renderingText"),
+      liveMeta: selectedEvaluation.value?.container?.name ? trContainerName(selectedEvaluation.value.container.name) : t("decisionFlow.visualizing")
+    };
+  }
+
+  if (current?.text) {
+    return {
+      percent,
+      stages: enrichedStages,
+      kicker: isLoading ? t("decisionFlow.calculating") : t("decisionFlow.latest"),
+      title: current.phaseLabel,
+      meta: decisionProgressMeta(current, logTotal),
+      liveKey: `decision-${current.index}-${current.phaseKey}`,
+      liveKicker: t("decisionFlow.currentDecision"),
+      phaseLabel: current.phaseLabel,
+      liveText: tr(current.text),
+      liveMeta: t("decisionFlow.recordIndex", { index: current.index })
+    };
+  }
+
+  if (hasResult) {
+    return {
+      percent,
+      stages: enrichedStages,
+      kicker: t("decisionFlow.latest"),
+      title: t("decisionFlow.completeStage"),
+      meta: t("decisionFlow.doneMeta"),
+      liveKey: "done",
+      liveKicker: t("decisionFlow.currentProgress"),
+      phaseLabel: t("decisionFlow.completeStage"),
+      liveText: t("decisionFlow.doneText"),
+      liveMeta: t("decisionFlow.recordTotal", { count: logTotal })
+    };
+  }
+
+  return {
+    percent,
+    stages: enrichedStages,
+    kicker: t("decisionFlow.calculating"),
+    title: t("decisionFlow.waitingTitle"),
+    meta: t("decisionFlow.waitingMeta"),
+    liveKey: "waiting",
+    liveKicker: t("decisionFlow.currentProgress"),
+    phaseLabel: t("decisionFlow.waitingTitle"),
+    liveText: t("decisionFlow.waiting"),
+    liveMeta: t("decisionFlow.recordTotal", { count: logTotal })
+  };
+}
+
+function packingProgressStages() {
+  return [
+    { key: "prepare", label: t("decisionFlow.steps.start.label") },
+    { key: "preprocess", label: t("decisionFlow.steps.prepare.label") },
+    { key: "container", label: t("decisionFlow.steps.container.label") },
+    { key: "calculate", label: t("decisionFlow.calculateStage") },
+    { key: "render", label: t("decisionFlow.renderStage") },
+    { key: "done", label: t("decisionFlow.completeStage") }
+  ];
+}
+
+function packingStageKeyForPhase(phaseKey) {
+  if (phaseKey === "prepare") return "preprocess";
+  if (phaseKey === "container") return "container";
+  if (["strategy", "layer", "repair", "box", "recommendation"].includes(phaseKey)) return "calculate";
+  return "prepare";
+}
+
+function packingProgressPercent(stageKey, phaseKey, logTotal, isLoading, rendering, hasResult) {
+  if (rendering) return 96;
+  if (hasResult && !isLoading) return 100;
+  const baseByPhase = {
+    start: 8,
+    prepare: 18,
+    container: 30,
+    strategy: 45,
+    layer: 62,
+    repair: 74,
+    box: 84,
+    recommendation: 90
+  };
+  const base = baseByPhase[phaseKey] ?? (stageKey === "calculate" ? 45 : 6);
+  const recordBoost = Math.min(6, Math.log10(Math.max(1, Number(logTotal || 0))) * 3);
+  return Math.min(94, Math.round(base + recordBoost));
+}
+
+function decisionProgressMeta(current, logTotal) {
+  const text = tr(current?.text || "");
+  const parts = [];
+  const boxMatch = text.match(new RegExp("\\u7b2c\\s*\\d+\\s*\\u8d27\\u8231")) || text.match(/box\s*\d+/i);
+  const layerMatch = text.match(new RegExp("\\u7b2c\\s*\\d+\\s*\\u5c42")) || text.match(/layer\s*\d+/i);
+  const strategyMatch = text.match(/strategy\s+"([^"]+)"/i) || text.match(new RegExp("\\u91c7\\u7528\\u300c([^\\u300d]+)\\u300d"));
+  if (boxMatch?.[0]) parts.push(boxMatch[0]);
+  if (layerMatch?.[0]) parts.push(layerMatch[0]);
+  if (strategyMatch?.[1]) parts.push(strategyMatch[1]);
+  parts.push(`${t("decisionFlow.recordIndex", { index: current?.index || 0 })} / ${t("decisionFlow.recordTotal", { count: logTotal })}`);
+  return parts.join(" · ");
 }
 
 function openPackingTimeoutDialog(error, workload, startedAt) {

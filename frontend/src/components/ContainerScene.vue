@@ -50,9 +50,9 @@
     <div class="packing-visual-layout">
       <div class="packing-canvas-panel" @pointermove="handlePointerMove" @pointerleave="handlePointerLeave">
         <div ref="canvasHost" class="packing-scene-canvas"></div>
-        <div v-if="busy" class="loading-mask visual-loading">
+        <div v-if="visualBusy" class="loading-mask visual-loading">
           <div class="spinner"></div>
-          <span>{{ tr("正在生成 3D 装箱视图...") }}</span>
+          <span>{{ tr(visualBusyText) }}</span>
         </div>
         <div v-else-if="emptyStateVisible" class="visual-empty-state">
           <el-empty :description="emptyStateText" />
@@ -221,6 +221,7 @@ const props = defineProps({
 const emit = defineEmits([
   "update:showRemaining",
   "update:showMassBalance",
+  "render-state",
   "export-image",
   "export-pdf",
   "export-zip",
@@ -243,12 +244,15 @@ const translucentCargo = ref(false);
 const showHeatmap = ref(false);
 const hiddenSkuKeys = ref<Set<string>>(new Set());
 const isFullscreen = ref(false);
+const internalRendering = ref(false);
 const tooltip = reactive<{ visible: boolean; x: number; y: number; item: SceneCargo }>({
   visible: false,
   x: 0,
   y: 0,
   item: {} as SceneCargo
 });
+let renderFrame = 0;
+let renderDoneFrame = 0;
 
 const viewModeOptions = [
   { label: "3D", value: "3d" },
@@ -294,6 +298,11 @@ const renderOptions = computed(() => ({
 }));
 const emptyStateVisible = computed(() => !props.busy && (!props.container || !props.placements.length || props.errorMessage));
 const emptyStateText = computed(() => tr(props.errorMessage || (!props.container ? "请选择箱型后查看3D装箱视图" : "当前货舱暂无可渲染货物")));
+const visualBusy = computed(() => props.busy || internalRendering.value);
+const visualBusyText = computed(() => props.busy
+  ? "\u6b63\u5728\u5207\u6362\u5f53\u524d\u8d27\u8231..."
+  : "\u6b63\u5728\u751f\u6210 3D \u88c5\u7bb1\u89c6\u56fe..."
+);
 const exportDisabled = computed(() => props.exporting || !props.canExport || !props.placements.length);
 const zipDisabled = computed(() => props.exporting || !props.canExportZip);
 const frontPercent = computed(() => Number(balanceState.value.loads.frontPercent || 0));
@@ -323,16 +332,18 @@ onMounted(async () => {
       tooltip.item = payload.item;
     }
   });
-  updateScene();
+  scheduleSceneUpdate();
   document.addEventListener("fullscreenchange", handleFullscreenChange);
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  cancelScheduledSceneUpdate();
+  setInternalRendering(false);
   controller.value?.dispose();
 });
 
-watch([sceneData, balanceState, renderOptions], updateScene, { deep: true });
+watch([sceneData, balanceState, renderOptions], scheduleSceneUpdate, { deep: true });
 watch(viewMode, (mode) => {
   if (mode === "2d") setView(activeView.value === "iso" ? "top" : activeView.value);
   else setView("iso");
@@ -341,6 +352,37 @@ watch(() => sceneData.value.legend.map((item) => item.key).join("|"), () => {
   const allowed = new Set(sceneData.value.legend.map((item) => item.key));
   hiddenSkuKeys.value = new Set([...hiddenSkuKeys.value].filter((key) => allowed.has(key)));
 });
+
+function scheduleSceneUpdate() {
+  if (!controller.value) return;
+  cancelScheduledSceneUpdate();
+  setInternalRendering(true);
+  renderFrame = window.requestAnimationFrame(() => {
+    renderFrame = 0;
+    updateScene();
+    renderDoneFrame = window.requestAnimationFrame(() => {
+      renderDoneFrame = 0;
+      setInternalRendering(false);
+    });
+  });
+}
+
+function cancelScheduledSceneUpdate() {
+  if (renderFrame) {
+    window.cancelAnimationFrame(renderFrame);
+    renderFrame = 0;
+  }
+  if (renderDoneFrame) {
+    window.cancelAnimationFrame(renderDoneFrame);
+    renderDoneFrame = 0;
+  }
+}
+
+function setInternalRendering(value: boolean) {
+  if (internalRendering.value === value) return;
+  internalRendering.value = value;
+  emit("render-state", value);
+}
 
 function updateScene() {
   controller.value?.update(sceneData.value, balanceState.value, renderOptions.value);

@@ -942,6 +942,8 @@ function packLayerLaff(container, units, strategy, fixedPlaced = []) {
   const stackableContainer = container;
   let nextLayerBottom = 0;
   let layerNo = countLayers(placed);
+  let layerTailSpreadCount = 0;
+  let layerTailSupportGain = 0;
 
   while (active.length) {
     const seedIndex = pickLayerSeedIndex(active, stackableContainer, placed, strategy, { layerBottom: nextLayerBottom });
@@ -1000,6 +1002,17 @@ function packLayerLaff(container, units, strategy, fixedPlaced = []) {
         text: `${container.name} · 第 ${layerNo} 层跳过 ${skippedByHeight} 个较高搜索单元：高度超过本层 ${round(layerTop - layerBottom)}cm，保留到下一层继续作为候选。`
       });
     }
+    const layerSpread = optimizeCurrentLayerSparseTailSupport(stackableContainer, placed, strategy, layerBottom);
+    if (layerSpread?.spreadCount) {
+      placed.splice(0, placed.length, ...layerSpread.placed);
+      layerTailSpreadCount += layerSpread.spreadCount;
+      layerTailSupportGain += layerSpread.supportGain;
+      traceDecision({
+        phase: "repair",
+        level: "summary",
+        text: `${container.name} · \u7b2c ${layerNo} \u5c42\u672b\u6392\u652f\u6491\u4f18\u5316\uff1a\u644a\u5f00 ${layerSpread.spreadCount} \u4ef6\u5c3e\u6392\u8d27\u7269\uff0c\u589e\u52a0\u7ea6 ${round(layerSpread.supportGain)}cm2 \u4e0a\u5c42\u843d\u811a\u9762\u3002`
+      });
+    }
     traceDecision({
       phase: "layer",
       level: "summary",
@@ -1026,7 +1039,9 @@ function packLayerLaff(container, units, strategy, fixedPlaced = []) {
     repairedCount: 0,
     fixedPlacedCount: fixedPlaced.length,
     layerCount: countLayers(placed),
-    nonStackTopPlacedCount
+    nonStackTopPlacedCount,
+    sparseTailSpreadCount: layerTailSpreadCount,
+    sparseTailSupportGain: layerTailSupportGain
   });
 }
 
@@ -1733,21 +1748,61 @@ function optimizeSparseTailSupport(container, attempt, strategy) {
   return current;
 }
 
-function buildBestSparseTailSupport(container, attempt, strategy) {
+function optimizeCurrentLayerSparseTailSupport(container, placed, strategy, layerBottom) {
+  let current = {
+    placed: placed.map(copyUnit),
+    unplaced: [],
+    strategyId: strategy.id,
+    strategyName: strategy.name,
+    strategySummary: {}
+  };
+  let spreadCount = 0;
+  let supportGain = 0;
+
+  for (let pass = 0; pass < 2; pass += 1) {
+    const candidate = buildBestSparseTailSupport(container, current, strategy, {
+      allowCovered: true,
+      layerBottom,
+      skipBackfill: true
+    });
+    if (!candidate) break;
+    current = {
+      ...current,
+      placed: candidate.placed.map(copyUnit),
+      unplaced: []
+    };
+    spreadCount += candidate.spreadCount;
+    supportGain += candidate.supportGain;
+  }
+
+  if (!spreadCount || supportGain <= EPS) return null;
+  return {
+    placed: current.placed,
+    spreadCount,
+    supportGain
+  };
+}
+
+function buildBestSparseTailSupport(container, attempt, strategy, options = {}) {
   const baseSupportScore = sparseTailSupportScore(attempt.placed, container);
   let best = null;
-  for (const row of sparseTailRows(container, attempt.placed)) {
-    const candidate = buildSparseTailSupportCandidate(container, attempt, strategy, row, baseSupportScore);
+  for (const row of sparseTailRows(container, attempt.placed, options)) {
+    const candidate = buildSparseTailSupportCandidate(container, attempt, strategy, row, baseSupportScore, options);
     if (!candidate) continue;
     if (!best || candidate.score > best.score + EPS) best = candidate;
   }
   return best;
 }
 
-function sparseTailRows(container, placed) {
+function sparseTailRows(container, placed, options = {}) {
+  const allowCovered = Boolean(options.allowCovered);
+  const layerBottom = Number(options.layerBottom);
+  const hasLayerFilter = Number.isFinite(layerBottom);
   const rows = new Map();
   for (const unit of placed) {
-    if (unit.nonStack || hasAnyBoxInColumnAbove(unit, placed)) continue;
+    if (unit.nonStack) continue;
+    if (!allowCovered && hasAnyBoxInColumnAbove(unit, placed)) continue;
+    if (hasLayerFilter && Math.abs(Number(unit.z || 0) - layerBottom) > EPS) continue;
     const key = [
       round3(unit.z),
       round3(unit.y),
@@ -1797,7 +1852,7 @@ function sparseTailRows(container, placed) {
     .slice(0, SPARSE_TAIL_SPREAD_MAX_CANDIDATES);
 }
 
-function buildSparseTailSupportCandidate(container, attempt, strategy, row, baseSupportScore) {
+function buildSparseTailSupportCandidate(container, attempt, strategy, row, baseSupportScore, options = {}) {
   const rowKeys = new Set(row.units.map((unit) => unit.unitKey));
   const placed = attempt.placed
     .filter((unit) => !rowKeys.has(unit.unitKey))
@@ -1825,17 +1880,19 @@ function buildSparseTailSupportCandidate(container, attempt, strategy, row, base
   if (!changedCount) return null;
   let unplaced = attempt.unplaced.map(stripPlacement);
   let backfillPlacedCount = 0;
-  const retry = orderUnits(unplaced, strategy.unitOrder);
-  unplaced = [];
-  for (const unit of retry) {
-    const placement = unit.nonStack
-      ? findTopExposedPlacement(container, placed, unit, strategy)
-      : packExtremePoint(container, placed, unit, strategy);
-    if (placement) {
-      placed.push(applyPlacement(unit, placement));
-      backfillPlacedCount += unitQuantity(unit);
-    } else {
-      unplaced.push(unit);
+  if (!options.skipBackfill) {
+    const retry = orderUnits(unplaced, strategy.unitOrder);
+    unplaced = [];
+    for (const unit of retry) {
+      const placement = unit.nonStack
+        ? findTopExposedPlacement(container, placed, unit, strategy)
+        : packExtremePoint(container, placed, unit, strategy);
+      if (placement) {
+        placed.push(applyPlacement(unit, placement));
+        backfillPlacedCount += unitQuantity(unit);
+      } else {
+        unplaced.push(unit);
+      }
     }
   }
 

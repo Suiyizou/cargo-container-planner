@@ -331,6 +331,8 @@ const exactEn = {
   "未选择箱型": "No Container Selected",
   "请选择箱型后查看3D装箱视图": "Select a container to view the 3D packing scene",
   "当前货舱暂无可渲染货物": "No renderable cargo in the current hold",
+  "正在生成 3D 装箱视图...": "Generating the 3D packing scene...",
+  "正在切换当前货舱...": "Switching the current hold...",
   "尺寸": "Size",
   "重量": "Weight",
   "坐标": "Coordinates",
