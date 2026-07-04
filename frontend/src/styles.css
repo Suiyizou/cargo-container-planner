@@ -857,6 +857,72 @@ select {
   background: #f8fbff;
 }
 
+.priority-container-box {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #dbe7f5;
+  border-radius: 12px;
+  background: #fbfdff;
+}
+
+.priority-container-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.priority-container-head small {
+  display: block;
+  margin-top: 4px;
+  color: #708399;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.priority-container-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.priority-container-grid .el-checkbox-button {
+  min-width: 0;
+}
+
+.priority-container-grid .el-checkbox-button__inner {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid #cbd9ea;
+  border-radius: 8px !important;
+  text-align: left;
+  white-space: normal;
+}
+
+.priority-container-grid .el-checkbox-button__inner span {
+  color: #132033;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.priority-container-grid .el-checkbox-button__inner small {
+  color: #60738a;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.priority-container-grid .el-checkbox-button.is-checked .el-checkbox-button__inner span,
+.priority-container-grid .el-checkbox-button.is-checked .el-checkbox-button__inner small {
+  color: #fff;
+}
+
 .balance-settings-head {
   display: flex;
   justify-content: space-between;
@@ -2023,8 +2089,27 @@ select {
   white-space: nowrap;
 }
 
-.packing-progress-main small {
+.packing-progress-timer {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.packing-progress-timer small {
   color: #60738a;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.packing-progress-timer em {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #fff7ed;
+  color: #b45309;
+  font-size: 12px;
+  font-style: normal;
   font-weight: 800;
   white-space: nowrap;
 }
@@ -2413,6 +2498,28 @@ select {
   line-height: 1.25;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+.visual-option-control {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 0 2px;
+}
+
+.visual-option-control > span {
+  min-width: 0;
+  color: #40546b;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.visual-option-control .el-segmented {
+  max-width: 100%;
 }
 
 .slice-control-card .el-card__body {
@@ -4598,6 +4705,7 @@ select {
   .template-grid,
   .planner-config-grid,
   .container-reference-grid,
+  .priority-container-grid,
   .balance-setting-grid,
   .excel-entry-grid,
   .excel-workspace-layout,
@@ -4773,7 +4881,9 @@ select {
   }
 
   .packing-progress-main strong,
-  .packing-progress-main small,
+  .packing-progress-timer,
+  .packing-progress-timer small,
+  .packing-progress-timer em,
   .packing-progress-stage span {
     white-space: normal;
   }
@@ -5347,6 +5457,11 @@ select,
 
   .visual-option-grid {
     grid-template-columns: 1fr;
+  }
+
+  .visual-option-control {
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
 }
 

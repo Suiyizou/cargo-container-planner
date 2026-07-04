@@ -12,6 +12,8 @@ import { translateUiText } from "../i18n/uiText";
 
 const DEFAULT_OPTIONS: SceneRenderOptions = {
   showLabels: true,
+  showAxes: true,
+  axisScale: 1.25,
   showGrid: true,
   showCenter: true,
   showShell: true,
@@ -199,7 +201,7 @@ export class PackingSceneRenderer {
     this.root.scale.setScalar(scale);
 
     this.addFloor(container);
-    this.addCoordinateAxes(container);
+    if (this.options.showAxes) this.addCoordinateAxes(container);
     if (this.options.showShell) this.addContainerShell(container);
     if (this.options.showHeatmap && !this.data.stats.performanceMode) this.addHeatmap(container);
     if (this.options.showRemaining && !this.data.stats.performanceMode) this.addRemainingSpaces(container);
@@ -249,37 +251,39 @@ export class PackingSceneRenderer {
   }
 
   private addDimensionLabels(container: any) {
-    const y = container.heightCm + 12;
-    const z = container.widthCm / 2 + 12;
-    const x = container.lengthCm / 2 + 12;
-    this.root.add(createTextSprite(this.t("scene.lengthCm", { value: container.lengthCm }), new THREE.Vector3(0, y, z), "#165DFF", 42));
-    this.root.add(createTextSprite(this.t("scene.widthCm", { value: container.widthCm }), new THREE.Vector3(x, y, 0), "#165DFF", 42));
-    this.root.add(createTextSprite(this.t("scene.heightCm", { value: container.heightCm }), new THREE.Vector3(x, container.heightCm / 2, z), "#165DFF", 42));
+    const y = container.heightCm + 18;
+    const z = container.widthCm / 2 + 18;
+    const x = container.lengthCm / 2 + 18;
+    this.root.add(createTextSprite(this.t("scene.lengthCm", { value: container.lengthCm }), new THREE.Vector3(0, y, z), "#165DFF", 54));
+    this.root.add(createTextSprite(this.t("scene.widthCm", { value: container.widthCm }), new THREE.Vector3(x, y, 0), "#165DFF", 54));
+    this.root.add(createTextSprite(this.t("scene.heightCm", { value: container.heightCm }), new THREE.Vector3(x, container.heightCm / 2, z), "#165DFF", 54));
     [
       [-container.lengthCm / 2, -container.widthCm / 2],
       [container.lengthCm / 2, -container.widthCm / 2],
       [-container.lengthCm / 2, container.widthCm / 2],
       [container.lengthCm / 2, container.widthCm / 2]
     ].forEach(([cx, cz], index) => {
-      this.root.add(createTextSprite(this.t("scene.corner", { value: index + 1 }), new THREE.Vector3(cx, 8, cz), "#64748b", 28));
+      this.root.add(createTextSprite(this.t("scene.corner", { value: index + 1 }), new THREE.Vector3(cx, 10, cz), "#64748b", 34));
     });
   }
 
   private addCoordinateAxes(container: any) {
     const origin = new THREE.Vector3(-container.lengthCm / 2, 4, -container.widthCm / 2);
-    const xLength = Math.max(70, Math.min(container.lengthCm * 0.28, 160));
-    const yLength = Math.max(55, Math.min(container.widthCm * 0.42, 120));
-    const zLength = Math.max(60, Math.min(container.heightCm * 0.42, 130));
-    const headLength = Math.max(10, Math.min(xLength, yLength, zLength) * 0.18);
+    const axisScale = THREE.MathUtils.clamp(Number(this.options.axisScale || 1), 0.65, 1.9);
+    const xLength = Math.max(95, Math.min(container.lengthCm * 0.36, 220)) * axisScale;
+    const yLength = Math.max(80, Math.min(container.widthCm * 0.55, 165)) * axisScale;
+    const zLength = Math.max(85, Math.min(container.heightCm * 0.58, 175)) * axisScale;
+    const headLength = THREE.MathUtils.clamp(Math.min(xLength, yLength, zLength) * 0.16, 12, 44);
     const headWidth = headLength * 0.48;
+    const labelGap = 22 * axisScale;
 
     this.root.add(this.axisArrow(new THREE.Vector3(1, 0, 0), origin, xLength, "#ef4444", headLength, headWidth));
     this.root.add(this.axisArrow(new THREE.Vector3(0, 0, 1), origin, yLength, "#10b981", headLength, headWidth));
     this.root.add(this.axisArrow(new THREE.Vector3(0, 1, 0), origin, zLength, "#2563eb", headLength, headWidth));
-    this.root.add(createTextSprite(this.t("scene.origin"), origin.clone().add(new THREE.Vector3(-18, 12, -10)), "#0f172a", 30));
-    this.root.add(createTextSprite(this.t("scene.axisX"), origin.clone().add(new THREE.Vector3(xLength + 18, 5, 0)), "#ef4444", 34));
-    this.root.add(createTextSprite(this.t("scene.axisY"), origin.clone().add(new THREE.Vector3(0, 5, yLength + 18)), "#10b981", 34));
-    this.root.add(createTextSprite(this.t("scene.axisZ"), origin.clone().add(new THREE.Vector3(0, zLength + 16, 0)), "#2563eb", 34));
+    this.root.add(createTextSprite(this.t("scene.origin"), origin.clone().add(new THREE.Vector3(-24, 16, -14)), "#0f172a", 42));
+    this.root.add(createTextSprite(this.t("scene.axisX"), origin.clone().add(new THREE.Vector3(xLength + labelGap, 7, 0)), "#ef4444", 48));
+    this.root.add(createTextSprite(this.t("scene.axisY"), origin.clone().add(new THREE.Vector3(0, 7, yLength + labelGap)), "#10b981", 48));
+    this.root.add(createTextSprite(this.t("scene.axisZ"), origin.clone().add(new THREE.Vector3(0, zLength + labelGap, 0)), "#2563eb", 48));
   }
 
   private axisArrow(direction: THREE.Vector3, origin: THREE.Vector3, length: number, color: string, headLength: number, headWidth: number) {

@@ -104,6 +104,8 @@ export interface BalanceState {
 
 export interface SceneRenderOptions {
   showLabels: boolean;
+  showAxes: boolean;
+  axisScale: number;
   showGrid: boolean;
   showCenter: boolean;
   showShell: boolean;

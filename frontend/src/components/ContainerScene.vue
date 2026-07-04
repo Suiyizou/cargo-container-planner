@@ -26,6 +26,16 @@
             <el-checkbox v-model="showCenter">{{ tr("几何中心") }}</el-checkbox>
             <el-checkbox v-model="translucentCargo">{{ tr("半透明货物") }}</el-checkbox>
             <el-checkbox v-model="showHeatmap">{{ tr("重量热力") }}</el-checkbox>
+            <el-checkbox v-model="showAxes">{{ t("sceneOptions.showAxes") }}</el-checkbox>
+            <div class="visual-option-control">
+              <span>{{ t("sceneOptions.axisScale") }}</span>
+              <el-segmented
+                v-model="axisScalePreset"
+                :options="axisScaleOptions"
+                size="small"
+                :disabled="!showAxes"
+              />
+            </div>
           </div>
         </el-popover>
         <el-button :icon="isFullscreen ? Aim : FullScreen" @click="toggleFullscreen">
@@ -211,6 +221,7 @@ const props = defineProps({
   showRemaining: { type: Boolean, default: true },
   showMassBalance: { type: Boolean, default: true },
   busy: { type: Boolean, default: false },
+  waitingForResult: { type: Boolean, default: false },
   exporting: { type: Boolean, default: false },
   exportZipLabel: { type: String, default: "导出整套 ZIP" },
   canExport: { type: Boolean, default: true },
@@ -237,11 +248,13 @@ const sliceEnabled = ref(false);
 const sliceAxis = ref<SliceAxis>("z");
 const slicePercent = ref(100);
 const showLabels = ref(false);
+const showAxes = ref(true);
 const showGrid = ref(true);
 const showCenter = ref(true);
 const showShell = ref(true);
 const translucentCargo = ref(false);
 const showHeatmap = ref(false);
+const axisScalePreset = ref<"small" | "normal" | "large">("normal");
 const hiddenSkuKeys = ref<Set<string>>(new Set());
 const isFullscreen = ref(false);
 const internalRendering = ref(false);
@@ -258,6 +271,11 @@ const viewModeOptions = [
   { label: "3D", value: "3d" },
   { label: "2D", value: "2d" }
 ];
+const axisScaleOptions = computed(() => [
+  { label: t("sceneOptions.axisSmall"), value: "small" },
+  { label: t("sceneOptions.axisNormal"), value: "normal" },
+  { label: t("sceneOptions.axisLarge"), value: "large" }
+]);
 
 function tr(value: unknown) {
   return translateLegacyText(value == null ? "" : String(value), currentLocale.value);
@@ -283,6 +301,8 @@ const massModel = computed({
 });
 const renderOptions = computed(() => ({
   showLabels: showLabels.value && !sceneData.value.stats.performanceMode,
+  showAxes: showAxes.value,
+  axisScale: axisScaleValue(axisScalePreset.value),
   showGrid: showGrid.value,
   showCenter: showCenter.value,
   showShell: showShell.value,
@@ -296,10 +316,12 @@ const renderOptions = computed(() => ({
   viewMode: viewMode.value,
   locale: currentLocale.value
 }));
-const emptyStateVisible = computed(() => !props.busy && (!props.container || !props.placements.length || props.errorMessage));
+const visualBusy = computed(() => props.busy || props.waitingForResult || internalRendering.value);
+const emptyStateVisible = computed(() => !visualBusy.value && (!props.container || !props.placements.length || props.errorMessage));
 const emptyStateText = computed(() => tr(props.errorMessage || (!props.container ? "请选择箱型后查看3D装箱视图" : "当前货舱暂无可渲染货物")));
-const visualBusy = computed(() => props.busy || internalRendering.value);
-const visualBusyText = computed(() => props.busy
+const visualBusyText = computed(() => props.waitingForResult
+  ? "\u6b63\u5728\u7b49\u5f85\u88c5\u7bb1\u7ed3\u679c\uff0c\u968f\u540e\u751f\u6210 3D \u88c5\u7bb1\u89c6\u56fe..."
+  : props.busy
   ? "\u6b63\u5728\u5207\u6362\u5f53\u524d\u8d27\u8231..."
   : "\u6b63\u5728\u751f\u6210 3D \u88c5\u7bb1\u89c6\u56fe..."
 );
@@ -403,6 +425,12 @@ function toggleSku(key: string) {
 
 function showAllSku() {
   hiddenSkuKeys.value = new Set();
+}
+
+function axisScaleValue(preset: "small" | "normal" | "large") {
+  if (preset === "small") return 0.85;
+  if (preset === "large") return 1.55;
+  return 1.25;
 }
 
 function handlePointerMove(event: PointerEvent) {

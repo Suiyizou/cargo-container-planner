@@ -189,6 +189,32 @@
                 </div>
                 <el-slider v-model="nonStackSupportRatioPercent" :min="80" :max="100" :step="0.5" />
               </div>
+              <div class="priority-container-box">
+                <div class="priority-container-head">
+                  <div>
+                    <span class="field-label">{{ t("planner.priorityContainers") }}</span>
+                    <small>{{ t("planner.priorityContainersHint", { count: calculationContainers.length }) }}</small>
+                  </div>
+                  <el-button-group>
+                    <el-button size="small" @click="selectCommonPriorityContainers">{{ t("planner.priorityCommon") }}</el-button>
+                    <el-button size="small" @click="selectAllPriorityContainers">{{ t("planner.priorityAll") }}</el-button>
+                  </el-button-group>
+                </div>
+                <el-checkbox-group
+                  v-model="priorityContainerIds"
+                  class="priority-container-grid"
+                  @change="handlePriorityContainerChange"
+                >
+                  <el-checkbox-button
+                    v-for="container in containers"
+                    :key="container.id"
+                    :value="container.id"
+                  >
+                    <span>{{ trContainerName(container.name) }}</span>
+                    <small>{{ containerUsageText(container.usagePriority) }}</small>
+                  </el-checkbox-button>
+                </el-checkbox-group>
+              </div>
               <div class="balance-settings-box">
                 <div class="balance-settings-head">
                   <div>
@@ -523,6 +549,7 @@
             v-model:show-remaining="showRemaining"
             v-model:show-mass-balance="showMassBalance"
             :busy="visualBusy"
+            :waiting-for-result="sceneWaitingForResult"
             :exporting="exportingReport"
             :export-zip-label="exportZipLabel"
             :can-export="selectedPlanExportable"
@@ -561,7 +588,10 @@
             <div class="packing-progress-main">
               <span>{{ packingProgressState.kicker }}</span>
               <strong>{{ packingProgressState.title }}</strong>
-              <small>{{ packingProgressState.meta }}</small>
+              <div class="packing-progress-timer">
+                <small>{{ packingProgressState.timerText }}</small>
+                <em v-if="packingProgressState.slowHint">{{ packingProgressState.slowHint }}</em>
+              </div>
             </div>
             <el-progress
               :percentage="packingProgressState.percent"
@@ -860,6 +890,7 @@ const cargos = ref([]);
 const containers = ref([]);
 const result = ref(null);
 const selectedContainerId = ref("");
+const priorityContainerIds = ref<string[]>([]);
 const selectedBoxIndex = ref(1);
 const utilizationPercent = ref(90);
 const globalGapCm = ref(1);
@@ -887,9 +918,11 @@ const apiStatus = ref("本机计算");
 const decisionLogs = ref<any[]>([]);
 const packingTimeoutDialogOpen = ref(false);
 const packingTimeoutInfo = ref<any | null>(null);
+const calcElapsedSeconds = ref(0);
 
 let timer = 0;
 let calcSeq = 0;
+let calcElapsedTimer = 0;
 
 const sortedEvaluations = computed(() => result.value?.evaluations || []);
 const selectedEvaluation = computed(() => {
@@ -944,6 +977,7 @@ const decisionFlowCurrent = computed(() => {
   return latest ? enrichDecisionLog(latest) : null;
 });
 const visualBusy = computed(() => switchingBox.value || sceneRendering.value);
+const sceneWaitingForResult = computed(() => loading.value && !selectedPlacements.value.length);
 const packingProgressState = computed(() => {
   currentLocale.value;
   return buildPackingProgressState({
@@ -951,7 +985,8 @@ const packingProgressState = computed(() => {
     logTotal: decisionLogTotal.value,
     loading: loading.value,
     rendering: sceneRendering.value || switchingBox.value,
-    hasResult: Boolean(selectedEvaluation.value?.packedBoxes?.length)
+    hasResult: Boolean(selectedEvaluation.value?.packedBoxes?.length),
+    elapsedSeconds: calcElapsedSeconds.value
   });
 });
 const decisionLogTotal = computed(() => {
@@ -991,6 +1026,11 @@ const containerSourceRows = computed(() =>
     dimensionNote: container.dimensionNote || "自定义箱型，请按实际设备复核。"
   }))
 );
+const calculationContainers = computed(() => {
+  const selectedIds = new Set(priorityContainerIds.value);
+  const selected = containers.value.filter((container: any) => selectedIds.has(container.id));
+  return selected.length ? selected : defaultPriorityContainers();
+});
 const cargoTypeCount = computed(() => cargos.value.length);
 const cargoTotalQuantity = computed(() =>
   cargos.value.reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0)
@@ -1005,7 +1045,7 @@ const cargoTotalVolumeM3 = computed(() =>
 );
 const packingWorkloadHint = computed(() => estimatePackingWorkload({
   cargos: cargos.value,
-  containers: containers.value,
+  containers: calculationContainers.value,
   utilizationPercent: utilizationPercent.value,
   globalGapCm: globalGapCm.value,
   supportRatioPercent: supportRatioPercent.value,
@@ -1050,6 +1090,7 @@ onMounted(async () => {
   restoreCargoTemplates();
   cargos.value = normalizeCargoModels(cargos.value);
   if (!containers.value.length) containers.value = cloneDefaultContainers();
+  priorityContainerIds.value = normalizePriorityContainerIds(priorityContainerIds.value);
   if (!selectedContainerId.value && containers.value[0]) selectedContainerId.value = containers.value[0].id;
   if (!cargos.value.length && !hasStoredWorkspace.value) loadSample(false);
   workspaceReady.value = true;
@@ -1058,9 +1099,10 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener("auth-expired", handleAuthExpired);
+  stopPackingElapsedTimer();
 });
 
-watch([cargos, containers, utilizationPercent, globalGapCm, supportRatioPercent, nonStackSupportRatioPercent, balanceSettings], () => {
+watch([cargos, containers, priorityContainerIds, utilizationPercent, globalGapCm, supportRatioPercent, nonStackSupportRatioPercent, balanceSettings], () => {
   persistState();
   window.clearTimeout(timer);
   timer = window.setTimeout(recalculate, 400);
@@ -1153,6 +1195,7 @@ function restoreState() {
     showRemaining.value = saved.showRemaining ?? true;
     showMassBalance.value = saved.showMassBalance ?? true;
     selectedContainerId.value = saved.selectedContainerId || "";
+    priorityContainerIds.value = Array.isArray(saved.priorityContainerIds) ? saved.priorityContainerIds : [];
   } catch {
     localStorage.removeItem(STORAGE_KEY);
     hasStoredWorkspace.value = false;
@@ -1171,7 +1214,8 @@ function persistState() {
     balancePreset: activeBalancePreset.value,
     showRemaining: showRemaining.value,
     showMassBalance: showMassBalance.value,
-    selectedContainerId: selectedContainerId.value
+    selectedContainerId: selectedContainerId.value,
+    priorityContainerIds: priorityContainerIds.value
   }));
 }
 
@@ -1214,12 +1258,13 @@ function handleMenuSelect(index) {
 }
 
 async function recalculate() {
-  if (!cargos.value.length || !containers.value.length) return;
+  const activeContainers = calculationContainers.value;
+  if (!cargos.value.length || !activeContainers.length) return;
   const seq = ++calcSeq;
   const startedAt = Date.now();
   const workload = estimatePackingWorkload({
     cargos: cargos.value,
-    containers: containers.value,
+    containers: activeContainers,
     utilizationPercent: utilizationPercent.value,
     globalGapCm: globalGapCm.value,
     supportRatioPercent: supportRatioPercent.value,
@@ -1227,13 +1272,14 @@ async function recalculate() {
     balanceSettings: balanceSettings.value
   });
   loading.value = true;
+  startPackingElapsedTimer(startedAt);
   decisionLogs.value = [];
   packingTimeoutDialogOpen.value = false;
   apiStatus.value = workload.seconds >= 20 ? `预计 ${workload.durationLabel}` : "正在计算";
   try {
     const nextResult = await calculatePacking({
       cargos: cargos.value,
-      containers: containers.value,
+      containers: activeContainers,
       utilizationPercent: utilizationPercent.value,
       globalGapCm: globalGapCm.value,
       supportRatioPercent: supportRatioPercent.value,
@@ -1269,7 +1315,10 @@ async function recalculate() {
       showToast(error.message || "本机计算失败，请检查货物参数。");
     }
   } finally {
-    if (seq === calcSeq) loading.value = false;
+    if (seq === calcSeq) {
+      loading.value = false;
+      stopPackingElapsedTimer(startedAt);
+    }
   }
 }
 
@@ -1294,7 +1343,25 @@ function handleSceneRenderState(active) {
   sceneRendering.value = Boolean(active);
 }
 
-function buildPackingProgressState({ current, logTotal, loading: isLoading, rendering, hasResult }) {
+function startPackingElapsedTimer(startedAt) {
+  stopPackingElapsedTimer();
+  calcElapsedSeconds.value = 0;
+  calcElapsedTimer = window.setInterval(() => {
+    calcElapsedSeconds.value = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  }, 1000);
+}
+
+function stopPackingElapsedTimer(startedAt = null) {
+  if (calcElapsedTimer) {
+    window.clearInterval(calcElapsedTimer);
+    calcElapsedTimer = 0;
+  }
+  if (startedAt) {
+    calcElapsedSeconds.value = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  }
+}
+
+function buildPackingProgressState({ current, logTotal, loading: isLoading, rendering, hasResult, elapsedSeconds }) {
   const stages = packingProgressStages();
   const currentPhase = current?.phaseKey || "start";
   const activeStageKey = rendering
@@ -1306,6 +1373,8 @@ function buildPackingProgressState({ current, logTotal, loading: isLoading, rend
         : "start";
   const activeIndex = stages.findIndex((stage) => stage.key === activeStageKey);
   const percent = packingProgressPercent(activeStageKey, currentPhase, logTotal, isLoading, rendering, hasResult);
+  const timerText = t("decisionFlow.elapsedTimer", { value: durationText(elapsedSeconds || 0) });
+  const slowHint = isLoading && Number(elapsedSeconds || 0) >= 20 ? t("decisionFlow.slowHint") : "";
   const enrichedStages = stages.map((stage, index) => ({
     ...stage,
     status: hasResult && !isLoading && !rendering
@@ -1324,26 +1393,31 @@ function buildPackingProgressState({ current, logTotal, loading: isLoading, rend
       kicker: t("decisionFlow.renderKicker"),
       title: t("decisionFlow.renderStage"),
       meta: t("decisionFlow.renderMeta"),
+      timerText,
+      slowHint,
       liveKey: `render-${selectedContainerId.value}-${selectedBoxIndex.value}`,
       liveKicker: t("decisionFlow.currentProgress"),
       phaseLabel: t("decisionFlow.renderStage"),
       liveText: t("decisionFlow.renderingText"),
-      liveMeta: selectedEvaluation.value?.container?.name ? trContainerName(selectedEvaluation.value.container.name) : t("decisionFlow.visualizing")
+      liveMeta: selectedEvaluation.value?.container?.name ? customerContainerMeta(selectedEvaluation.value.container.name) : t("decisionFlow.visualizing")
     };
   }
 
   if (current?.text) {
+    const customerProgress = customerDecisionProgress(current);
     return {
       percent,
       stages: enrichedStages,
       kicker: isLoading ? t("decisionFlow.calculating") : t("decisionFlow.latest"),
-      title: current.phaseLabel,
-      meta: decisionProgressMeta(current, logTotal),
+      title: customerProgress.title,
+      meta: customerProgress.meta,
+      timerText,
+      slowHint,
       liveKey: `decision-${current.index}-${current.phaseKey}`,
-      liveKicker: t("decisionFlow.currentDecision"),
-      phaseLabel: current.phaseLabel,
-      liveText: tr(current.text),
-      liveMeta: t("decisionFlow.recordIndex", { index: current.index })
+      liveKicker: t("decisionFlow.currentProgress"),
+      phaseLabel: customerProgress.phaseLabel,
+      liveText: customerProgress.text,
+      liveMeta: customerProgress.meta
     };
   }
 
@@ -1354,11 +1428,13 @@ function buildPackingProgressState({ current, logTotal, loading: isLoading, rend
       kicker: t("decisionFlow.latest"),
       title: t("decisionFlow.completeStage"),
       meta: t("decisionFlow.doneMeta"),
+      timerText,
+      slowHint: "",
       liveKey: "done",
       liveKicker: t("decisionFlow.currentProgress"),
       phaseLabel: t("decisionFlow.completeStage"),
       liveText: t("decisionFlow.doneText"),
-      liveMeta: t("decisionFlow.recordTotal", { count: logTotal })
+      liveMeta: t("decisionFlow.doneMeta")
     };
   }
 
@@ -1368,11 +1444,13 @@ function buildPackingProgressState({ current, logTotal, loading: isLoading, rend
     kicker: t("decisionFlow.calculating"),
     title: t("decisionFlow.waitingTitle"),
     meta: t("decisionFlow.waitingMeta"),
+    timerText,
+    slowHint,
     liveKey: "waiting",
     liveKicker: t("decisionFlow.currentProgress"),
     phaseLabel: t("decisionFlow.waitingTitle"),
     liveText: t("decisionFlow.waiting"),
-    liveMeta: t("decisionFlow.recordTotal", { count: logTotal })
+    liveMeta: t("decisionFlow.waitingMeta")
   };
 }
 
@@ -1412,17 +1490,110 @@ function packingProgressPercent(stageKey, phaseKey, logTotal, isLoading, renderi
   return Math.min(94, Math.round(base + recordBoost));
 }
 
-function decisionProgressMeta(current, logTotal) {
-  const text = tr(current?.text || "");
-  const parts = [];
-  const boxMatch = text.match(new RegExp("\\u7b2c\\s*\\d+\\s*\\u8d27\\u8231")) || text.match(/box\s*\d+/i);
-  const layerMatch = text.match(new RegExp("\\u7b2c\\s*\\d+\\s*\\u5c42")) || text.match(/layer\s*\d+/i);
-  const strategyMatch = text.match(/strategy\s+"([^"]+)"/i) || text.match(new RegExp("\\u91c7\\u7528\\u300c([^\\u300d]+)\\u300d"));
-  if (boxMatch?.[0]) parts.push(boxMatch[0]);
-  if (layerMatch?.[0]) parts.push(layerMatch[0]);
-  if (strategyMatch?.[1]) parts.push(strategyMatch[1]);
-  parts.push(`${t("decisionFlow.recordIndex", { index: current?.index || 0 })} / ${t("decisionFlow.recordTotal", { count: logTotal })}`);
-  return parts.join(" · ");
+function customerDecisionProgress(current) {
+  const raw = String(current?.text || "");
+  const readable = tr(raw);
+  const phaseKey = current?.phaseKey || decisionPhaseKey(current?.phase);
+  const containerName = decisionContainerName(raw);
+  const scope = containerName ? customerContainerMeta(containerName) : t("decisionFlow.customerCurrentPlan");
+  const layerNo = decisionLayerNumber(raw);
+  const holdNo = decisionHoldNumber(raw);
+  const detail = compactDecisionText(decisionCustomerDetail(readable));
+  const layerMeta = layerNo ? t("decisionFlow.layerMeta", { layer: layerNo }) : "";
+  const holdMeta = holdNo ? t("decisionFlow.holdMeta", { hold: holdNo }) : "";
+  const meta = [scope, holdMeta, layerMeta].filter(Boolean).join(" · ");
+
+  if (phaseKey === "layer") {
+    return {
+      title: t("decisionFlow.customerLoadingTitle"),
+      phaseLabel: layerNo ? t("decisionFlow.customerLayerPhase", { layer: layerNo }) : t("decisionFlow.steps.layer.label"),
+      text: layerNo
+        ? t("decisionFlow.customerLayerText", { scope, layer: layerNo, detail })
+        : t("decisionFlow.customerGenericText", { scope, detail }),
+      meta
+    };
+  }
+  if (phaseKey === "repair") {
+    return {
+      title: t("decisionFlow.customerOptimizingTitle"),
+      phaseLabel: t("decisionFlow.steps.repair.label"),
+      text: /lower-gap|support|tail|backfill|sparse/i.test(raw)
+        ? t("decisionFlow.customerSupportTuningText", { scope })
+        : t("decisionFlow.customerGenericText", { scope, detail }),
+      meta
+    };
+  }
+  if (phaseKey === "container") {
+    return {
+      title: t("decisionFlow.customerEvaluatingTitle"),
+      phaseLabel: t("decisionFlow.steps.container.label"),
+      text: t("decisionFlow.customerContainerText", { scope }),
+      meta
+    };
+  }
+  if (phaseKey === "strategy") {
+    return {
+      title: t("decisionFlow.customerStrategyTitle"),
+      phaseLabel: t("decisionFlow.steps.strategy.label"),
+      text: t("decisionFlow.customerStrategyText", { scope }),
+      meta
+    };
+  }
+  if (phaseKey === "box") {
+    return {
+      title: t("decisionFlow.customerSummaryTitle"),
+      phaseLabel: t("decisionFlow.steps.box.label"),
+      text: holdNo
+        ? t("decisionFlow.customerHoldText", { scope, hold: holdNo, detail })
+        : t("decisionFlow.customerGenericText", { scope, detail }),
+      meta
+    };
+  }
+  if (phaseKey === "recommendation") {
+    return {
+      title: t("decisionFlow.completeStage"),
+      phaseLabel: t("decisionFlow.steps.recommendation.label"),
+      text: t("decisionFlow.customerRecommendationText"),
+      meta: t("decisionFlow.customerCurrentPlan")
+    };
+  }
+  return {
+    title: t("decisionFlow.customerPrepareTitle"),
+    phaseLabel: current?.phaseLabel || t("decisionFlow.steps.start.label"),
+    text: t("decisionFlow.customerPrepareText"),
+    meta: t("decisionFlow.customerCurrentPlan")
+  };
+}
+
+function customerContainerMeta(containerName) {
+  const index = containers.value.findIndex((container) => String(container?.name || "") === containerName);
+  return index >= 0
+    ? t("decisionFlow.customerContainerMeta", { index: index + 1, container: trContainerName(containerName) })
+    : trContainerName(containerName);
+}
+
+function decisionContainerName(raw) {
+  const text = String(raw || "");
+  const matched = containers.value.find((container) => container?.name && text.includes(container.name));
+  if (matched?.name) return matched.name;
+  return text.split(/\s+[·-]\s+/)[0]?.trim() || "";
+}
+
+function decisionLayerNumber(raw) {
+  const match = String(raw || "").match(new RegExp("\\u7b2c\\s*(\\d+)\\s*\\u5c42")) || String(raw || "").match(/layer\s*(\d+)/i);
+  return match?.[1] || "";
+}
+
+function decisionHoldNumber(raw) {
+  const match = String(raw || "").match(new RegExp("\\u7b2c\\s*(\\d+)\\s*\\u8d27\\u8231")) || String(raw || "").match(/hold\s*(\d+)|box\s*(\d+)/i);
+  return match?.[1] || match?.[2] || "";
+}
+
+function decisionCustomerDetail(text) {
+  const value = String(text || "").trim();
+  const colonIndex = Math.max(value.lastIndexOf("："), value.lastIndexOf(":"));
+  const detail = colonIndex >= 0 ? value.slice(colonIndex + 1).trim() : value;
+  return detail.replace(/\s+/g, " ") || t("decisionFlow.customerDetailFallback");
 }
 
 function openPackingTimeoutDialog(error, workload, startedAt) {
@@ -1541,6 +1712,51 @@ function compareEvaluationForUi(a, b) {
   return Math.abs(evaluationAverageFill(a) - 72) - Math.abs(evaluationAverageFill(b) - 72);
 }
 
+function defaultPriorityContainers() {
+  const defaults = containers.value.filter((container: any) => isCommonBusinessContainer(container));
+  const source = defaults.length ? defaults : containers.value.slice(0, Math.min(4, containers.value.length));
+  return source;
+}
+
+function defaultPriorityContainerIds() {
+  return defaultPriorityContainers().map((container: any) => container.id).filter(Boolean);
+}
+
+function normalizePriorityContainerIds(ids: unknown) {
+  const validIds = new Set(containers.value.map((container: any) => container.id));
+  const normalized = Array.isArray(ids)
+    ? ids.map((id) => String(id)).filter((id) => validIds.has(id))
+    : [];
+  return normalized.length ? [...new Set(normalized)] : defaultPriorityContainerIds();
+}
+
+function isCommonBusinessContainer(container: any) {
+  const text = `${container?.id || ""} ${container?.name || ""} ${container?.usagePriority || ""} ${container?.visualKind || ""} ${container?.equipmentClass || ""}`.toLowerCase();
+  if (/rf|reefer|fr|flat|rack|\u51b7\u85cf|\u5e73\u677f/.test(text)) return false;
+  return /gp|hq|high|common|dry/.test(text);
+}
+
+function applyPriorityContainerIds(values: string[]) {
+  priorityContainerIds.value = normalizePriorityContainerIds(values);
+  if (!calculationContainers.value.some((container: any) => container.id === selectedContainerId.value)) {
+    selectedContainerId.value = calculationContainers.value[0]?.id || selectedContainerId.value;
+    selectedBoxIndex.value = 1;
+  }
+  persistState();
+}
+
+function handlePriorityContainerChange(values: string[]) {
+  applyPriorityContainerIds(values);
+}
+
+function selectCommonPriorityContainers() {
+  applyPriorityContainerIds(defaultPriorityContainerIds());
+}
+
+function selectAllPriorityContainers() {
+  applyPriorityContainerIds(containers.value.map((container: any) => container.id).filter(Boolean));
+}
+
 function selectContainer(id) {
   selectedContainerId.value = id;
   selectedBoxIndex.value = 1;
@@ -1619,6 +1835,7 @@ function saveContainer(container) {
     containers.value.splice(existingIndex, 1, normalized);
   } else {
     containers.value.push(normalized);
+    priorityContainerIds.value = normalizePriorityContainerIds([...priorityContainerIds.value, normalized.id]);
   }
   selectedContainerId.value = container.id;
   closeContainerModal();
@@ -1632,6 +1849,7 @@ function closeContainerModal() {
 
 function resetContainers() {
   containers.value = cloneDefaultContainers();
+  priorityContainerIds.value = defaultPriorityContainerIds();
   selectedContainerId.value = containers.value[0]?.id || "";
   showToast("已恢复默认箱型。");
 }
