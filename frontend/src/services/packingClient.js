@@ -1,6 +1,15 @@
 let currentWorker = null;
 let currentJobId = 0;
 
+class PackingTimeoutError extends Error {
+  constructor(message, details = {}) {
+    super(message);
+    this.name = "PackingTimeoutError";
+    this.code = "PACKING_TIMEOUT";
+    Object.assign(this, details);
+  }
+}
+
 export function calculatePacking(payload, options = {}) {
   if (currentWorker) {
     currentWorker.terminate();
@@ -9,14 +18,20 @@ export function calculatePacking(payload, options = {}) {
 
   const jobId = ++currentJobId;
   currentWorker = new Worker(new URL("../workers/packingWorker.js", import.meta.url), { type: "module" });
-  const timeoutMs = packingTimeoutMs(payload);
+  const workload = estimatePackingWorkload(payload);
+  const timeoutMs = packingTimeoutMsFromEstimate(workload);
+  const startedAt = Date.now();
   const onDecision = typeof options.onDecision === "function" ? options.onDecision : null;
   const onPartialResult = typeof options.onPartialResult === "function" ? options.onPartialResult : null;
 
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => {
       cleanup();
-      reject(new Error("本机计算仍未完成，请先减少箱型数量、降低货物总件数，或拆分批次计算。"));
+      reject(new PackingTimeoutError("PACKING_TIMEOUT", {
+        elapsedMs: Date.now() - startedAt,
+        timeoutMs,
+        workload
+      }));
     }, timeoutMs);
 
     currentWorker.onmessage = (event) => {
@@ -67,9 +82,10 @@ function toWorkerPayload(payload) {
   return JSON.parse(JSON.stringify(payload));
 }
 
-function packingTimeoutMs(payload) {
-  const estimate = estimatePackingWorkload(payload);
-  return Math.min(600000, Math.max(90000, estimate.seconds * 1000 + 90000));
+function packingTimeoutMsFromEstimate(estimate) {
+  const baseMs = estimate.level === "heavy" ? 180000 : estimate.level === "medium" ? 135000 : 90000;
+  const specialMs = Math.max(0, Number(estimate.specialContainerCount || 0)) * 45000;
+  return Math.min(900000, Math.max(120000, estimate.seconds * 1000 + baseMs + specialMs));
 }
 
 export function estimatePackingWorkload(payload = {}) {
@@ -86,8 +102,12 @@ export function estimatePackingWorkload(payload = {}) {
   const typeFactor = Math.max(1, Math.log2(typeCount + 1));
   const diversityPenalty = typeCount >= 80 ? 2.2 : typeCount >= 40 ? 1.55 : 1;
   const containerCount = Math.max(1, containers.length);
-  const score = solverUnitCount * containerCount * typeFactor * diversityPenalty;
-  const seconds = Math.max(2, Math.ceil(score / 180));
+  const specialContainerCount = containers.filter(isSpecialContainerForEstimate).length;
+  const strategyFactor = 1 + (LOCAL_SEARCH_PASS_ESTIMATE / 10);
+  const specialPenalty = 1 + specialContainerCount * 0.38;
+  const mixedPlanPenalty = containerCount >= 2 ? 1.22 : 1;
+  const score = solverUnitCount * containerCount * typeFactor * diversityPenalty * strategyFactor * specialPenalty * mixedPlanPenalty;
+  const seconds = Math.max(2, Math.ceil(score / 120));
   const hasGrouping = solverUnitCount < rawUnitCount;
   const level = seconds >= 90 || typeCount >= 80 ? "heavy" : seconds >= 25 || typeCount >= 40 ? "medium" : "light";
   const title = hasGrouping ? "已启用同规格块化" : "预计计算耗时";
@@ -109,8 +129,16 @@ export function estimatePackingWorkload(payload = {}) {
     solverUnitCount,
     typeCount,
     containerCount,
+    specialContainerCount,
     hasGrouping
   };
+}
+
+const LOCAL_SEARCH_PASS_ESTIMATE = 5;
+
+function isSpecialContainerForEstimate(container) {
+  const profile = `${container?.usagePriority || ""} ${container?.visualKind || ""} ${container?.equipmentClass || ""} ${container?.id || ""} ${container?.name || ""}`.toLowerCase();
+  return /special|flat|rack|reefer|\u51b7\u85cf|\u5e73\u677f|fr|rf/.test(profile);
 }
 
 function formatDuration(seconds) {

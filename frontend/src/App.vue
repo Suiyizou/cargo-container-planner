@@ -556,39 +556,59 @@
               <h2>{{ t("decisionFlow.title") }}</h2>
             </div>
             <div class="view-actions">
-              <el-tag :type="loading ? 'warning' : 'info'" effect="light">{{ tr(loading ? "计算中" : "最近一次计算") }}</el-tag>
+              <el-tag :type="loading ? 'warning' : 'info'" effect="light">{{ t(loading ? "decisionFlow.calculating" : "decisionFlow.latest") }}</el-tag>
               <el-button :disabled="!decisionLogs.length" @click="clearDecisionLogs">{{ t("decisionFlow.clear") }}</el-button>
             </div>
           </div>
           <div v-if="loading && !decisionLogs.length" class="decision-flow-empty">
             {{ t("decisionFlow.waiting") }}
           </div>
-          <div v-else class="decision-flow-map">
-            <div
-              v-for="(step, index) in decisionFlowSteps"
-              :key="step.key"
-              :class="['decision-flow-step', step.status]"
-            >
-              <div class="decision-flow-marker">{{ step.index }}</div>
-              <div class="decision-flow-copy">
-                <div class="decision-flow-title">
-                  <strong>{{ step.label }}</strong>
-                  <el-tag size="small" :type="step.status === 'done' ? 'success' : step.status === 'active' ? 'warning' : 'info'" effect="light">
-                    {{ step.statusLabel }}
-                  </el-tag>
-                </div>
-                <p>{{ step.hasLog ? step.summary : step.description }}</p>
-                <small v-if="step.count">{{ step.count }} {{ t("decisionFlow.records") }}</small>
+          <div v-else-if="decisionFlowCurrent" class="decision-broadcast">
+            <div class="decision-broadcast-current">
+              <div>
+                <span>{{ t("decisionFlow.currentDecision") }}</span>
+                <h3>{{ decisionFlowCurrent.phaseLabel }}</h3>
               </div>
-              <span v-if="index < decisionFlowSteps.length - 1" class="decision-flow-arrow">→</span>
+              <div class="decision-broadcast-meta">
+                <el-tag type="primary" effect="light">{{ t("decisionFlow.recordIndex", { index: decisionFlowCurrent.index }) }}</el-tag>
+                <small>{{ t("decisionFlow.recordTotal", { count: decisionLogTotal }) }}</small>
+              </div>
+              <p>{{ tr(decisionFlowCurrent.text) }}</p>
             </div>
-          </div>
-          <div v-if="decisionFlowLatest" class="decision-flow-highlight">
-            <span>{{ t("decisionFlow.keySummary") }}</span>
-            <p>{{ tr(decisionFlowLatest) }}</p>
+            <div class="decision-broadcast-list" :aria-label="t('decisionFlow.broadcast')">
+              <article
+                v-for="item in decisionBroadcastLogs"
+                :key="`${item.index}-${item.phase}-${item.text}`"
+                :class="['decision-broadcast-item', item.phaseKey]"
+              >
+                <span>#{{ item.index }}</span>
+                <div>
+                  <strong>{{ item.phaseLabel }}</strong>
+                  <p>{{ tr(item.text) }}</p>
+                </div>
+              </article>
+            </div>
           </div>
           <div v-else-if="!loading" class="decision-flow-empty">
             {{ t("decisionFlow.empty") }}
+          </div>
+          <div class="decision-progress-shell">
+            <div class="decision-progress-head">
+              <strong>{{ t("decisionFlow.progressTitle") }}</strong>
+              <span>{{ t("decisionFlow.progressHint") }}</span>
+            </div>
+            <div class="decision-progress-list">
+              <div
+                v-for="step in decisionFlowSteps"
+                :key="step.key"
+                :class="['decision-progress-row', step.status]"
+              >
+                <span class="decision-progress-no">{{ step.index }}</span>
+                <strong>{{ step.label }}</strong>
+                <p>{{ step.hasLog ? step.summary : step.description }}</p>
+                <small>{{ step.count ? t("decisionFlow.recordCount", { count: step.count }) : step.statusLabel }}</small>
+              </div>
+            </div>
           </div>
         </section>
       </section>
@@ -665,6 +685,46 @@
           <span>{{ profileRoleText }} / {{ currentUser?.username }}</span>
           <el-button type="danger" plain @click="handleLogout">{{ ui("profile.logout") }}</el-button>
         </div>
+      </div>
+    </div>
+    <div v-if="packingTimeoutDialogOpen" class="modal-backdrop timeout-backdrop" @click.self="packingTimeoutDialogOpen = false">
+      <div class="modal timeout-modal" role="dialog" aria-modal="true" :aria-label="t('packingTimeout.title')">
+        <header class="timeout-modal-head">
+          <div>
+            <p>{{ t("packingTimeout.eyebrow") }}</p>
+            <h2>{{ t("packingTimeout.title") }}</h2>
+          </div>
+          <el-button class="icon-button" text @click="packingTimeoutDialogOpen = false">×</el-button>
+        </header>
+        <div class="timeout-modal-body">
+          <p class="timeout-lead">{{ t("packingTimeout.lead") }}</p>
+          <div class="timeout-stat-grid">
+            <div v-for="row in packingTimeoutDetailRows" :key="row.key">
+              <span>{{ row.label }}</span>
+              <strong>{{ row.value }}</strong>
+            </div>
+          </div>
+          <section class="timeout-section">
+            <h3>{{ t("packingTimeout.reasonTitle") }}</h3>
+            <p>{{ packingTimeoutReason }}</p>
+          </section>
+          <section v-if="packingTimeoutInfo?.lastDecision" class="timeout-section timeout-last-decision">
+            <h3>{{ t("packingTimeout.lastDecisionTitle") }}</h3>
+            <span>{{ t(`decisionFlow.steps.${packingTimeoutInfo.lastDecision.phaseKey}.label`) }} · {{ t("decisionFlow.recordIndex", { index: packingTimeoutInfo.lastDecision.index }) }}</span>
+            <p>{{ tr(packingTimeoutInfo.lastDecision.text) }}</p>
+          </section>
+          <section class="timeout-section">
+            <h3>{{ t("packingTimeout.suggestionTitle") }}</h3>
+            <ul class="timeout-suggestion-list">
+              <li v-for="item in packingTimeoutSuggestions" :key="item">{{ item }}</li>
+            </ul>
+          </section>
+        </div>
+        <footer class="timeout-modal-footer">
+          <el-button @click="packingTimeoutDialogOpen = false">{{ t("packingTimeout.close") }}</el-button>
+          <el-button @click="goPlannerStep('config'); packingTimeoutDialogOpen = false">{{ t("packingTimeout.adjust") }}</el-button>
+          <el-button type="primary" @click="packingTimeoutDialogOpen = false; recalculate()">{{ t("packingTimeout.retry") }}</el-button>
+        </footer>
       </div>
     </div>
     <div v-if="toast" class="toast">{{ toast }}</div>
@@ -845,6 +905,8 @@ const exportingReport = ref(false);
 const toast = ref("");
 const apiStatus = ref("本机计算");
 const decisionLogs = ref<any[]>([]);
+const packingTimeoutDialogOpen = ref(false);
+const packingTimeoutInfo = ref<any | null>(null);
 
 let timer = 0;
 let calcSeq = 0;
@@ -897,10 +959,45 @@ const decisionFlowSteps = computed(() => {
   currentLocale.value;
   return buildDecisionFlow(decisionLogs.value, loading.value);
 });
-const decisionFlowLatest = computed(() => {
+const decisionFlowCurrent = computed(() => {
   const latest = [...decisionLogs.value].reverse().find((item) => item?.level !== "detail" && item?.text);
-  return latest?.text || "";
+  return latest ? enrichDecisionLog(latest) : null;
 });
+const decisionBroadcastLogs = computed(() =>
+  [...decisionLogs.value]
+    .slice(-48)
+    .reverse()
+    .map(enrichDecisionLog)
+);
+const decisionLogTotal = computed(() => {
+  const latestIndex = Number(decisionFlowCurrent.value?.index || 0);
+  return Math.max(decisionLogs.value.length, latestIndex);
+});
+const packingTimeoutDetailRows = computed(() => {
+  const info = packingTimeoutInfo.value || {};
+  const workload = info.workload || packingWorkloadHint.value;
+  return [
+    { key: "elapsed", label: t("packingTimeout.elapsed"), value: Number.isFinite(info.elapsedSeconds) ? durationText(info.elapsedSeconds) : "-" },
+    { key: "timeout", label: t("packingTimeout.timeout"), value: Number.isFinite(info.timeoutSeconds) ? durationText(info.timeoutSeconds) : "-" },
+    { key: "cargo", label: t("packingTimeout.cargoScale"), value: t("packingTimeout.cargoScaleValue", { types: workload.typeCount || 0, pieces: workload.rawUnitCount || 0 }) },
+    { key: "containers", label: t("packingTimeout.containerScale"), value: t("packingTimeout.containerScaleValue", { count: workload.containerCount || containers.value.length || 0 }) },
+    { key: "records", label: t("packingTimeout.decisionRecords"), value: t("decisionFlow.recordTotal", { count: info.decisionCount || decisionLogTotal.value || 0 }) },
+    { key: "status", label: t("packingTimeout.currentStatus"), value: info.statusKey ? t(info.statusKey) : apiStatus.value || "-" }
+  ];
+});
+const packingTimeoutReason = computed(() => {
+  const workload = packingTimeoutInfo.value?.workload || packingWorkloadHint.value;
+  const base = [
+    tr(workload.detail || ""),
+    tr(workload.advice || "")
+  ].filter(Boolean).join(" ");
+  return base || t("packingTimeout.reasonFallback");
+});
+const packingTimeoutSuggestions = computed(() => [
+  t("packingTimeout.suggestionReduceContainers"),
+  t("packingTimeout.suggestionSplitCargo"),
+  t("packingTimeout.suggestionUsePartial")
+]);
 const containerSourceRows = computed(() =>
   containers.value.map((container: any) => ({
     ...container,
@@ -1134,6 +1231,7 @@ function handleMenuSelect(index) {
 async function recalculate() {
   if (!cargos.value.length || !containers.value.length) return;
   const seq = ++calcSeq;
+  const startedAt = Date.now();
   const workload = estimatePackingWorkload({
     cargos: cargos.value,
     containers: containers.value,
@@ -1145,6 +1243,7 @@ async function recalculate() {
   });
   loading.value = true;
   decisionLogs.value = [];
+  packingTimeoutDialogOpen.value = false;
   apiStatus.value = workload.seconds >= 20 ? `预计 ${workload.durationLabel}` : "正在计算";
   try {
     const nextResult = await calculatePacking({
@@ -1156,7 +1255,7 @@ async function recalculate() {
       nonStackSupportRatioPercent: nonStackSupportRatioPercent.value,
       balanceSettings: balanceSettings.value
     }, {
-      maxDecisionEntries: 80,
+      maxDecisionEntries: 220,
       decisionBatchSize: 8,
       onDecision(decisions) {
         if (seq !== calcSeq) return;
@@ -1176,8 +1275,14 @@ async function recalculate() {
     selectedContainerId.value = result.value.bestContainerId || result.value.evaluations[0]?.container.id || selectedContainerId.value;
     selectedBoxIndex.value = 1;
   } catch (error) {
+    if (seq !== calcSeq) return;
     apiStatus.value = "计算异常";
-    showToast(error.message || "本机计算失败，请检查货物参数。");
+    if (error?.code === "PACKING_TIMEOUT") {
+      apiStatus.value = t("packingTimeout.status");
+      openPackingTimeoutDialog(error, workload, startedAt);
+    } else {
+      showToast(error.message || "本机计算失败，请检查货物参数。");
+    }
   } finally {
     if (seq === calcSeq) loading.value = false;
   }
@@ -1193,11 +1298,57 @@ function appendDecisionLogs(decisions: any[]) {
     }))
     .filter((item) => item.text);
   if (!normalized.length) return;
-  decisionLogs.value = [...decisionLogs.value, ...normalized].slice(-80);
+  decisionLogs.value = [...decisionLogs.value, ...normalized].slice(-220);
 }
 
 function clearDecisionLogs() {
   decisionLogs.value = [];
+}
+
+function openPackingTimeoutDialog(error, workload, startedAt) {
+  const elapsedMs = Number(error?.elapsedMs || 0) || Math.max(0, Date.now() - startedAt);
+  const timeoutMs = Number(error?.timeoutMs || 0) || elapsedMs;
+  const lastDecision = decisionFlowCurrent.value;
+  packingTimeoutInfo.value = {
+    message: error?.message || t("packingTimeout.title"),
+    workload: error?.workload || workload,
+    elapsedSeconds: Math.ceil(elapsedMs / 1000),
+    timeoutSeconds: Math.ceil(timeoutMs / 1000),
+    decisionCount: decisionLogTotal.value,
+    lastDecision,
+    statusKey: result.value?.partial ? "packingTimeout.partialStatus" : "packingTimeout.noFinalStatus"
+  };
+  toast.value = "";
+  packingTimeoutDialogOpen.value = true;
+}
+
+function durationText(seconds) {
+  const value = Math.max(0, Math.ceil(Number(seconds || 0)));
+  currentLocale.value;
+  if (value < 60) return t("duration.secondsShort", { value });
+  const minutes = Math.floor(value / 60);
+  const rest = value % 60;
+  return rest
+    ? t("duration.minutesSecondsShort", { minutes, seconds: rest })
+    : t("duration.minutesShort", { minutes });
+}
+
+function enrichDecisionLog(item) {
+  const phaseKey = decisionPhaseKey(item?.phase);
+  return {
+    ...item,
+    phaseKey,
+    phaseLabel: t(`decisionFlow.steps.${phaseKey}.label`)
+  };
+}
+
+function decisionPhaseKey(phase) {
+  const normalized = String(phase || "search");
+  if (["layer", "placement"].includes(normalized)) return "layer";
+  if (["strategy", "search"].includes(normalized)) return "strategy";
+  return ["start", "prepare", "container", "repair", "box", "recommendation"].includes(normalized)
+    ? normalized
+    : "strategy";
 }
 
 function buildDecisionFlow(logs, isLoading) {
@@ -1212,12 +1363,15 @@ function buildDecisionFlow(logs, isLoading) {
     { key: "recommendation", index: "08" }
   ];
   const source = Array.isArray(logs) ? logs : [];
+  const latestPhaseKey = decisionPhaseKey([...source].reverse().find((item) => item?.text)?.phase);
   const firstPendingIndex = phases.findIndex((phase) => !source.some((item) => decisionPhaseMatches(item?.phase, phase.key)));
 
   return phases.map((phase, phaseIndex) => {
     const phaseLogs = source.filter((item) => decisionPhaseMatches(item?.phase, phase.key));
     const summaryLog = [...phaseLogs].reverse().find((item) => item?.level !== "detail") || phaseLogs[phaseLogs.length - 1];
-    const status = phaseLogs.length ? "done" : isLoading && phaseIndex === firstPendingIndex ? "active" : "idle";
+    const status = phaseLogs.length
+      ? (isLoading && latestPhaseKey === phase.key ? "active" : "done")
+      : (isLoading && phaseIndex === firstPendingIndex ? "active" : "idle");
     const description = t(`decisionFlow.steps.${phase.key}.description`);
     return {
       ...phase,

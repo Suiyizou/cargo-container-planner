@@ -25,6 +25,11 @@ export const messages = {
       lengthSuffix: " · 长度 {value}%",
       deckUtilizationWithLength: "甲板利用率 {value}%{length}"
     },
+    duration: {
+      secondsShort: "{value} 秒",
+      minutesShort: "{minutes} 分钟",
+      minutesSecondsShort: "{minutes} 分 {seconds} 秒"
+    },
     packingStatus: {
       commonReady: "常用箱型已出结果，特殊箱型补算中"
     },
@@ -98,12 +103,20 @@ export const messages = {
     },
     decisionFlow: {
       eyebrow: "决策流",
-      title: "装箱决策流程",
-      clear: "清空流程",
+      title: "装箱决策播报",
+      clear: "清空播报",
+      calculating: "计算中",
+      latest: "最近一次计算",
       waiting: "正在整理 Web Worker 决策流程...",
-      empty: "暂无流程数据，点击“重新计算”后会显示关键阶段。",
+      empty: "暂无流程数据，点击“重新计算”后会显示关键决策。",
+      broadcast: "决策关键流上下滚动播报",
       records: "条记录",
-      keySummary: "关键摘要",
+      recordCount: "{count} 条记录",
+      recordTotal: "共 {count} 条记录",
+      recordIndex: "第 {index} 条记录",
+      currentDecision: "当前执行决策",
+      progressTitle: "当前进度",
+      progressHint: "按阶段简要汇总",
       status: {
         done: "已完成",
         active: "进行中",
@@ -143,6 +156,32 @@ export const messages = {
           description: "按箱数、利用率和合规状态生成推荐"
         }
       }
+    },
+    packingTimeout: {
+      eyebrow: "本机计算未完成",
+      title: "装箱计算超时",
+      status: "本机计算超时",
+      lead: "浏览器本地 Worker 已达到本次计算等待上限，系统已停止继续占用本机算力；如已出现部分结果，可以先作为参考查看。",
+      elapsed: "已运行",
+      timeout: "等待上限",
+      cargoScale: "货物规模",
+      cargoScaleValue: "{types} 类 / {pieces} 件",
+      containerScale: "箱型规模",
+      containerScaleValue: "{count} 个箱型",
+      decisionRecords: "决策记录",
+      currentStatus: "当前状态",
+      partialStatus: "部分结果可用",
+      noFinalStatus: "未生成最终推荐",
+      reasonTitle: "可能原因",
+      reasonFallback: "本次货物或箱型组合较复杂，Worker 未能在前端等待时间内完成所有箱型和策略搜索。",
+      lastDecisionTitle: "最后执行到",
+      suggestionTitle: "建议处理",
+      suggestionReduceContainers: "先减少参与计算的箱型数量，优先保留实际订舱候选箱型。",
+      suggestionSplitCargo: "将大票货物按项目、目的港或装箱批次拆分后分别计算。",
+      suggestionUsePartial: "如果页面已有常用箱型阶段结果，可先查看部分方案，再决定是否继续补算特殊箱型。",
+      close: "关闭",
+      adjust: "返回调整",
+      retry: "重新计算"
     }
   },
   "en-US": {
@@ -162,6 +201,11 @@ export const messages = {
       lengthPercent: "Length {value}%",
       lengthSuffix: " · Length {value}%",
       deckUtilizationWithLength: "Deck utilization {value}%{length}"
+    },
+    duration: {
+      secondsShort: "{value}s",
+      minutesShort: "{minutes}m",
+      minutesSecondsShort: "{minutes}m {seconds}s"
     },
     packingStatus: {
       commonReady: "Common containers ready, special containers still running"
@@ -241,12 +285,20 @@ export const messages = {
     },
     decisionFlow: {
       eyebrow: "Decision Flow",
-      title: "Packing Decision Flow",
-      clear: "Clear Flow",
+      title: "Packing Decision Broadcast",
+      clear: "Clear Broadcast",
+      calculating: "Calculating",
+      latest: "Latest Calculation",
       waiting: "Building the worker decision flow...",
-      empty: "No flow data yet. Click Recalculate to show key stages.",
+      empty: "No flow data yet. Click Recalculate to show key decisions.",
+      broadcast: "Vertical key-decision broadcast",
       records: "records",
-      keySummary: "Key Summary",
+      recordCount: "{count} records",
+      recordTotal: "{count} records total",
+      recordIndex: "Record {index}",
+      currentDecision: "Current Decision",
+      progressTitle: "Current Progress",
+      progressHint: "Compact stage summary",
       status: {
         done: "Done",
         active: "Running",
@@ -286,6 +338,32 @@ export const messages = {
           description: "Rank by box count, utilization, and compliance status"
         }
       }
+    },
+    packingTimeout: {
+      eyebrow: "Local Calculation Incomplete",
+      title: "Packing Calculation Timed Out",
+      status: "Local calculation timed out",
+      lead: "The browser Web Worker reached the waiting limit for this calculation, so the app stopped using local compute. If partial results are already shown, you can review them as a reference.",
+      elapsed: "Elapsed",
+      timeout: "Wait Limit",
+      cargoScale: "Cargo Scale",
+      cargoScaleValue: "{types} types / {pieces} pcs",
+      containerScale: "Container Scale",
+      containerScaleValue: "{count} container types",
+      decisionRecords: "Decision Records",
+      currentStatus: "Current Status",
+      partialStatus: "Partial results available",
+      noFinalStatus: "No final recommendation",
+      reasonTitle: "Likely Reason",
+      reasonFallback: "This cargo/container combination is complex, and the Worker did not finish all container and strategy searches within the frontend wait limit.",
+      lastDecisionTitle: "Last Reached Step",
+      suggestionTitle: "Suggested Next Steps",
+      suggestionReduceContainers: "Reduce the container types included in the calculation and keep only realistic booking candidates first.",
+      suggestionSplitCargo: "Split large shipments by project, destination, or loading batch before recalculating.",
+      suggestionUsePartial: "If common-container stage results are already visible, review the partial plan before deciding whether to continue special-container calculation.",
+      close: "Close",
+      adjust: "Adjust Setup",
+      retry: "Recalculate"
     }
   }
 };
