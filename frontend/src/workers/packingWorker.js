@@ -15,9 +15,11 @@ const GROUPING_MIN_TOTAL_UNITS = 120;
 const GROUPING_MIN_CARGO_QUANTITY = 24;
 const GROUPING_MAX_BLOCK_QUANTITY = 4;
 const NON_STACK_TOP_LAYER_CANDIDATES = 16;
-const LOWER_GAP_SWAP_MAX_BLUE_MOVERS = 24;
+const LOWER_GAP_SWAP_MAX_EDGE_MOVERS = 24;
 const LOWER_GAP_SWAP_MAX_LATE_MOVERS = 3;
 const LOWER_GAP_SWAP_MIN_DROP_CM = 5;
+const EDGE_ORIENTATION_REPACK_MAX_CANDIDATES = 6;
+const EDGE_ORIENTATION_REPACK_MAX_BAND_ROWS = 6;
 const MIXED_PLAN_MAX_SOLVER_UNITS = 120;
 const BALANCE_GREEN_LIMIT_PERCENT = 2.5;
 const BALANCE_RED_LIMIT_PERCENT = 5;
@@ -772,9 +774,9 @@ function packContainer(container, units) {
   if (baseBest?.placed?.length) {
     const bestStrategy = strategyById(baseBest.strategyId);
     let gapSwapped = optimizeLowerGapSwaps(stackableContainer, baseBest, bestStrategy);
-    gapSwapped = optimizeBlueSideRows(stackableContainer, gapSwapped, bestStrategy);
+    gapSwapped = optimizeEdgeOrientationRows(stackableContainer, gapSwapped, bestStrategy);
     gapSwapped = optimizeLowerGapSwaps(stackableContainer, gapSwapped, bestStrategy);
-    gapSwapped = optimizeBlueSideRows(stackableContainer, gapSwapped, bestStrategy);
+    gapSwapped = optimizeEdgeOrientationRows(stackableContainer, gapSwapped, bestStrategy);
     if (gapSwapped !== baseBest) {
       const finalGapSwapped = finalizeWithDeferredNonStack(container, gapSwapped, nonStack, bestStrategy, rejectedByBalance);
       if (finalGapSwapped.balanceValidation?.severity === "red") rejectedByBalance += 1;
@@ -782,7 +784,7 @@ function packContainer(container, units) {
       traceDecision({
         phase: "repair",
         level: "summary",
-        text: `${container.name} - ${bestStrategy.id}: lower-gap swap moved ${gapSwapped.strategySummary?.lowerGapSwapCount || 0} blue pcs down and lifted ${gapSwapped.strategySummary?.lowerGapSwapLiftedCount || 0} late pcs.`
+        text: `${container.name} - ${bestStrategy.id}: lower-gap swap moved ${gapSwapped.strategySummary?.lowerGapSwapCount || 0} edge pcs down and lifted ${gapSwapped.strategySummary?.lowerGapSwapLiftedCount || 0} late pcs.`
       });
     }
   }
@@ -799,9 +801,9 @@ function packContainer(container, units) {
       refined = repairWithLocalSearch(stackableContainer, refined, orderUnits(refined.unplaced.map(stripPlacement), bestStrategy.unitOrder), bestStrategy);
     }
     refined = optimizeLowerGapSwaps(stackableContainer, refined, bestStrategy);
-    refined = optimizeBlueSideRows(stackableContainer, refined, bestStrategy);
+    refined = optimizeEdgeOrientationRows(stackableContainer, refined, bestStrategy);
     refined = optimizeLowerGapSwaps(stackableContainer, refined, bestStrategy);
-    refined = optimizeBlueSideRows(stackableContainer, refined, bestStrategy);
+    refined = optimizeEdgeOrientationRows(stackableContainer, refined, bestStrategy);
     const finalRefined = finalizeWithDeferredNonStack(container, refined, nonStack, bestStrategy, rejectedByBalance);
     if (finalRefined.balanceValidation?.severity === "red") rejectedByBalance += 1;
     attempts.push(finalRefined);
@@ -1292,22 +1294,22 @@ function optimizeLowerGapSwaps(container, attempt, strategy) {
   if (!attempt?.placed?.length) return attempt;
   const sourceAttempt = expandAttemptPlacementsForFineTuning(container, attempt);
   const placed = sourceAttempt.placed.map(copyUnit);
-  const blueCandidates = lowerGapBlueCandidates(container, placed);
-  if (!blueCandidates.length) return attempt;
+  const moverCandidates = lowerGapMoverCandidates(container, placed);
+  if (!moverCandidates.length) return attempt;
 
-  const lateCandidates = lowerGapLateCandidates(container, placed, blueCandidates);
-  const maxBlue = Math.min(LOWER_GAP_SWAP_MAX_BLUE_MOVERS, blueCandidates.length);
+  const lateCandidates = lowerGapLateCandidates(container, placed, moverCandidates);
+  const maxMover = Math.min(LOWER_GAP_SWAP_MAX_EDGE_MOVERS, moverCandidates.length);
   const maxLate = Math.min(LOWER_GAP_SWAP_MAX_LATE_MOVERS, lateCandidates.length);
   let best = cloneAttempt(sourceAttempt);
 
   for (let lateCount = 0; lateCount <= maxLate; lateCount += 1) {
-    const blueLimit = Math.min(maxBlue, lateCount ? LOWER_GAP_SWAP_MAX_BLUE_MOVERS : 4);
-    for (let blueCount = 1; blueCount <= blueLimit; blueCount += 1) {
+    const moverLimit = Math.min(maxMover, lateCount ? LOWER_GAP_SWAP_MAX_EDGE_MOVERS : 4);
+    for (let moverCount = 1; moverCount <= moverLimit; moverCount += 1) {
       const candidate = buildLowerGapSwapAttempt(
         container,
         sourceAttempt,
         strategy,
-        blueCandidates.slice(0, blueCount),
+        moverCandidates.slice(0, moverCount),
         lateCandidates.slice(0, lateCount)
       );
       if (candidate && isLowerGapSwapBetter(container, candidate, best)) {
@@ -1324,7 +1326,7 @@ function optimizeLowerGapSwaps(container, attempt, strategy) {
 function expandAttemptPlacementsForFineTuning(container, attempt) {
   if (!attempt?.placed?.some((unit) => unitQuantity(unit) > 1)) return attempt;
   const placed = expandGroupedPlacements(attempt.placed).map((unit) => (
-    isBlueLikeCargo(unit) && !unit.nonStack
+    isEdgeRepackCargo(unit)
       ? { ...unit, supportRatioOverride: unit.supportRatioOverride ?? lowerGapSwapSupportRatio(container, unit) }
       : unit
   ));
@@ -1337,14 +1339,14 @@ function expandAttemptPlacementsForFineTuning(container, attempt) {
   });
 }
 
-function lowerGapBlueCandidates(container, placed) {
+function lowerGapMoverCandidates(container, placed) {
   const top = maxTop(placed);
   const heightLimit = containerHeightLimit(container);
   const minTop = Math.max(top - 90, heightLimit * 0.45);
   return placed
     .filter((unit) =>
       !unit.nonStack
-      && isBlueLikeCargo(unit)
+      && isEdgeRepackCargo(unit)
       && unit.z + unit.heightCm >= minTop - EPS
       && !hasAnyBoxInColumnAbove(unit, placed)
     )
@@ -1355,19 +1357,19 @@ function lowerGapBlueCandidates(container, placed) {
     });
 }
 
-function lowerGapLateCandidates(container, placed, blueCandidates) {
-  const highestBlueBottom = Math.max(...blueCandidates.map((unit) => Number(unit.z || 0)));
-  const blueWeights = blueCandidates.map((unit) => Number(unit.weightKg || 0)).filter((weight) => weight > 0);
-  const averageBlueWeight = blueWeights.length
-    ? blueWeights.reduce((sum, weight) => sum + weight, 0) / blueWeights.length
+function lowerGapLateCandidates(container, placed, moverCandidates) {
+  const highestMoverBottom = Math.max(...moverCandidates.map((unit) => Number(unit.z || 0)));
+  const moverWeights = moverCandidates.map((unit) => Number(unit.weightKg || 0)).filter((weight) => weight > 0);
+  const averageMoverWeight = moverWeights.length
+    ? moverWeights.reduce((sum, weight) => sum + weight, 0) / moverWeights.length
     : Infinity;
 
   return placed
     .filter((unit) => {
-      if (unit.nonStack || isBlueLikeCargo(unit)) return false;
+      if (unit.nonStack || isEdgeRepackCargo(unit)) return false;
       if (hasAnyBoxInColumnAbove(unit, placed)) return false;
-      if (Number(unit.z || 0) >= highestBlueBottom - LOWER_GAP_SWAP_MIN_DROP_CM) return false;
-      if (unit.isHeavy && Number(unit.weightKg || 0) > averageBlueWeight * 1.5) return false;
+      if (Number(unit.z || 0) >= highestMoverBottom - LOWER_GAP_SWAP_MIN_DROP_CM) return false;
+      if (unit.isHeavy && Number(unit.weightKg || 0) > averageMoverWeight * 1.5) return false;
       if (unitQuantity(unit) > 2) return false;
       return fitsContainerDims(container, unit);
     })
@@ -1378,12 +1380,12 @@ function lowerGapLateCandidates(container, placed, blueCandidates) {
     });
 }
 
-function buildLowerGapSwapAttempt(container, attempt, strategy, blueMovers, lateMovers) {
-  if (!blueMovers.length) return null;
+function buildLowerGapSwapAttempt(container, attempt, strategy, edgeMovers, lateMovers) {
+  if (!edgeMovers.length) return null;
   const originalByKey = new Map(attempt.placed.map((unit) => [unit.unitKey, unit]));
   const lateKeys = new Set(lateMovers.map((unit) => unit.unitKey));
   const removedKeys = new Set([
-    ...blueMovers.map((unit) => unit.unitKey),
+    ...edgeMovers.map((unit) => unit.unitKey),
     ...lateMovers.map((unit) => unit.unitKey)
   ]);
   const placed = attempt.placed
@@ -1393,7 +1395,7 @@ function buildLowerGapSwapAttempt(container, attempt, strategy, blueMovers, late
   let movedCount = 0;
   let movedDepthCm = 0;
 
-  for (const unit of orderUnits(blueMovers.map(stripPlacement), "small-vertical")) {
+  for (const unit of orderUnits(edgeMovers.map(stripPlacement), "small-vertical")) {
     const original = originalByKey.get(unit.unitKey);
     const supportRatio = lowerGapSwapSupportRatio(container, unit);
     const placement = packExtremePoint(container, placed, unit, strategy, { supportRatio });
@@ -1450,19 +1452,31 @@ function isLowerGapSwapBetter(container, candidate, best) {
   return Number(candidate.strategySummary?.lowerGapSwapDepthCm || 0) > Number(best.strategySummary?.lowerGapSwapDepthCm || 0) + EPS;
 }
 
-function isBlueLikeCargo(unit) {
-  const text = `${unit.name || ""} ${unit.baseName || ""} ${unit.model || ""}`.toLowerCase();
-  return String(unit.color || "").toLowerCase() === "#3b82f6" || /\bblue\b/.test(text);
+function isEdgeRepackCargo(unit) {
+  if (!unit || unit.nonStack || !unit.rotatable) return false;
+  const length = Number(unit.lengthCm || unit.packedLengthCm || 0);
+  const width = Number(unit.widthCm || unit.packedWidthCm || 0);
+  return length > EPS && width > EPS && Math.abs(length - width) > EPS;
 }
 
-function optimizeBlueSideRows(container, attempt, strategy) {
+function sameRepackCargo(a, b) {
+  if (!a || !b) return false;
+  return a.cargoId === b.cargoId
+    && a.type === b.type
+    && Math.abs(singleRawLengthCm(a) - singleRawLengthCm(b)) < EPS
+    && Math.abs(singleRawWidthCm(a) - singleRawWidthCm(b)) < EPS
+    && Math.abs(singleRawHeightCm(a) - singleRawHeightCm(b)) < EPS
+    && Math.abs(Number(a.gapCm || 0) - Number(b.gapCm || 0)) < EPS;
+}
+
+function optimizeEdgeOrientationRows(container, attempt, strategy) {
   if (!attempt?.placed?.length) return attempt;
   const sourceAttempt = expandAttemptPlacementsForFineTuning(container, attempt);
   let current = cloneAttempt(sourceAttempt);
   let movedTotal = 0;
 
-  for (let pass = 0; pass < 6; pass += 1) {
-    const candidate = buildBestBlueSideRowRepack(container, current, strategy);
+  for (let pass = 0; pass < 4; pass += 1) {
+    const candidate = buildBestEdgeOrientationRepack(container, current, strategy);
     if (!candidate) break;
     movedTotal += candidate.changedCount;
     current = makePackedBox(candidate.placed, current.unplaced.map(stripPlacement), {
@@ -1470,7 +1484,7 @@ function optimizeBlueSideRows(container, attempt, strategy) {
       name: current.strategyName
     }, {
       ...(current.strategySummary || {}),
-      blueSideRowRepackCount: Number(current.strategySummary?.blueSideRowRepackCount || 0) + candidate.changedCount,
+      edgeOrientationRepackCount: Number(current.strategySummary?.edgeOrientationRepackCount || current.strategySummary?.blueSideRowRepackCount || 0) + candidate.changedCount,
       layerCount: countLayers(candidate.placed)
     });
   }
@@ -1478,28 +1492,37 @@ function optimizeBlueSideRows(container, attempt, strategy) {
   return movedTotal ? current : attempt;
 }
 
-function buildBestBlueSideRowRepack(container, attempt, strategy) {
+function buildBestEdgeOrientationRepack(container, attempt, strategy) {
+  let bestMixed = null;
+  for (const band of mixedEdgeOrientationBands(container, attempt.placed)) {
+    const candidate = buildMixedEdgeOrientationBandCandidate(container, attempt.placed, band, strategy);
+    if (!candidate) continue;
+    if (!bestMixed || candidate.score > bestMixed.score + EPS) bestMixed = candidate;
+  }
+  if (bestMixed) return bestMixed;
+
   let best = null;
-  for (const row of blueSideRows(container, attempt.placed)) {
-    const candidate = buildBlueSideRowCandidate(container, attempt.placed, row, strategy);
+  for (const row of edgeOrientationRows(container, attempt.placed)) {
+    const candidate = buildEdgeOrientationRowCandidate(container, attempt.placed, row, strategy);
     if (!candidate) continue;
     if (!best || candidate.score > best.score + EPS) best = candidate;
   }
-  for (const band of blueSideBands(container, attempt.placed)) {
-    const candidate = buildBlueSideBandCandidate(container, attempt.placed, band, strategy);
+  for (const band of edgeOrientationBands(container, attempt.placed)) {
+    const candidate = buildEdgeOrientationBandCandidate(container, attempt.placed, band, strategy);
     if (!candidate) continue;
     if (!best || candidate.score > best.score + EPS) best = candidate;
   }
   return best;
 }
 
-function blueSideRows(container, placed) {
+function collectEdgeOrientationRows(placed) {
   const groups = new Map();
   for (const unit of placed) {
-    if (!isBlueLikeCargo(unit) || unit.nonStack) continue;
+    if (!isEdgeRepackCargo(unit)) continue;
     if (Number(unit.lengthCm || 0) <= Number(unit.widthCm || 0) + EPS) continue;
-    if (Number(unit.y || 0) + Number(unit.lengthCm || 0) > Number(container.widthCm || 0) + EPS) continue;
     const key = [
+      unit.cargoId || "",
+      unit.type || "",
       round3(unit.z),
       round3(unit.y),
       round3(unit.lengthCm),
@@ -1513,38 +1536,53 @@ function blueSideRows(container, placed) {
   return [...groups.values()]
     .map((units) => {
       const sample = units[0];
-      const targetLength = Number(sample.widthCm || 0);
-      const targetWidth = Number(sample.lengthCm || 0);
-      const minX = Math.min(...units.map((unit) => Number(unit.x || 0)));
-      const capacity = Math.floor((Number(container.lengthCm || 0) - minX + EPS) / Math.max(1, targetLength));
       return {
         units: [...units].sort((a, b) => Number(a.x || 0) - Number(b.x || 0)),
+        sample,
         z: Number(sample.z || 0),
         y: Number(sample.y || 0),
+        width: Number(sample.widthCm || 0),
+        length: Number(sample.lengthCm || 0),
         height: Number(sample.heightCm || 0),
-        targetLength,
-        targetWidth,
-        minX,
+        normalLength: Number(sample.lengthCm || 0),
+        normalWidth: Number(sample.widthCm || 0),
+        rotatedLength: Number(sample.widthCm || 0),
+        rotatedWidth: Number(sample.lengthCm || 0),
+        minX: Math.min(...units.map((unit) => Number(unit.x || 0)))
+      };
+    });
+}
+
+function edgeOrientationRows(container, placed) {
+  return collectEdgeOrientationRows(placed)
+    .map((row) => {
+      const capacity = Math.floor((Number(container.lengthCm || 0) - row.minX + EPS) / Math.max(1, row.rotatedLength));
+      return {
+        ...row,
+        targetLength: row.rotatedLength,
+        targetWidth: row.rotatedWidth,
         capacity,
-        extraSlots: capacity - units.length
+        extraSlots: capacity - row.units.length
       };
     })
     .filter((row) =>
       row.units.length >= 3
       && row.extraSlots > 0
       && row.y + row.targetWidth <= Number(container.widthCm || 0) + EPS
-      && !hasBlueRowOverlapAfterRotate(row, placed)
+      && isTrailingWidthEdge(container, row.y, row.targetWidth)
+      && !hasEdgeRowOverlapAfterRotate(row, placed)
     )
     .sort((a, b) => {
       if (b.extraSlots !== a.extraSlots) return b.extraSlots - a.extraSlots;
       if (Math.abs(a.z - b.z) > EPS) return a.z - b.z;
       return b.y - a.y;
-    });
+    })
+    .slice(0, EDGE_ORIENTATION_REPACK_MAX_CANDIDATES);
 }
 
-function hasBlueRowOverlapAfterRotate(row, placed) {
+function hasEdgeRowOverlapAfterRotate(row, placed) {
   return placed.some((unit) => {
-    if (!isBlueLikeCargo(unit) || unit.nonStack) return false;
+    if (!isEdgeRepackCargo(unit)) return false;
     if (row.units.some((rowUnit) => rowUnit.unitKey === unit.unitKey)) return false;
     if (Math.abs(Number(unit.z || 0) - row.z) > EPS) return false;
     if (Number(unit.y || 0) >= row.y + row.targetWidth - EPS) return false;
@@ -1553,39 +1591,14 @@ function hasBlueRowOverlapAfterRotate(row, placed) {
   });
 }
 
-function blueSideBands(container, placed) {
-  const rowGroups = new Map();
-  for (const unit of placed) {
-    if (!isBlueLikeCargo(unit) || unit.nonStack) continue;
-    if (Number(unit.lengthCm || 0) <= Number(unit.widthCm || 0) + EPS) continue;
-    if (Number(unit.y || 0) + Number(unit.lengthCm || 0) > Number(container.widthCm || 0) + EPS) continue;
-    const key = [
-      round3(unit.z),
-      round3(unit.y),
-      round3(unit.lengthCm),
-      round3(unit.widthCm),
-      round3(unit.heightCm)
-    ].join("/");
-    if (!rowGroups.has(key)) rowGroups.set(key, []);
-    rowGroups.get(key).push(unit);
-  }
+function isTrailingWidthEdge(container, y, width) {
+  const outerGap = Number(container.widthCm || 0) - (Number(y || 0) + Number(width || 0));
+  return outerGap <= Math.max(12, Number(width || 0) * 0.25) + EPS;
+}
 
-  const rows = [...rowGroups.values()]
-    .map((units) => {
-      const sample = units[0];
-      return {
-        units: [...units].sort((a, b) => Number(a.x || 0) - Number(b.x || 0)),
-        z: Number(sample.z || 0),
-        y: Number(sample.y || 0),
-        width: Number(sample.widthCm || 0),
-        length: Number(sample.lengthCm || 0),
-        height: Number(sample.heightCm || 0),
-        targetLength: Number(sample.widthCm || 0),
-        targetWidth: Number(sample.lengthCm || 0),
-        minX: Math.min(...units.map((unit) => Number(unit.x || 0)))
-      };
-    })
-    .filter((row) => row.units.length >= 3 && row.y + row.targetWidth <= Number(container.widthCm || 0) + EPS)
+function edgeOrientationBands(container, placed) {
+  const rows = collectEdgeOrientationRows(placed)
+    .filter((row) => row.units.length >= 3 && row.y + row.rotatedWidth <= Number(container.widthCm || 0) + EPS)
     .sort((a, b) => {
       const zDiff = a.z - b.z;
       if (Math.abs(zDiff) > EPS) return zDiff;
@@ -1596,21 +1609,23 @@ function blueSideBands(container, placed) {
   for (let start = 0; start < rows.length; start += 1) {
     const bandRows = [rows[start]];
     for (let end = start + 1; end < rows.length; end += 1) {
+      if (end - start + 1 > EDGE_ORIENTATION_REPACK_MAX_BAND_ROWS) break;
       const previous = bandRows[bandRows.length - 1];
       const next = rows[end];
-      if (!sameBlueBandShape(previous, next)) break;
+      if (!sameEdgeBandShape(previous, next)) break;
       if (Math.abs(next.y - (previous.y + previous.width)) > EPS) break;
       bandRows.push(next);
       const minX = Math.min(...bandRows.map((row) => row.minX));
-      const capacity = Math.floor((Number(container.lengthCm || 0) - minX + EPS) / Math.max(1, rows[start].targetLength));
+      const capacity = Math.floor((Number(container.lengthCm || 0) - minX + EPS) / Math.max(1, rows[start].rotatedLength));
       if (capacity <= 0) continue;
       const units = bandRows.flatMap((row) => row.units);
       const targetRows = Math.ceil(units.length / capacity);
       const extraSlots = targetRows * capacity - units.length;
       const originalWidth = bandRows.reduce((sum, row) => sum + row.width, 0);
-      const targetWidth = targetRows * rows[start].targetWidth;
+      const targetWidth = targetRows * rows[start].rotatedWidth;
       if (targetRows >= bandRows.length && targetWidth >= originalWidth - EPS && extraSlots <= 0) continue;
       if (rows[start].y + targetWidth > Number(container.widthCm || 0) + EPS) continue;
+      if (!isTrailingWidthEdge(container, rows[start].y, targetWidth)) continue;
       bands.push({
         rows: bandRows.map((row) => ({ ...row, units: [...row.units] })),
         units: [...units].sort((a, b) => {
@@ -1621,8 +1636,8 @@ function blueSideBands(container, placed) {
         z: rows[start].z,
         y: rows[start].y,
         height: rows[start].height,
-        targetLength: rows[start].targetLength,
-        targetWidth: rows[start].targetWidth,
+        targetLength: rows[start].rotatedLength,
+        targetWidth: rows[start].rotatedWidth,
         minX,
         capacity,
         targetRows,
@@ -1637,24 +1652,124 @@ function blueSideBands(container, placed) {
     if (b.extraSlots !== a.extraSlots) return b.extraSlots - a.extraSlots;
     if (Math.abs(b.z - a.z) > EPS) return b.z - a.z;
     return b.y - a.y;
+  }).slice(0, EDGE_ORIENTATION_REPACK_MAX_CANDIDATES);
+}
+
+function mixedEdgeOrientationBands(container, placed) {
+  const rows = collectEdgeOrientationRows(placed)
+    .filter((row) => row.units.length >= 3)
+    .sort((a, b) => {
+      const zDiff = a.z - b.z;
+      if (Math.abs(zDiff) > EPS) return zDiff;
+      return a.y - b.y;
+    });
+
+  const bands = [];
+  for (let start = 0; start < rows.length; start += 1) {
+    const bandRows = [rows[start]];
+    for (let end = start + 1; end < rows.length; end += 1) {
+      if (end - start + 1 > EDGE_ORIENTATION_REPACK_MAX_BAND_ROWS) break;
+      const previous = bandRows[bandRows.length - 1];
+      const next = rows[end];
+      if (!sameEdgeBandShape(previous, next)) break;
+      if (Math.abs(next.y - (previous.y + previous.width)) > EPS) break;
+      bandRows.push(next);
+      const minX = Math.min(...bandRows.map((row) => row.minX));
+      const pattern = bestMixedEdgePattern(container, bandRows, minX);
+      if (!pattern) continue;
+      const units = bandRows.flatMap((row) => row.units);
+      bands.push({
+        rows: bandRows.map((row) => ({ ...row, units: [...row.units] })),
+        units: [...units].sort((a, b) => {
+          const yDiff = Number(a.y || 0) - Number(b.y || 0);
+          if (Math.abs(yDiff) > EPS) return yDiff;
+          return Number(a.x || 0) - Number(b.x || 0);
+        }),
+        z: rows[start].z,
+        y: rows[start].y,
+        height: rows[start].height,
+        normalLength: rows[start].normalLength,
+        normalWidth: rows[start].normalWidth,
+        rotatedLength: rows[start].rotatedLength,
+        rotatedWidth: rows[start].rotatedWidth,
+        minX,
+        ...pattern
+      });
+    }
+  }
+
+  return bands.sort((a, b) => {
+    if (b.extraSlots !== a.extraSlots) return b.extraSlots - a.extraSlots;
+    if (b.capacity !== a.capacity) return b.capacity - a.capacity;
+    if (Math.abs(b.z - a.z) > EPS) return b.z - a.z;
+    return b.y - a.y;
+  }).slice(0, EDGE_ORIENTATION_REPACK_MAX_CANDIDATES);
+}
+
+function bestMixedEdgePattern(container, rows, minX) {
+  const sample = rows[0];
+  return bestMixedPatternForCount(container, {
+    y: sample.y,
+    minX,
+    unitCount: rows.reduce((sum, row) => sum + row.units.length, 0),
+    normalLength: sample.normalLength,
+    normalWidth: sample.normalWidth,
+    rotatedLength: sample.rotatedLength,
+    rotatedWidth: sample.rotatedWidth,
+    maxRows: rows.length
   });
 }
 
-function sameBlueBandShape(a, b) {
+function bestMixedPatternForCount(container, options) {
+  const availableWidth = Number(container.widthCm || 0) - Number(options.y || 0);
+  const normalCapacity = Math.floor((Number(container.lengthCm || 0) - options.minX + EPS) / Math.max(1, options.normalLength));
+  const rotatedCapacity = Math.floor((Number(container.lengthCm || 0) - options.minX + EPS) / Math.max(1, options.rotatedLength));
+  if (normalCapacity <= 0 || rotatedCapacity <= 0) return null;
+
+  const unitCount = Number(options.unitCount || 0);
+  let best = null;
+  for (let normalRows = 1; normalRows <= Number(options.maxRows || 0); normalRows += 1) {
+    const rotatedRows = 1;
+    if (normalRows + rotatedRows > Number(options.maxRows || 0)) continue;
+    {
+      const usedWidth = normalRows * options.normalWidth + rotatedRows * options.rotatedWidth;
+      if (usedWidth > availableWidth + EPS) continue;
+      if (!isTrailingWidthEdge(container, options.y, usedWidth)) continue;
+      const capacity = normalRows * normalCapacity + rotatedRows * rotatedCapacity;
+      const extraSlots = capacity - unitCount;
+      if (extraSlots <= 0) continue;
+      const score = extraSlots * 100000 + capacity * 1000 - usedWidth;
+      if (!best || score > best.score + EPS) {
+        best = {
+          normalRows,
+          rotatedRows,
+          normalCapacity,
+          rotatedCapacity,
+          capacity,
+          extraSlots,
+          usedWidth,
+          score
+        };
+      }
+    }
+  }
+  return best;
+}
+
+function sameEdgeBandShape(a, b) {
   return Math.abs(a.z - b.z) < EPS
     && Math.abs(a.length - b.length) < EPS
     && Math.abs(a.width - b.width) < EPS
     && Math.abs(a.height - b.height) < EPS
-    && Math.abs(a.targetLength - b.targetLength) < EPS
-    && Math.abs(a.targetWidth - b.targetWidth) < EPS;
+    && sameRepackCargo(a.sample, b.sample);
 }
 
-function buildBlueSideRowCandidate(container, placed, row, strategy) {
+function buildEdgeOrientationRowCandidate(container, placed, row, strategy) {
   const rowKeys = new Set(row.units.map((unit) => unit.unitKey));
   const extras = placed
     .filter((unit) =>
-      isBlueLikeCargo(unit)
-      && !unit.nonStack
+      isEdgeRepackCargo(unit)
+      && sameRepackCargo(unit, row.sample)
       && !rowKeys.has(unit.unitKey)
       && !hasAnyBoxInColumnAbove(unit, placed)
       && Number(unit.z || 0) > row.z + LOWER_GAP_SWAP_MIN_DROP_CM
@@ -1709,12 +1824,12 @@ function buildBlueSideRowCandidate(container, placed, row, strategy) {
   };
 }
 
-function buildBlueSideBandCandidate(container, placed, band, strategy) {
+function buildEdgeOrientationBandCandidate(container, placed, band, strategy) {
   const bandKeys = new Set(band.units.map((unit) => unit.unitKey));
   const extras = placed
     .filter((unit) =>
-      isBlueLikeCargo(unit)
-      && !unit.nonStack
+      isEdgeRepackCargo(unit)
+      && sameRepackCargo(unit, band.units[0])
       && !bandKeys.has(unit.unitKey)
       && !hasAnyBoxInColumnAbove(unit, placed)
       && Number(unit.z || 0) > band.z + LOWER_GAP_SWAP_MIN_DROP_CM
@@ -1771,6 +1886,77 @@ function buildBlueSideBandCandidate(container, placed, band, strategy) {
   };
 }
 
+function buildMixedEdgeOrientationBandCandidate(container, placed, band, strategy) {
+  const bandKeys = new Set(band.units.map((unit) => unit.unitKey));
+  const extras = placed
+    .filter((unit) =>
+      isEdgeRepackCargo(unit)
+      && sameRepackCargo(unit, band.units[0])
+      && !bandKeys.has(unit.unitKey)
+      && !hasAnyBoxInColumnAbove(unit, placed)
+      && Number(unit.z || 0) > band.z + LOWER_GAP_SWAP_MIN_DROP_CM
+      && orientationForDims(unit, band.rotatedLength, band.rotatedWidth, band.height)
+    )
+    .sort((a, b) => {
+      const topDiff = (b.z + b.heightCm) - (a.z + a.heightCm);
+      if (Math.abs(topDiff) > EPS) return topDiff;
+      return Number(a.x || 0) - Number(b.x || 0);
+    });
+  const extraCandidates = extras.slice(0, Math.max(0, band.extraSlots));
+  const moving = [...band.units, ...extraCandidates];
+  const movingKeys = new Set(moving.map((unit) => unit.unitKey));
+  const nextPlaced = placed
+    .filter((unit) => !movingKeys.has(unit.unitKey))
+    .map(copyUnit);
+  const supportRatio = lowerGapSwapSupportRatio(container, band.units[0]);
+  const moved = [];
+  const normalSlots = band.normalRows * band.normalCapacity;
+
+  for (let index = 0; index < moving.length; index += 1) {
+    const source = moving[index];
+    const unit = stripPlacement(source);
+    const inNormalRows = index < normalSlots;
+    const lengthCm = inNormalRows ? band.normalLength : band.rotatedLength;
+    const widthCm = inNormalRows ? band.normalWidth : band.rotatedWidth;
+    const orientation = orientationForDims(unit, lengthCm, widthCm, band.height);
+    if (!orientation) return null;
+    const localIndex = inNormalRows ? index : index - normalSlots;
+    const rowCapacity = inNormalRows ? band.normalCapacity : band.rotatedCapacity;
+    const rowIndex = Math.floor(localIndex / rowCapacity);
+    const columnIndex = localIndex % rowCapacity;
+    const rowY = inNormalRows
+      ? band.y + rowIndex * band.normalWidth
+      : band.y + band.normalRows * band.normalWidth + rowIndex * band.rotatedWidth;
+    const placement = {
+      ...orientation,
+      x: round3(band.minX + columnIndex * lengthCm),
+      y: round3(rowY),
+      z: round3(band.z)
+    };
+    const validation = validatePlacement(container, nextPlaced, unit, placement, supportRatio);
+    if (!validation.valid) {
+      if (index >= band.units.length) {
+        nextPlaced.push(...moving.slice(index).map(copyUnit));
+        break;
+      }
+      return null;
+    }
+    nextPlaced.push({ ...applyPlacement(unit, placement), supportRatioOverride: supportRatio });
+    if (index >= band.units.length) moved.push(source);
+  }
+
+  const finalValidation = validateAllPlacementsDetailed(container, nextPlaced);
+  if (!finalValidation.valid) return null;
+  const movedDepth = moved.reduce((sum, unit) => sum + (Number(unit.z || 0) - band.z) * unitQuantity(unit), 0);
+  const compactedCount = sumUnitQuantity(band.units);
+  return {
+    placed: nextPlaced,
+    movedCount: sumUnitQuantity(moved),
+    changedCount: compactedCount + sumUnitQuantity(moved),
+    score: sumUnitQuantity(moved) * 150000 + band.extraSlots * 60000 + band.capacity * 1000 + movedDepth + band.z
+  };
+}
+
 function orientationForDims(unit, lengthCm, widthCm, heightCm) {
   return generateOrientations(unit).find((dims) =>
     Math.abs(Number(dims.lengthCm || 0) - lengthCm) < EPS
@@ -1780,7 +1966,7 @@ function orientationForDims(unit, lengthCm, widthCm, heightCm) {
 }
 
 function lowerGapSwapSupportRatio(container, unit) {
-  if (!isBlueLikeCargo(unit)) return supportRatioForUnit(container, unit);
+  if (!isEdgeRepackCargo(unit)) return supportRatioForUnit(container, unit);
   const ratio = supportRuleSettings(container).supportRatio;
   const overhangBasedSupport = 1 - clampNumber(ratio, 0, 1, DEFAULT_SUPPORT_RATIO);
   return clampNumber(Math.min(ratio, overhangBasedSupport), 0.1, 1, DEFAULT_SUPPORT_RATIO);
@@ -1968,6 +2154,18 @@ function hasSupport(placement, placed, supportRatio = DEFAULT_SUPPORT_RATIO) {
   return unionArea(supports) + EPS >= placement.lengthCm * placement.widthCm * requiredRatio;
 }
 
+function supportCoverageRatio(placement, placed) {
+  if (placement.z <= EPS) return 1;
+  const target = { x: placement.x, y: placement.y, lengthCm: placement.lengthCm, widthCm: placement.widthCm };
+  const supports = placed
+    .filter((box) => !box.nonStack && Math.abs(box.z + box.heightCm - placement.z) < EPS)
+    .map((box) => overlapRect(target, { x: box.x, y: box.y, lengthCm: box.lengthCm, widthCm: box.widthCm }))
+    .filter(Boolean);
+  const footprint = placement.lengthCm * placement.widthCm;
+  if (!supports.length || footprint <= EPS) return 0;
+  return clampNumber(unionArea(supports) / footprint, 0, 1, 0);
+}
+
 function hasAnyBoxAbove(unit, placed) {
   const top = unit.z + unit.heightCm;
   return placed.some((box) =>
@@ -2009,7 +2207,8 @@ function makePackedBox(placed, unplaced, strategy, stats) {
       blockDowngradePlacedCount: Number(stats.blockDowngradePlacedCount || 0),
       singleBackfillPlacedCount: Number(stats.singleBackfillPlacedCount || 0),
       nonStackTopPlacedCount: Number(stats.nonStackTopPlacedCount || 0),
-      blueSideRowRepackCount: Number(stats.blueSideRowRepackCount || 0),
+      edgeOrientationRepackCount: Number(stats.edgeOrientationRepackCount || stats.blueSideRowRepackCount || 0),
+      blueSideRowRepackCount: Number(stats.edgeOrientationRepackCount || stats.blueSideRowRepackCount || 0),
       lowerGapSwapCount: Number(stats.lowerGapSwapCount || 0),
       lowerGapSwapLiftedCount: Number(stats.lowerGapSwapLiftedCount || 0),
       lowerGapSwapDepthCm: round(stats.lowerGapSwapDepthCm || 0),
@@ -2453,6 +2652,7 @@ function placementScore(placement, unit, container, strategy, placed = []) {
   const right = placement.y + placement.widthCm;
   const area = placement.lengthCm * placement.widthCm;
   const supportBonus = unit.nonStack ? 0 : area * Math.max(0, 1 - top / Math.max(1, container.heightCm));
+  const supportCoveragePenalty = unit.nonStack ? 0 : (1 - supportCoverageRatio(placement, placed)) * 1000;
   const verticalPenalty = strategy.blueVertical && shouldPreferVertical(unit) ? -placement.heightCm * 100 : 0;
   const balanceExempt = isProjectedBalanceExempt(container, placed, unit);
   const balancePenalty = balanceExempt ? 0 : projectedBalancePenalty(container, placed, unit, placement);
@@ -2463,7 +2663,7 @@ function placementScore(placement, unit, container, strategy, placed = []) {
   const centerDistance = Math.abs(unitCenterX - centerX) + Math.abs(unitCenterY - centerY);
   const heavyCenterPenalty = balanceExempt ? 0 : unit.isHeavy ? centerDistance * HEAVY_CENTER_WEIGHT : centerDistance * 12;
   const spreadPenalty = balanceExempt ? 0 : zoneSpreadPenalty(container, placed, placement, unit) * (unit.isHeavy ? HEAVY_ZONE_WEIGHT : LIGHT_ZONE_WEIGHT);
-  return top * 1_000_000 + balancePenalty + spreadPenalty + front * 1_000 + right + heavyCenterPenalty - supportBonus + verticalPenalty;
+  return top * 1_000_000 + supportCoveragePenalty + balancePenalty + spreadPenalty + front * 1_000 + right + heavyCenterPenalty - supportBonus + verticalPenalty;
 }
 
 function supportSurfaceScore(placed, container) {
