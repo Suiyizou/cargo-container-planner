@@ -20,6 +20,9 @@ const LOWER_GAP_SWAP_MAX_LATE_MOVERS = 3;
 const LOWER_GAP_SWAP_MIN_DROP_CM = 5;
 const EDGE_ORIENTATION_REPACK_MAX_CANDIDATES = 6;
 const EDGE_ORIENTATION_REPACK_MAX_BAND_ROWS = 6;
+const NON_STACK_DISPLACEMENT_MAX_SWAPS = 2;
+const NON_STACK_DISPLACEMENT_MAX_MOVERS = 2;
+const NON_STACK_DISPLACEMENT_MAX_RECEIVERS = 3;
 const MIXED_PLAN_MAX_SOLVER_UNITS = 120;
 const BALANCE_GREEN_LIMIT_PERCENT = 2.5;
 const BALANCE_RED_LIMIT_PERCENT = 5;
@@ -856,6 +859,8 @@ function finalizeWithDeferredNonStack(container, stackableAttempt, deferredNonSt
   const stackableUnplaced = (stackableAttempt.unplaced || []).filter((unit) => !unit.nonStack).map(stripPlacement);
   let nonStackTopPlacedCount = 0;
   let nonStackUnplaced = [];
+  let nonStackDisplacementSwapCount = 0;
+  let nonStackDisplacementPlacedCount = 0;
 
   if (deferredNonStack.length) {
     const nonStackResult = placeDeferredNonStackOnTop(container, placed, deferredNonStack, strategy);
@@ -866,6 +871,21 @@ function finalizeWithDeferredNonStack(container, stackableAttempt, deferredNonSt
       level: "summary",
       text: `${container.name} - ${strategy.name} - global non-stack final pass: ${nonStackTopPlacedCount}/${sumUnitQuantity(deferredNonStack)} non-stack pcs placed after all stackable search/refill stages.`
     });
+  }
+  if (nonStackUnplaced.length && placed.some((unit) => unit.nonStack)) {
+    const displaced = optimizeDeferredNonStackDisplacement(container, placed, nonStackUnplaced, strategy);
+    if (displaced.placedCount > 0) {
+      placed = displaced.placed;
+      nonStackUnplaced = displaced.unplaced.map(stripPlacement);
+      nonStackTopPlacedCount += displaced.placedCount;
+      nonStackDisplacementSwapCount = displaced.swapCount;
+      nonStackDisplacementPlacedCount = displaced.placedCount;
+      traceDecision({
+        phase: "repair",
+        level: "summary",
+        text: `${container.name} - ${strategy.name} - non-stack displacement: swapped ${nonStackDisplacementSwapCount} top stackable pcs into lower non-stack pockets and placed ${nonStackDisplacementPlacedCount} more non-stack pcs.`
+      });
+    }
   }
 
   const valid = validateAllPlacements(container, placed);
@@ -878,6 +898,8 @@ function finalizeWithDeferredNonStack(container, stackableAttempt, deferredNonSt
   }, {
     ...(stackableAttempt.strategySummary || {}),
     nonStackTopPlacedCount,
+    nonStackDisplacementSwapCount,
+    nonStackDisplacementPlacedCount,
     finalNonStackPass: deferredNonStack.length ? 1 : 0,
     layerCount: countLayers(valid ? placed : stackableAttempt.placed)
   });
@@ -1030,6 +1052,228 @@ function placeDeferredNonStackOnTop(container, placed, units, strategy) {
   }
 
   return { placedCount, unplaced: pending };
+}
+
+function optimizeDeferredNonStackDisplacement(container, placed, nonStackUnplaced, strategy) {
+  let currentPlaced = placed.map(copyUnit);
+  let pending = nonStackUnplaced.map(stripPlacement);
+  let placedCount = 0;
+  let swapCount = 0;
+
+  for (let pass = 0; pass < NON_STACK_DISPLACEMENT_MAX_SWAPS && pending.length; pass += 1) {
+    const candidate = bestDeferredNonStackDisplacement(container, currentPlaced, pending, strategy);
+    if (!candidate) break;
+    currentPlaced = candidate.placed.map(copyUnit);
+    pending = candidate.unplaced.map(stripPlacement);
+    placedCount += candidate.placedCount;
+    swapCount += 1;
+  }
+
+  return { placed: currentPlaced, unplaced: pending, placedCount, swapCount };
+}
+
+function bestDeferredNonStackDisplacement(container, placed, pending, strategy) {
+  const movers = nonStackDisplacementMoverCandidates(container, placed);
+  const receivers = nonStackDisplacementReceiverCandidates(placed);
+  const beforePending = sumUnitQuantity(pending);
+  let best = null;
+
+  for (const receiver of receivers) {
+    for (const mover of movers) {
+      if (mover.unitKey === receiver.unitKey) continue;
+      if (Number(mover.z || 0) <= Number(receiver.z || 0) + LOWER_GAP_SWAP_MIN_DROP_CM) continue;
+      const candidate = buildNonStackDisplacementCandidate(container, placed, pending, mover, receiver, strategy, beforePending);
+      if (!candidate) continue;
+      if (!best || candidate.score > best.score + EPS) best = candidate;
+    }
+  }
+
+  return best;
+}
+
+function nonStackDisplacementMoverCandidates(container, placed) {
+  const top = maxTop(placed);
+  const minTop = Math.max(0, top - 55);
+  return placed
+    .filter((unit) =>
+      !unit.nonStack
+      && unit.rotatable
+      && unitQuantity(unit) === 1
+      && Number(unit.z || 0) + Number(unit.heightCm || 0) >= minTop - EPS
+      && !hasAnyBoxInColumnAbove(unit, placed)
+      && fitsContainerDims(container, unit)
+    )
+    .sort((a, b) => {
+      const topDiff = (Number(b.z || 0) + Number(b.heightCm || 0)) - (Number(a.z || 0) + Number(a.heightCm || 0));
+      if (Math.abs(topDiff) > EPS) return topDiff;
+      return unitVolumeCm3(a) - unitVolumeCm3(b);
+    })
+    .slice(0, NON_STACK_DISPLACEMENT_MAX_MOVERS);
+}
+
+function nonStackDisplacementReceiverCandidates(placed) {
+  return placed
+    .filter((unit) =>
+      unit.nonStack
+      && unitQuantity(unit) === 1
+      && !hasAnyBoxInColumnAbove(unit, placed)
+    )
+    .sort((a, b) => {
+      const zDiff = Number(a.z || 0) - Number(b.z || 0);
+      if (Math.abs(zDiff) > EPS) return zDiff;
+      const topAreaDiff = (Number(b.lengthCm || 0) * Number(b.widthCm || 0)) - (Number(a.lengthCm || 0) * Number(a.widthCm || 0));
+      if (Math.abs(topAreaDiff) > EPS) return topAreaDiff;
+      return Number(a.y || 0) - Number(b.y || 0);
+    })
+    .slice(0, NON_STACK_DISPLACEMENT_MAX_RECEIVERS);
+}
+
+function buildNonStackDisplacementCandidate(container, placed, pending, mover, receiver, strategy, beforePending) {
+  const movingKeys = new Set([mover.unitKey, receiver.unitKey]);
+  const basePlaced = placed
+    .filter((unit) => !movingKeys.has(unit.unitKey))
+    .map(copyUnit);
+  const replacement = bestStackablePlacementForNonStackPocket(container, basePlaced, mover, receiver, strategy);
+  if (!replacement) return null;
+
+  const movedStackable = {
+    ...applyPlacement(stripPlacement(mover), replacement),
+    supportRatioOverride: mover.supportRatioOverride
+  };
+  const withMovedStackable = [...basePlaced, movedStackable];
+  const rehomedNonStackPlacement = bestNonStackPlacementForFreedStackablePocket(container, withMovedStackable, receiver, mover, strategy);
+  if (!rehomedNonStackPlacement) return null;
+  const withRehomedNonStack = [
+    ...withMovedStackable,
+    applyPlacement(stripPlacement(receiver), rehomedNonStackPlacement)
+  ];
+  if (!validateAllPlacements(container, withRehomedNonStack)) return null;
+
+  const retry = placeOneDeferredNonStackOnTop(container, withRehomedNonStack, pending, strategy);
+  if (!retry || !validateAllPlacements(container, retry.placed)) return null;
+  const placedCount = beforePending - sumUnitQuantity(retry.unplaced);
+  if (placedCount <= 0) return null;
+  const dropDepth = Number(mover.z || 0) - Number(receiver.z || 0);
+  const supportScore = supportCoverageRatio(replacement, basePlaced);
+  return {
+    placed: retry.placed,
+    unplaced: retry.unplaced.map(stripPlacement),
+    placedCount,
+    score: placedCount * 1_000_000 + dropDepth * 10_000 + supportScore * 1000 - Number(receiver.z || 0)
+  };
+}
+
+function placeOneDeferredNonStackOnTop(container, placed, pending, strategy) {
+  const basePlaced = placed.map(copyUnit);
+  const ordered = orderUnits(pending.map(stripPlacement), strategy.unitOrder);
+  const trials = ordered.slice(0, 1);
+  for (const unit of trials) {
+    const candidatePlaced = basePlaced.map(copyUnit);
+    const placement = findTopExposedPlacement(container, candidatePlaced, unit, strategy);
+    if (!placement) continue;
+    candidatePlaced.push(applyPlacement(unit, placement));
+    const remaining = ordered
+      .filter((item) => item.unitKey !== unit.unitKey)
+      .map(stripPlacement);
+    return { placed: candidatePlaced, unplaced: remaining, placedCount: unitQuantity(unit) };
+  }
+  return null;
+}
+
+function bestNonStackPlacementForFreedStackablePocket(container, placed, nonStackUnit, freedPocket, strategy) {
+  const unit = stripPlacement(nonStackUnit);
+  const supportRatio = supportRatioForUnit(container, unit, strategy);
+  const pocketRect = {
+    x: Number(freedPocket.x || 0),
+    y: Number(freedPocket.y || 0),
+    lengthCm: Number(freedPocket.lengthCm || 0),
+    widthCm: Number(freedPocket.widthCm || 0)
+  };
+  let best = null;
+
+  for (const dims of generateOrientations(unit, { preferVertical: strategy.blueVertical })) {
+    if (!fitsContainerDims(container, dims)) continue;
+    const xs = pocketCoordinateCandidates(pocketRect.x, pocketRect.lengthCm, dims.lengthCm, Number(container.lengthCm || 0));
+    const ys = pocketCoordinateCandidates(pocketRect.y, pocketRect.widthCm, dims.widthCm, Number(container.widthCm || 0));
+    for (const x of xs) {
+      for (const y of ys) {
+        const placement = { ...dims, x: round3(x), y: round3(y), z: round3(freedPocket.z) };
+        const overlap = overlapRect(
+          { x: placement.x, y: placement.y, lengthCm: placement.lengthCm, widthCm: placement.widthCm },
+          pocketRect
+        );
+        if (!overlap) continue;
+        const validation = validatePlacement(container, placed, unit, placement, supportRatio);
+        if (!validation.valid || hasAnyBoxInColumnAbove(placement, placed)) continue;
+        const overlapArea = overlap.lengthCm * overlap.widthCm;
+        const supportScore = supportCoverageRatio(placement, placed);
+        const anchorPenalty = Math.abs(placement.x - pocketRect.x) + Math.abs(placement.y - pocketRect.y);
+        const score = supportScore * 100000 + overlapArea * 10 - anchorPenalty - placement.z;
+        if (!best || score > best.score + EPS) best = { ...placement, score };
+      }
+    }
+  }
+
+  return best;
+}
+
+function bestStackablePlacementForNonStackPocket(container, placed, mover, receiver, strategy) {
+  const unit = stripPlacement(mover);
+  const supportRatio = supportRatioForUnit(container, mover, strategy);
+  const receiverRect = {
+    x: Number(receiver.x || 0),
+    y: Number(receiver.y || 0),
+    lengthCm: Number(receiver.lengthCm || 0),
+    widthCm: Number(receiver.widthCm || 0)
+  };
+  let best = null;
+
+  for (const dims of generateOrientations(unit, { preferVertical: strategy.blueVertical })) {
+    if (!fitsContainerDims(container, dims)) continue;
+    const xs = pocketCoordinateCandidates(receiverRect.x, receiverRect.lengthCm, dims.lengthCm, Number(container.lengthCm || 0));
+    const ys = pocketCoordinateCandidates(receiverRect.y, receiverRect.widthCm, dims.widthCm, Number(container.widthCm || 0));
+    for (const x of xs) {
+      for (const y of ys) {
+        const placement = { ...dims, x: round3(x), y: round3(y), z: round3(receiver.z) };
+        const overlap = overlapRect(
+          { x: placement.x, y: placement.y, lengthCm: placement.lengthCm, widthCm: placement.widthCm },
+          receiverRect
+        );
+        if (!overlap) continue;
+        const validation = validatePlacement(container, placed, unit, placement, supportRatio);
+        if (!validation.valid) continue;
+        const supportScore = supportCoverageRatio(placement, placed);
+        const overlapArea = overlap.lengthCm * overlap.widthCm;
+        const centerY = placement.y + placement.widthCm / 2;
+        const interiorPenalty = Math.abs(centerY - Number(container.widthCm || 0) / 2);
+        const anchorPenalty = Math.abs(placement.x - receiverRect.x) + Math.abs(placement.y - receiverRect.y);
+        const score = supportScore * 100000 + overlapArea * 10 - interiorPenalty * 2 - anchorPenalty - placement.z;
+        if (!best || score > best.score + EPS) best = { ...placement, score };
+      }
+    }
+  }
+
+  return best;
+}
+
+function pocketCoordinateCandidates(start, span, itemSpan, limit) {
+  return uniqueFiniteNumbers([
+    start,
+    start + span - itemSpan,
+    start + (span - itemSpan) / 2,
+    start - Math.max(0, (itemSpan - span) / 2),
+    start + Math.max(0, (span - itemSpan) / 2)
+  ]).filter((value) => value >= -EPS && value + itemSpan <= limit + EPS);
+}
+
+function uniqueFiniteNumbers(values) {
+  const result = [];
+  for (const value of values) {
+    const rounded = round3(value);
+    if (!Number.isFinite(rounded)) continue;
+    if (!result.some((item) => Math.abs(item - rounded) < EPS)) result.push(rounded);
+  }
+  return result;
 }
 
 function findTopOnlyPlacement(container, placed, unit, strategy) {
@@ -2522,6 +2766,8 @@ function makePackedBox(placed, unplaced, strategy, stats) {
       blockDowngradePlacedCount: Number(stats.blockDowngradePlacedCount || 0),
       singleBackfillPlacedCount: Number(stats.singleBackfillPlacedCount || 0),
       nonStackTopPlacedCount: Number(stats.nonStackTopPlacedCount || 0),
+      nonStackDisplacementSwapCount: Number(stats.nonStackDisplacementSwapCount || 0),
+      nonStackDisplacementPlacedCount: Number(stats.nonStackDisplacementPlacedCount || 0),
       edgeOrientationRepackCount: Number(stats.edgeOrientationRepackCount || stats.blueSideRowRepackCount || 0),
       blueSideRowRepackCount: Number(stats.edgeOrientationRepackCount || stats.blueSideRowRepackCount || 0),
       lowerGapSwapCount: Number(stats.lowerGapSwapCount || 0),
