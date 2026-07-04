@@ -1292,6 +1292,8 @@ function repairWithLocalSearch(container, attempt, originalUnits, strategy) {
 
 function optimizeLowerGapSwaps(container, attempt, strategy) {
   if (!attempt?.placed?.length) return attempt;
+  const hasEdgeRepack = Number(attempt.strategySummary?.edgeOrientationRepackCount || attempt.strategySummary?.blueSideRowRepackCount || 0) > 0;
+  if (hasEdgeRepack && !attempt.unplaced?.length) return attempt;
   const sourceAttempt = expandAttemptPlacementsForFineTuning(container, attempt);
   const placed = sourceAttempt.placed.map(copyUnit);
   const moverCandidates = lowerGapMoverCandidates(container, placed);
@@ -1493,6 +1495,22 @@ function optimizeEdgeOrientationRows(container, attempt, strategy) {
 }
 
 function buildBestEdgeOrientationRepack(container, attempt, strategy) {
+  let bestStack = null;
+  for (const stack of mixedEdgeOrientationStacks(container, attempt.placed)) {
+    const candidate = buildMixedEdgeOrientationStackCandidate(container, attempt.placed, stack, strategy);
+    if (!candidate) continue;
+    if (!bestStack || candidate.score > bestStack.score + EPS) bestStack = candidate;
+  }
+  if (bestStack) return bestStack;
+
+  let bestLayer = null;
+  for (const layer of mixedEdgeOrientationLayers(container, attempt.placed)) {
+    const candidate = buildMixedEdgeOrientationLayerCandidate(container, attempt.placed, layer, strategy);
+    if (!candidate) continue;
+    if (!bestLayer || candidate.score > bestLayer.score + EPS) bestLayer = candidate;
+  }
+  if (bestLayer) return bestLayer;
+
   let bestMixed = null;
   for (const band of mixedEdgeOrientationBands(container, attempt.placed)) {
     const candidate = buildMixedEdgeOrientationBandCandidate(container, attempt.placed, band, strategy);
@@ -1706,6 +1724,186 @@ function mixedEdgeOrientationBands(container, placed) {
   }).slice(0, EDGE_ORIENTATION_REPACK_MAX_CANDIDATES);
 }
 
+function mixedEdgeOrientationStacks(container, placed) {
+  const layers = mixedEdgeOrientationLayers(container, placed)
+    .sort((a, b) => {
+      if (!sameRepackCargo(a.sample, b.sample)) return String(a.sample?.cargoId || "").localeCompare(String(b.sample?.cargoId || ""));
+      if (Math.abs(a.minX - b.minX) > EPS) return a.minX - b.minX;
+      if (Math.abs(a.y - b.y) > EPS) return a.y - b.y;
+      return a.z - b.z;
+    });
+  const stacks = [];
+
+  for (let start = 0; start < layers.length; start += 1) {
+    const stackLayers = [layers[start]];
+    for (let end = start + 1; end < layers.length; end += 1) {
+      const previous = stackLayers[stackLayers.length - 1];
+      const next = layers[end];
+      if (!sameMixedEdgeLayerShape(stackLayers[0], next)) continue;
+      if (Math.abs(next.z - (previous.z + previous.height)) > EPS) continue;
+      stackLayers.push(next);
+    }
+    if (stackLayers.length < 2) continue;
+    const stack = buildMixedEdgeOrientationStack(container, placed, stackLayers);
+    if (stack) stacks.push(stack);
+  }
+
+  return stacks.sort((a, b) => {
+    if (b.units.length !== a.units.length) return b.units.length - a.units.length;
+    if (b.layerBottoms.length !== a.layerBottoms.length) return b.layerBottoms.length - a.layerBottoms.length;
+    return a.layerBottoms[0] - b.layerBottoms[0];
+  }).slice(0, EDGE_ORIENTATION_REPACK_MAX_CANDIDATES);
+}
+
+function sameMixedEdgeLayerShape(a, b) {
+  return sameRepackCargo(a.sample, b.sample)
+    && Math.abs(a.minX - b.minX) < EPS
+    && Math.abs(a.y - b.y) < EPS
+    && Math.abs(a.normalLength - b.normalLength) < EPS
+    && Math.abs(a.normalWidth - b.normalWidth) < EPS
+    && Math.abs(a.rotatedLength - b.rotatedLength) < EPS
+    && Math.abs(a.rotatedWidth - b.rotatedWidth) < EPS
+    && Math.abs(a.height - b.height) < EPS
+    && a.normalRows === b.normalRows
+    && a.normalCapacity === b.normalCapacity
+    && a.rotatedCapacity === b.rotatedCapacity;
+}
+
+function buildMixedEdgeOrientationStack(container, placed, layers) {
+  const first = layers[0];
+  const layerBottoms = layers.map((layer) => layer.z).sort((a, b) => a - b);
+  const stackTop = layerBottoms[layerBottoms.length - 1] + first.height;
+  const moving = placed
+    .filter((unit) =>
+      isEdgeRepackCargo(unit)
+      && sameRepackCargo(unit, first.sample)
+      && unitIntersectsStackPrism(container, unit, first, layerBottoms[0], stackTop)
+      && orientationForDims(unit, first.normalLength, first.normalWidth, first.height)
+      && orientationForDims(unit, first.rotatedLength, first.rotatedWidth, first.height)
+    )
+    .sort((a, b) => {
+      const zDiff = Number(a.z || 0) - Number(b.z || 0);
+      if (Math.abs(zDiff) > EPS) return zDiff;
+      const yDiff = Number(a.y || 0) - Number(b.y || 0);
+      if (Math.abs(yDiff) > EPS) return yDiff;
+      return Number(a.x || 0) - Number(b.x || 0);
+    });
+  const layerCapacity = first.capacity;
+  const normalSlots = first.normalRows * first.normalCapacity;
+  if (moving.length <= normalSlots * layerBottoms.length) return null;
+  if (moving.length > layerCapacity * layerBottoms.length) return null;
+
+  return {
+    sample: first.sample,
+    units: moving,
+    layerBottoms,
+    y: first.y,
+    minX: first.minX,
+    height: first.height,
+    normalLength: first.normalLength,
+    normalWidth: first.normalWidth,
+    rotatedLength: first.rotatedLength,
+    rotatedWidth: first.rotatedWidth,
+    normalRows: first.normalRows,
+    normalCapacity: first.normalCapacity,
+    rotatedCapacity: first.rotatedCapacity,
+    layerCapacity
+  };
+}
+
+function unitIntersectsStackPrism(container, unit, layer, zBottom, zTop) {
+  const minX = Number(layer.minX || 0);
+  const minY = Number(layer.y || 0);
+  const maxY = Number(container.widthCm || 0);
+  return Number(unit.x || 0) + Number(unit.lengthCm || 0) > minX + EPS
+    && Number(unit.y || 0) + Number(unit.widthCm || 0) > minY + EPS
+    && Number(unit.y || 0) < maxY - EPS
+    && Number(unit.z || 0) + Number(unit.heightCm || 0) > zBottom + EPS
+    && Number(unit.z || 0) < zTop - EPS;
+}
+
+function mixedEdgeOrientationLayers(container, placed) {
+  const groups = new Map();
+  for (const unit of placed) {
+    if (!isEdgeRepackCargo(unit)) continue;
+    const rawLength = singleRawLengthCm(unit);
+    const rawWidth = singleRawWidthCm(unit);
+    const rawHeight = singleRawHeightCm(unit);
+    const gap = Number(unit.gapCm || 0);
+    const verticalGap = Number(unit.verticalGapCm || unit.extraGapCm || 0);
+    const normalLength = rawLength + gap;
+    const normalWidth = rawWidth + gap;
+    const height = rawHeight + verticalGap;
+    const rotatedLength = normalWidth;
+    const rotatedWidth = normalLength;
+    if (Math.abs(normalLength - normalWidth) < EPS) continue;
+    if (!orientationForDims(unit, normalLength, normalWidth, height)) continue;
+    if (!orientationForDims(unit, rotatedLength, rotatedWidth, height)) continue;
+    const key = [
+      unit.cargoId || "",
+      unit.type || "",
+      round3(rawLength),
+      round3(rawWidth),
+      round3(rawHeight),
+      round3(gap),
+      round3(verticalGap),
+      round3(unit.z)
+    ].join("/");
+    if (!groups.has(key)) {
+      groups.set(key, {
+        sample: unit,
+        units: [],
+        z: Number(unit.z || 0),
+        normalLength,
+        normalWidth,
+        rotatedLength,
+        rotatedWidth,
+        height
+      });
+    }
+    groups.get(key).units.push(unit);
+  }
+
+  const layers = [];
+  for (const group of groups.values()) {
+    const units = [...group.units].sort((a, b) => {
+      const yDiff = Number(a.y || 0) - Number(b.y || 0);
+      if (Math.abs(yDiff) > EPS) return yDiff;
+      return Number(a.x || 0) - Number(b.x || 0);
+    });
+    if (units.length < 8) continue;
+    const minX = Math.min(...units.map((unit) => Number(unit.x || 0)));
+    const minY = Math.min(...units.map((unit) => Number(unit.y || 0)));
+    const maxRows = Math.floor((Number(container.widthCm || 0) - minY + EPS) / Math.max(1, Math.min(group.normalWidth, group.rotatedWidth)));
+    const pattern = bestMixedPatternForCount(container, {
+      y: minY,
+      minX,
+      unitCount: units.length,
+      normalLength: group.normalLength,
+      normalWidth: group.normalWidth,
+      rotatedLength: group.rotatedLength,
+      rotatedWidth: group.rotatedWidth,
+      maxRows,
+      allowExact: true
+    });
+    if (!pattern) continue;
+    layers.push({
+      ...group,
+      units,
+      y: minY,
+      minX,
+      ...pattern
+    });
+  }
+
+  return layers.sort((a, b) => {
+    if (b.units.length !== a.units.length) return b.units.length - a.units.length;
+    if (b.extraSlots !== a.extraSlots) return b.extraSlots - a.extraSlots;
+    if (Math.abs(a.z - b.z) > EPS) return a.z - b.z;
+    return a.y - b.y;
+  }).slice(0, EDGE_ORIENTATION_REPACK_MAX_CANDIDATES);
+}
+
 function bestMixedEdgePattern(container, rows, minX) {
   const sample = rows[0];
   return bestMixedPatternForCount(container, {
@@ -1734,11 +1932,13 @@ function bestMixedPatternForCount(container, options) {
     {
       const usedWidth = normalRows * options.normalWidth + rotatedRows * options.rotatedWidth;
       if (usedWidth > availableWidth + EPS) continue;
-      if (!isTrailingWidthEdge(container, options.y, usedWidth)) continue;
+      if (!isTightTrailingWidthEdge(container, options.y, usedWidth, Math.min(options.normalWidth, options.rotatedWidth))) continue;
       const capacity = normalRows * normalCapacity + rotatedRows * rotatedCapacity;
       const extraSlots = capacity - unitCount;
-      if (extraSlots <= 0) continue;
-      const score = extraSlots * 100000 + capacity * 1000 - usedWidth;
+      const normalSlots = normalRows * normalCapacity;
+      if (unitCount <= normalSlots) continue;
+      if (extraSlots < 0 || (!options.allowExact && extraSlots <= 0)) continue;
+      const score = (extraSlots + (options.allowExact ? 1 : 0)) * 100000 + capacity * 1000 - usedWidth;
       if (!best || score > best.score + EPS) {
         best = {
           normalRows,
@@ -1754,6 +1954,12 @@ function bestMixedPatternForCount(container, options) {
     }
   }
   return best;
+}
+
+function isTightTrailingWidthEdge(container, y, width, unitWidth) {
+  const outerGap = Number(container.widthCm || 0) - (Number(y || 0) + Number(width || 0));
+  const tolerance = Math.max(8, Number(unitWidth || 0) * 0.25);
+  return outerGap >= -EPS && outerGap <= tolerance + EPS;
 }
 
 function sameEdgeBandShape(a, b) {
@@ -1955,6 +2161,115 @@ function buildMixedEdgeOrientationBandCandidate(container, placed, band, strateg
     changedCount: compactedCount + sumUnitQuantity(moved),
     score: sumUnitQuantity(moved) * 150000 + band.extraSlots * 60000 + band.capacity * 1000 + movedDepth + band.z
   };
+}
+
+function buildMixedEdgeOrientationStackCandidate(container, placed, stack, strategy) {
+  const stackKeys = new Set(stack.units.map((unit) => unit.unitKey));
+  const nextPlaced = placed
+    .filter((unit) => !stackKeys.has(unit.unitKey))
+    .map(copyUnit);
+  const supportRatio = lowerGapSwapSupportRatio(container, stack.units[0]);
+  const normalSlots = stack.normalRows * stack.normalCapacity;
+  let sourceIndex = 0;
+  let changedCount = 0;
+
+  for (const z of stack.layerBottoms) {
+    const layerCount = Math.min(stack.layerCapacity, stack.units.length - sourceIndex);
+    for (let index = 0; index < layerCount; index += 1) {
+      const source = stack.units[sourceIndex];
+      const unit = stripPlacement(source);
+      const inNormalRows = index < normalSlots;
+      const lengthCm = inNormalRows ? stack.normalLength : stack.rotatedLength;
+      const widthCm = inNormalRows ? stack.normalWidth : stack.rotatedWidth;
+      const orientation = orientationForDims(unit, lengthCm, widthCm, stack.height);
+      if (!orientation) return null;
+      const localIndex = inNormalRows ? index : index - normalSlots;
+      const rowCapacity = inNormalRows ? stack.normalCapacity : stack.rotatedCapacity;
+      const rowIndex = Math.floor(localIndex / rowCapacity);
+      const columnIndex = localIndex % rowCapacity;
+      const rowY = inNormalRows
+        ? stack.y + rowIndex * stack.normalWidth
+        : stack.y + stack.normalRows * stack.normalWidth + rowIndex * stack.rotatedWidth;
+      const placement = {
+        ...orientation,
+        x: round3(stack.minX + columnIndex * lengthCm),
+        y: round3(rowY),
+        z: round3(z)
+      };
+      const validation = validatePlacement(container, nextPlaced, unit, placement, supportRatio);
+      if (!validation.valid) return null;
+      if (placementChanged(source, placement)) changedCount += unitQuantity(source);
+      nextPlaced.push({ ...applyPlacement(unit, placement), supportRatioOverride: supportRatio });
+      sourceIndex += 1;
+    }
+  }
+
+  if (sourceIndex < stack.units.length || !changedCount) return null;
+  const finalValidation = validateAllPlacementsDetailed(container, nextPlaced);
+  if (!finalValidation.valid) return null;
+  return {
+    placed: nextPlaced,
+    movedCount: 0,
+    changedCount,
+    score: changedCount * 260000 + stack.units.length * 1200 + stack.layerBottoms.length * 50000 - stack.layerBottoms[0]
+  };
+}
+
+function buildMixedEdgeOrientationLayerCandidate(container, placed, layer, strategy) {
+  const layerKeys = new Set(layer.units.map((unit) => unit.unitKey));
+  const nextPlaced = placed
+    .filter((unit) => !layerKeys.has(unit.unitKey))
+    .map(copyUnit);
+  const supportRatio = lowerGapSwapSupportRatio(container, layer.units[0]);
+  const normalSlots = layer.normalRows * layer.normalCapacity;
+  let changedCount = 0;
+
+  for (let index = 0; index < layer.units.length; index += 1) {
+    const source = layer.units[index];
+    const unit = stripPlacement(source);
+    const inNormalRows = index < normalSlots;
+    const lengthCm = inNormalRows ? layer.normalLength : layer.rotatedLength;
+    const widthCm = inNormalRows ? layer.normalWidth : layer.rotatedWidth;
+    const orientation = orientationForDims(unit, lengthCm, widthCm, layer.height);
+    if (!orientation) return null;
+    const localIndex = inNormalRows ? index : index - normalSlots;
+    const rowCapacity = inNormalRows ? layer.normalCapacity : layer.rotatedCapacity;
+    const rowIndex = Math.floor(localIndex / rowCapacity);
+    const columnIndex = localIndex % rowCapacity;
+    const rowY = inNormalRows
+      ? layer.y + rowIndex * layer.normalWidth
+      : layer.y + layer.normalRows * layer.normalWidth + rowIndex * layer.rotatedWidth;
+    const placement = {
+      ...orientation,
+      x: round3(layer.minX + columnIndex * lengthCm),
+      y: round3(rowY),
+      z: round3(layer.z)
+    };
+    const validation = validatePlacement(container, nextPlaced, unit, placement, supportRatio);
+    if (!validation.valid) return null;
+    if (placementChanged(source, placement)) changedCount += unitQuantity(source);
+    nextPlaced.push({ ...applyPlacement(unit, placement), supportRatioOverride: supportRatio });
+  }
+
+  if (!changedCount) return null;
+  const finalValidation = validateAllPlacementsDetailed(container, nextPlaced);
+  if (!finalValidation.valid) return null;
+  const tailCount = Math.max(0, layer.units.length - normalSlots);
+  return {
+    placed: nextPlaced,
+    movedCount: 0,
+    changedCount,
+    score: changedCount * 180000 + tailCount * 50000 + layer.units.length * 1000 - layer.z
+  };
+}
+
+function placementChanged(source, placement) {
+  return Math.abs(Number(source.x || 0) - Number(placement.x || 0)) > EPS
+    || Math.abs(Number(source.y || 0) - Number(placement.y || 0)) > EPS
+    || Math.abs(Number(source.z || 0) - Number(placement.z || 0)) > EPS
+    || Math.abs(Number(source.lengthCm || 0) - Number(placement.lengthCm || 0)) > EPS
+    || Math.abs(Number(source.widthCm || 0) - Number(placement.widthCm || 0)) > EPS
+    || Math.abs(Number(source.heightCm || 0) - Number(placement.heightCm || 0)) > EPS;
 }
 
 function orientationForDims(unit, lengthCm, widthCm, heightCm) {
