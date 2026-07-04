@@ -115,6 +115,7 @@ export interface SceneRenderOptions {
   slicePercent: number;
   hiddenSkuKeys: Set<string>;
   viewMode: SceneViewMode;
+  locale?: string;
 }
 
 export interface SceneHoverPayload {

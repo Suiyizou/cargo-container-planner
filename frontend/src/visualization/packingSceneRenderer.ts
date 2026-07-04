@@ -8,6 +8,7 @@ import type {
   SceneRenderOptions,
   SceneViewPreset
 } from "./packingSceneTypes";
+import { translateUiText } from "../i18n/uiText";
 
 const DEFAULT_OPTIONS: SceneRenderOptions = {
   showLabels: true,
@@ -21,7 +22,8 @@ const DEFAULT_OPTIONS: SceneRenderOptions = {
   sliceAxis: "none",
   slicePercent: 100,
   hiddenSkuKeys: new Set(),
-  viewMode: "3d"
+  viewMode: "3d",
+  locale: "zh-CN"
 };
 
 export class PackingSceneRenderer {
@@ -249,17 +251,21 @@ export class PackingSceneRenderer {
     const y = container.heightCm + 12;
     const z = container.widthCm / 2 + 12;
     const x = container.lengthCm / 2 + 12;
-    this.root.add(createTextSprite(`长 ${container.lengthCm} cm`, new THREE.Vector3(0, y, z), "#165DFF", 42));
-    this.root.add(createTextSprite(`宽 ${container.widthCm} cm`, new THREE.Vector3(x, y, 0), "#165DFF", 42));
-    this.root.add(createTextSprite(`高 ${container.heightCm} cm`, new THREE.Vector3(x, container.heightCm / 2, z), "#165DFF", 42));
+    this.root.add(createTextSprite(this.t("scene.lengthCm", { value: container.lengthCm }), new THREE.Vector3(0, y, z), "#165DFF", 42));
+    this.root.add(createTextSprite(this.t("scene.widthCm", { value: container.widthCm }), new THREE.Vector3(x, y, 0), "#165DFF", 42));
+    this.root.add(createTextSprite(this.t("scene.heightCm", { value: container.heightCm }), new THREE.Vector3(x, container.heightCm / 2, z), "#165DFF", 42));
     [
       [-container.lengthCm / 2, -container.widthCm / 2],
       [container.lengthCm / 2, -container.widthCm / 2],
       [-container.lengthCm / 2, container.widthCm / 2],
       [container.lengthCm / 2, container.widthCm / 2]
     ].forEach(([cx, cz], index) => {
-      this.root.add(createTextSprite(`角 ${index + 1}`, new THREE.Vector3(cx, 8, cz), "#64748b", 28));
+      this.root.add(createTextSprite(this.t("scene.corner", { value: index + 1 }), new THREE.Vector3(cx, 8, cz), "#64748b", 28));
     });
+  }
+
+  private t(key: string, params: Record<string, unknown> = {}) {
+    return translateUiText(key, this.options.locale || "zh-CN", params);
   }
 
   private addCargoMeshes(container: any) {

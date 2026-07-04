@@ -149,9 +149,10 @@ function drawHeader(ctx, options, catalog, layers) {
 
   const rightX = 1240;
   const holdText = reportText(ctx, "report.holdNo", { index: options.boxIndex || 1 });
+  const containerName = translateLegacyText(options.container?.name || "-", ctx?.__cargoPlannerLocale || "zh-CN");
   ctx.fillStyle = "#174a7f";
   ctx.font = "800 22px Microsoft YaHei, Arial";
-  fillFittedText(ctx, `${options.container?.name || "-"} · ${holdText}`, rightX, 58, PAGE_WIDTH - rightX - 48, 14);
+  fillFittedText(ctx, `${containerName} · ${holdText}`, rightX, 58, PAGE_WIDTH - rightX - 48, 14);
   ctx.fillStyle = "#52657b";
   ctx.font = "400 17px Microsoft YaHei, Arial";
   fillFittedText(ctx, reportText(ctx, "report.generatedAt", { value: (options.generatedAt || new Date()).toLocaleString(reportLocale(options.locale)) }), rightX, 92, PAGE_WIDTH - rightX - 48, 12);

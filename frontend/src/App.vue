@@ -56,6 +56,7 @@
           background-color="transparent"
           text-color="#24415f"
           active-text-color="#165DFF"
+          :collapse-transition="false"
           @select="handleMenuSelect"
         >
           <el-menu-item index="/home">
@@ -145,7 +146,7 @@
           class="calculation-load-hint"
           :class="packingWorkloadHint.level"
           :title="tr(packingWorkloadHint.title)"
-          :description="tr(`${packingWorkloadHint.detail}。${packingWorkloadHint.advice}`)"
+          :description="packingWorkloadDescription"
           :type="packingWorkloadHint.level === 'heavy' ? 'error' : packingWorkloadHint.level === 'medium' ? 'warning' : 'info'"
           show-icon
           :closable="false"
@@ -621,7 +622,7 @@
           <div class="profile-identity">
             <span class="profile-avatar">{{ profileInitial }}</span>
           <div>
-            <p>Personal Center</p>
+            <p>{{ ui("profile.personalCenter") }}</p>
             <h2>{{ userDisplayName }}</h2>
             <small>{{ currentUser?.username }}</small>
           </div>
@@ -631,38 +632,38 @@
         <div class="profile-hero">
           <div>
             <span class="profile-role-pill">{{ profileRoleText }}</span>
-            <h3>欢迎回来，{{ userDisplayName }}</h3>
-            <p>这里汇总当前工作区、登录会话和常用入口，后续个人偏好会同步到员工自己的工作区。</p>
+            <h3>{{ ui("profile.welcomeUser", { name: userDisplayName }) }}</h3>
+            <p>{{ ui("profile.description") }}</p>
           </div>
           <div class="profile-session-card">
-            <span>令牌有效期</span>
+            <span>{{ ui("profile.tokenValidUntil") }}</span>
             <strong>{{ sessionExpiryText }}</strong>
-            <small>6 小时自动下线</small>
+            <small>{{ ui("profile.autoLogout") }}</small>
           </div>
         </div>
         <div class="profile-summary-grid refined">
-          <div><span>货物种类</span><strong>{{ cargoTypeCount }}</strong><small>当前计划</small></div>
-          <div><span>货物总件数</span><strong>{{ cargoTotalQuantity }}</strong><small>件</small></div>
-          <div><span>箱型数量</span><strong>{{ containers.length }}</strong><small>可参与计算</small></div>
-          <div><span>计划参数</span><strong>{{ utilizationPercent }}% / {{ globalGapCm }}cm</strong><small>可用率 / 间隙</small></div>
+          <div><span>{{ ui("profile.cargoTypes") }}</span><strong>{{ cargoTypeCount }}</strong><small>{{ ui("profile.currentPlan") }}</small></div>
+          <div><span>{{ ui("profile.totalCargoPieces") }}</span><strong>{{ cargoTotalQuantity }}</strong><small>{{ ui("unit.piece") }}</small></div>
+          <div><span>{{ ui("profile.containerTypes") }}</span><strong>{{ containers.length }}</strong><small>{{ ui("profile.availableForCalculation") }}</small></div>
+          <div><span>{{ ui("profile.planParameters") }}</span><strong>{{ utilizationPercent }}% / {{ globalGapCm }}cm</strong><small>{{ ui("profile.utilizationGap") }}</small></div>
         </div>
         <div class="profile-action-grid">
           <RouterLink to="/planner/config" @click="profileOpen = false">
-            <b>装箱计算</b><span>配置参数和箱型</span>
+            <b>{{ ui("profile.packingCalculation") }}</b><span>{{ ui("profile.configParametersContainers") }}</span>
           </RouterLink>
           <RouterLink to="/planner/cargos" @click="profileOpen = false">
-            <b>智能导入</b><span>Excel 与文本识别</span>
+            <b>{{ ui("profile.smartImport") }}</b><span>{{ ui("profile.excelTextRecognition") }}</span>
           </RouterLink>
           <RouterLink to="/algorithm" @click="profileOpen = false">
-            <b>算法说明</b><span>查看规则与策略</span>
+            <b>{{ ui("profile.algorithmNotes") }}</b><span>{{ ui("profile.viewRulesStrategies") }}</span>
           </RouterLink>
           <RouterLink v-if="currentUser?.role === 'ADMIN'" to="/admin" @click="profileOpen = false">
-            <b>管理后台</b><span>员工、设备和系统</span>
+            <b>{{ ui("profile.adminConsole") }}</b><span>{{ ui("profile.employeesDevicesSystem") }}</span>
           </RouterLink>
         </div>
         <div class="profile-footer">
           <span>{{ profileRoleText }} / {{ currentUser?.username }}</span>
-          <el-button type="danger" plain @click="handleLogout">退出登录</el-button>
+          <el-button type="danger" plain @click="handleLogout">{{ ui("profile.logout") }}</el-button>
         </div>
       </div>
     </div>
@@ -805,7 +806,7 @@ const userDisplayName = computed(() => {
   return currentUser.value?.displayName || currentUser.value?.username || "操作员";
 });
 const profileInitial = computed(() => userDisplayName.value.slice(0, 1).toUpperCase());
-const profileRoleText = computed(() => currentUser.value?.role === "ADMIN" ? "管理员" : "员工");
+const profileRoleText = computed(() => ui(currentUser.value?.role === "ADMIN" ? "profile.role.admin" : "profile.role.employee"));
 const sessionExpiryText = computed(() => {
   const value = storedExpiresAt();
   if (!value) return "6 小时";
@@ -934,6 +935,13 @@ const showPackingWorkloadHint = computed(() =>
   || packingWorkloadHint.value.typeCount >= 40
   || packingWorkloadHint.value.seconds >= 20
 );
+const packingWorkloadDescription = computed(() => {
+  currentLocale.value;
+  return [packingWorkloadHint.value.detail, packingWorkloadHint.value.advice]
+    .filter(Boolean)
+    .map((item) => tr(item))
+    .join(" ");
+});
 const plannerWorkflowSteps = computed(() => [
   {
     key: "config",

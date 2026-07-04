@@ -289,7 +289,8 @@ const renderOptions = computed(() => ({
   sliceAxis: sliceEnabled.value ? sliceAxis.value : "none",
   slicePercent: slicePercent.value,
   hiddenSkuKeys: hiddenSkuKeys.value,
-  viewMode: viewMode.value
+  viewMode: viewMode.value,
+  locale: currentLocale.value
 }));
 const emptyStateVisible = computed(() => !props.busy && (!props.container || !props.placements.length || props.errorMessage));
 const emptyStateText = computed(() => tr(props.errorMessage || (!props.container ? "请选择箱型后查看3D装箱视图" : "当前货舱暂无可渲染货物")));

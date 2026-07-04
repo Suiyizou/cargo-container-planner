@@ -71,12 +71,12 @@
         <div v-if="trace" class="trace-metrics">
           <div><span>{{ ui('algorithm.selectedContainer') }}</span><b>{{ tr(trace.current.containerName) }}</b></div>
           <div><span>{{ ui('algorithm.calculationMode') }}</span><b>{{ tr(trace.mode) }}</b></div>
-          <div><span>{{ ui('algorithm.cargoExpansion') }}</span><b>{{ trace.parameters.unitCount }} {{ ui('unit.piece') }}</b></div>
+          <div><span>{{ ui('algorithm.cargoExpansion') }}</span><b>{{ traceUnitCount }} {{ ui('unit.piece') }}</b></div>
           <div><span>{{ ui('algorithm.plannedUtilization') }}</span><b>{{ trace.parameters.utilizationPercent }}%</b></div>
           <div><span>{{ ui('algorithm.horizontalGap') }}</span><b>{{ trace.parameters.globalGapCm }} cm</b></div>
           <div><span>{{ t("planner.supportRatioTrace") }}</span><b>{{ trace.supportRatioPercent }}% / {{ trace.nonStackSupportRatioPercent || 98.5 }}%</b></div>
           <div><span>{{ ui('algorithm.firstBoxStrategy') }}</span><b>{{ tr(trace.selectedStrategy || "-") }}</b></div>
-          <div><span>{{ ui('algorithm.firstBoxLoaded') }}</span><b>{{ trace.firstBox.placedCount }} / {{ trace.parameters.unitCount }} {{ ui('unit.piece') }}</b></div>
+          <div><span>{{ ui('algorithm.firstBoxLoaded') }}</span><b>{{ trace.firstBox.placedCount }} / {{ traceUnitCount }} {{ ui('unit.piece') }}</b></div>
           <div><span>{{ ui('algorithm.containerVolume') }}</span><b>{{ fmt(trace.current.containerVolumeM3) }} m³</b></div>
           <div><span>{{ ui('algorithm.usableVolume') }}</span><b>{{ fmt(trace.current.usableVolumeM3) }} m³</b></div>
           <div><span>{{ ui('algorithm.firstBoxOccupiedVolume') }}</span><b>{{ fmt(trace.current.firstBoxOccupiedVolumeM3) }} m³</b></div>
@@ -127,6 +127,12 @@ const fallbackFormulas = [
 
 const trace = computed(() => props.evaluation?.trace || null);
 const formulas = computed(() => trace.value?.formulas?.length ? trace.value.formulas : fallbackFormulas);
+const traceUnitCount = computed(() =>
+  trace.value?.parameters?.unitCount
+  ?? trace.value?.parameters?.physicalUnitCount
+  ?? trace.value?.parameters?.solverUnitCount
+  ?? 0
+);
 const guideLanes = computed(() => {
   currentLocale.value;
   return [

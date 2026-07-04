@@ -52,6 +52,33 @@ const uiText = {
   "app.clearAll": { zh: "清空全部", en: "Clear All" },
   "app.emptyCargoList": { zh: "还没有录入货物，可以先手动新增，或使用上方智能导入/CSV 导入表格。", en: "No cargo has been entered yet. Add cargo manually, or use Smart Import/CSV import above." },
 
+  "profile.personalCenter": { zh: "个人中心", en: "Personal Center" },
+  "profile.role.admin": { zh: "管理员", en: "Admin" },
+  "profile.role.employee": { zh: "员工", en: "Employee" },
+  "profile.welcomeUser": { zh: "欢迎回来，{name}", en: "Welcome Back, {name}" },
+  "profile.description": {
+    zh: "这里汇总当前工作区、登录会话和常用入口，后续个人偏好会同步到员工自己的工作区。",
+    en: "This panel summarizes the current workspace, login session, and common entry points. Personal preferences can later sync to each employee workspace."
+  },
+  "profile.tokenValidUntil": { zh: "令牌有效期", en: "Token Valid Until" },
+  "profile.autoLogout": { zh: "6 小时自动下线", en: "Auto logout after 6 hours" },
+  "profile.cargoTypes": { zh: "货物种类", en: "Cargo Types" },
+  "profile.currentPlan": { zh: "当前计划", en: "Current Plan" },
+  "profile.totalCargoPieces": { zh: "货物总件数", en: "Total Cargo Pieces" },
+  "profile.containerTypes": { zh: "箱型数量", en: "Container Types" },
+  "profile.availableForCalculation": { zh: "可参与计算", en: "Available for Calculation" },
+  "profile.planParameters": { zh: "计划参数", en: "Plan Parameters" },
+  "profile.utilizationGap": { zh: "可用率 / 间隙", en: "Utilization / Gap" },
+  "profile.packingCalculation": { zh: "装箱计算", en: "Packing Calculation" },
+  "profile.configParametersContainers": { zh: "配置参数和箱型", en: "Configure parameters and containers" },
+  "profile.smartImport": { zh: "智能导入", en: "Smart Import" },
+  "profile.excelTextRecognition": { zh: "Excel 与文本识别", en: "Excel and text recognition" },
+  "profile.algorithmNotes": { zh: "算法说明", en: "Algorithm Notes" },
+  "profile.viewRulesStrategies": { zh: "查看规则与策略", en: "View rules and strategies" },
+  "profile.adminConsole": { zh: "管理后台", en: "Admin Console" },
+  "profile.employeesDevicesSystem": { zh: "员工、设备和系统", en: "Employees, devices, and system" },
+  "profile.logout": { zh: "退出登录", en: "Log Out" },
+
   "report.title": { zh: "装箱分层剖析报告", en: "Layered Packing Analysis Report" },
   "report.subtitle": {
     zh: "按高度剖开货舱：每层提供俯视定位、斜侧立体剖析与色块堆放方式说明",
@@ -248,7 +275,12 @@ const uiText = {
     zh: "这里修改的是导入前的识别结果，不会重新调用 Agent。",
     en: "These edits apply to the pre-import recognition result and do not call the Agent again."
   },
-  "excel.editUseCase": { zh: "适合修正重量千分位、型号、尺寸或货物类型。", en: "Useful for fixing weight separators, models, dimensions, or cargo types." }
+  "excel.editUseCase": { zh: "适合修正重量千分位、型号、尺寸或货物类型。", en: "Useful for fixing weight separators, models, dimensions, or cargo types." },
+
+  "scene.lengthCm": { zh: "长 {value} cm", en: "Length {value} cm" },
+  "scene.widthCm": { zh: "宽 {value} cm", en: "Width {value} cm" },
+  "scene.heightCm": { zh: "高 {value} cm", en: "Height {value} cm" },
+  "scene.corner": { zh: "角 {value}", en: "Corner {value}" }
 };
 
 function interpolate(text, params = {}) {
