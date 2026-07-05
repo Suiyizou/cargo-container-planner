@@ -38,7 +38,8 @@ export const messages = {
       minutesSecondsShort: "{minutes} 分 {seconds} 秒"
     },
     packingStatus: {
-      commonReady: "常用箱型已出结果，特殊箱型补算中"
+      commonReady: "常用箱型已出结果，特殊箱型补算中",
+      partialReady: "部分方案可查看，其他箱型继续计算中"
     },
     smartImport: {
       recognitionPlaceholder: "例如：\n蝶阀100 110*45*82cm 8件 单重180kg 木箱\n纸箱B 60*40*35cm 30件 单重12kg\n易碎品C 55×45×30cm 12件 单重18kg 不可重压",
@@ -145,6 +146,9 @@ export const messages = {
       slowHint: "当前计算较慢，请耐心等待。",
       customerCurrentPlan: "当前方案",
       customerContainerMeta: "第 {index} 个箱型：{container}",
+      containerCounter: "箱型进度 {current}/{total}",
+      strategyCounter: "策略 {current}/{total}",
+      remainingUnits: "剩余 {count} 个搜索单元",
       layerMeta: "第 {layer} 层",
       holdMeta: "第 {hold} 货舱",
       customerLoadingTitle: "货舱装箱计算",
@@ -157,12 +161,16 @@ export const messages = {
       customerContainerText: "正在评估 {scope}，校验箱内尺寸、载重和可装性。",
       customerStrategyTitle: "装箱策略计算",
       customerStrategyText: "正在比较 {scope} 的装箱策略，寻找更稳、更满的摆放方式。",
+      customerStrategyProgressText: "正在比较 {scope} 的装箱策略（第 {current}/{total} 个策略）：{detail}",
       customerSummaryTitle: "货舱结果汇总",
       customerHoldText: "正在汇总 {scope} 的第 {hold} 货舱结果：{detail}",
+      customerBoxProgressText: "当前正在进行 {scope} 的第 {hold} 个货舱装箱计算，剩余 {remaining} 个搜索单元。",
       customerRecommendationText: "正在生成推荐方案，按箱数、空间利用率和合规状态排序。",
       customerPrepareTitle: "装箱数据准备",
       customerPrepareText: "正在整理货物、箱型和装箱规则，准备开始本机计算。",
       customerDetailFallback: "持续计算中",
+      partialReadyText: "{scope} 的阶段结果已可查看，其他箱型继续在后台计算。",
+      partialReadyMeta: "部分方案已可查看，最终推荐继续刷新中",
       status: {
         done: "已完成",
         active: "进行中",
@@ -261,7 +269,8 @@ export const messages = {
       minutesSecondsShort: "{minutes}m {seconds}s"
     },
     packingStatus: {
-      commonReady: "Common containers ready, special containers still running"
+      commonReady: "Common containers ready, special containers still running",
+      partialReady: "Partial plan ready, other container types still running"
     },
     smartImport: {
       recognitionPlaceholder: [
@@ -373,6 +382,9 @@ export const messages = {
       slowHint: "This calculation is taking longer than usual. Please wait.",
       customerCurrentPlan: "Current plan",
       customerContainerMeta: "Container type {index}: {container}",
+      containerCounter: "Container {current}/{total}",
+      strategyCounter: "Strategy {current}/{total}",
+      remainingUnits: "{count} search units remaining",
       layerMeta: "Layer {layer}",
       holdMeta: "Hold {hold}",
       customerLoadingTitle: "Hold Packing Calculation",
@@ -385,12 +397,16 @@ export const messages = {
       customerContainerText: "Evaluating {scope}: checking internal dimensions, payload, and loadability.",
       customerStrategyTitle: "Packing Strategy Calculation",
       customerStrategyText: "Comparing packing strategies for {scope} to find a more stable and fuller layout.",
+      customerStrategyProgressText: "Comparing packing strategies for {scope} (strategy {current}/{total}): {detail}",
       customerSummaryTitle: "Hold Result Summary",
       customerHoldText: "Summarizing hold {hold} for {scope}: {detail}",
+      customerBoxProgressText: "Calculating hold {hold} for {scope}; {remaining} search units remain.",
       customerRecommendationText: "Generating recommendations by box count, space utilization, and compliance status.",
       customerPrepareTitle: "Packing Data Preparation",
       customerPrepareText: "Preparing cargo, container types, and packing rules before local calculation starts.",
       customerDetailFallback: "Calculation is still running",
+      partialReadyText: "The stage result for {scope} is ready to inspect while other container types continue in the background.",
+      partialReadyMeta: "Partial plan ready; final recommendation is still refreshing",
       status: {
         done: "Done",
         active: "Running",

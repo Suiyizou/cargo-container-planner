@@ -2089,6 +2089,22 @@ select {
   white-space: nowrap;
 }
 
+.packing-progress-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.packing-progress-title b {
+  flex: 0 0 auto;
+  color: #165DFF;
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
 .packing-progress-timer {
   display: inline-flex;
   align-items: center;

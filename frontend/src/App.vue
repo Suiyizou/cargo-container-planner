@@ -587,7 +587,10 @@
           <div class="packing-progress-card">
             <div class="packing-progress-main">
               <span>{{ packingProgressState.kicker }}</span>
-              <strong>{{ packingProgressState.title }}</strong>
+              <div class="packing-progress-title">
+                <strong>{{ packingProgressState.title }}</strong>
+                <b>{{ packingProgressState.percentText }}</b>
+              </div>
               <div class="packing-progress-timer">
                 <small>{{ packingProgressState.timerText }}</small>
                 <em v-if="packingProgressState.slowHint">{{ packingProgressState.slowHint }}</em>
@@ -916,6 +919,7 @@ const exportingReport = ref(false);
 const toast = ref("");
 const apiStatus = ref("本机计算");
 const decisionLogs = ref<any[]>([]);
+const packingWorkerProgress = ref<any | null>(null);
 const packingTimeoutDialogOpen = ref(false);
 const packingTimeoutInfo = ref<any | null>(null);
 const calcElapsedSeconds = ref(0);
@@ -982,6 +986,7 @@ const packingProgressState = computed(() => {
   currentLocale.value;
   return buildPackingProgressState({
     current: decisionFlowCurrent.value,
+    progress: packingWorkerProgress.value,
     logTotal: decisionLogTotal.value,
     loading: loading.value,
     rendering: sceneRendering.value || switchingBox.value,
@@ -1274,6 +1279,7 @@ async function recalculate() {
   loading.value = true;
   startPackingElapsedTimer(startedAt);
   decisionLogs.value = [];
+  packingWorkerProgress.value = null;
   packingTimeoutDialogOpen.value = false;
   apiStatus.value = workload.seconds >= 20 ? `预计 ${workload.durationLabel}` : "正在计算";
   try {
@@ -1288,14 +1294,19 @@ async function recalculate() {
     }, {
       maxDecisionEntries: 800,
       decisionBatchSize: 10,
+      progressIntervalMs: 250,
       onDecision(decisions) {
         if (seq !== calcSeq) return;
         appendDecisionLogs(decisions);
       },
+      onProgress(progress) {
+        if (seq !== calcSeq) return;
+        packingWorkerProgress.value = progress;
+      },
       onPartialResult(partialResult) {
         if (seq !== calcSeq || !partialResult) return;
         result.value = normalizeResult(partialResult);
-        apiStatus.value = t("packingStatus.commonReady");
+        apiStatus.value = t("packingStatus.partialReady");
         selectedContainerId.value = result.value.bestContainerId || result.value.evaluations[0]?.container.id || selectedContainerId.value;
         selectedBoxIndex.value = 1;
       }
@@ -1361,9 +1372,10 @@ function stopPackingElapsedTimer(startedAt = null) {
   }
 }
 
-function buildPackingProgressState({ current, logTotal, loading: isLoading, rendering, hasResult, elapsedSeconds }) {
+function buildPackingProgressState({ current, progress, logTotal, loading: isLoading, rendering, hasResult, elapsedSeconds }) {
   const stages = packingProgressStages();
-  const currentPhase = current?.phaseKey || "start";
+  const workerProgress = normalizePackingProgressState(progress);
+  const currentPhase = workerProgress?.phaseKey || current?.phaseKey || "start";
   const activeStageKey = rendering
     ? "render"
     : isLoading
@@ -1372,7 +1384,8 @@ function buildPackingProgressState({ current, logTotal, loading: isLoading, rend
         ? "done"
         : "start";
   const activeIndex = stages.findIndex((stage) => stage.key === activeStageKey);
-  const percent = packingProgressPercent(activeStageKey, currentPhase, logTotal, isLoading, rendering, hasResult);
+  const percent = packingProgressPercent(activeStageKey, currentPhase, logTotal, isLoading, rendering, hasResult, workerProgress);
+  const percentText = progressPercentText(percent);
   const timerText = t("decisionFlow.elapsedTimer", { value: durationText(elapsedSeconds || 0) });
   const slowHint = isLoading && Number(elapsedSeconds || 0) >= 20 ? t("decisionFlow.slowHint") : "";
   const enrichedStages = stages.map((stage, index) => ({
@@ -1389,6 +1402,7 @@ function buildPackingProgressState({ current, logTotal, loading: isLoading, rend
   if (rendering) {
     return {
       percent,
+      percentText,
       stages: enrichedStages,
       kicker: t("decisionFlow.renderKicker"),
       title: t("decisionFlow.renderStage"),
@@ -1403,17 +1417,22 @@ function buildPackingProgressState({ current, logTotal, loading: isLoading, rend
     };
   }
 
-  if (current?.text) {
-    const customerProgress = customerDecisionProgress(current);
+  if ((workerProgress || current?.text) && (isLoading || !hasResult)) {
+    const customerProgress = workerProgress
+      ? customerWorkerProgress(workerProgress, current)
+      : customerDecisionProgress(current);
     return {
       percent,
+      percentText,
       stages: enrichedStages,
       kicker: isLoading ? t("decisionFlow.calculating") : t("decisionFlow.latest"),
       title: customerProgress.title,
       meta: customerProgress.meta,
       timerText,
       slowHint,
-      liveKey: `decision-${current.index}-${current.phaseKey}`,
+      liveKey: workerProgress
+        ? `progress-${workerProgress.phaseKey}-${workerProgress.containerIndex}-${workerProgress.boxIndex}-${workerProgress.strategyIndex}-${workerProgress.layerNo}-${workerProgress.percent}`
+        : `decision-${current.index}-${current.phaseKey}`,
       liveKicker: t("decisionFlow.currentProgress"),
       phaseLabel: customerProgress.phaseLabel,
       liveText: customerProgress.text,
@@ -1424,6 +1443,7 @@ function buildPackingProgressState({ current, logTotal, loading: isLoading, rend
   if (hasResult) {
     return {
       percent,
+      percentText,
       stages: enrichedStages,
       kicker: t("decisionFlow.latest"),
       title: t("decisionFlow.completeStage"),
@@ -1440,6 +1460,7 @@ function buildPackingProgressState({ current, logTotal, loading: isLoading, rend
 
   return {
     percent,
+    percentText,
     stages: enrichedStages,
     kicker: t("decisionFlow.calculating"),
     title: t("decisionFlow.waitingTitle"),
@@ -1472,9 +1493,12 @@ function packingStageKeyForPhase(phaseKey) {
   return "prepare";
 }
 
-function packingProgressPercent(stageKey, phaseKey, logTotal, isLoading, rendering, hasResult) {
+function packingProgressPercent(stageKey, phaseKey, logTotal, isLoading, rendering, hasResult, workerProgress = null) {
   if (rendering) return 96;
   if (hasResult && !isLoading) return 100;
+  if (Number.isFinite(workerProgress?.percent)) {
+    return Math.min(94.9, Math.max(1, Number(workerProgress.percent)));
+  }
   const baseByPhase = {
     start: 8,
     prepare: 18,
@@ -1489,6 +1513,123 @@ function packingProgressPercent(stageKey, phaseKey, logTotal, isLoading, renderi
   const recordBoost = Math.min(6, Math.log10(Math.max(1, Number(logTotal || 0))) * 3);
   return Math.min(94, Math.round(base + recordBoost));
 }
+
+function normalizePackingProgressState(progress) {
+  if (!progress || typeof progress !== "object") return null;
+  const percent = Number(progress.percent);
+  return {
+    ...progress,
+    percent: Number.isFinite(percent) ? Math.min(99, Math.max(0, percent)) : 0,
+    phaseKey: decisionPhaseKey(progress.phase),
+    completedContainers: Number(progress.completedContainers || 0),
+    totalContainers: Number(progress.totalContainers || 0),
+    containerIndex: Number(progress.containerIndex || 0),
+    boxIndex: Number(progress.boxIndex || 0),
+    strategyIndex: Number(progress.strategyIndex || 0),
+    strategyCount: Number(progress.strategyCount || 0),
+    layerNo: Number(progress.layerNo || 0),
+    remainingUnits: Number(progress.remainingUnits || 0),
+    placedUnits: Number(progress.placedUnits || 0),
+    containerName: String(progress.containerName || "")
+  };
+}
+
+function progressPercentText(value) {
+  const rounded = Math.round(Number(value || 0) * 10) / 10;
+  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}%`;
+}
+
+function customerWorkerProgress(progress, current) {
+  const raw = String(current?.text || "");
+  const readable = tr(raw);
+  const phaseKey = progress.phaseKey || current?.phaseKey || "start";
+  const containerName = progress.containerName || decisionContainerName(raw);
+  const scope = containerName ? customerContainerMeta(containerName) : t("decisionFlow.customerCurrentPlan");
+  const layerNo = progress.layerNo || decisionLayerNumber(raw);
+  const holdNo = progress.boxIndex || decisionHoldNumber(raw);
+  const detail = compactDecisionText(decisionCustomerDetail(readable));
+  const containerCounter = progress.totalContainers
+    ? t("decisionFlow.containerCounter", {
+      current: Math.min(progress.containerIndex || progress.completedContainers + 1, progress.totalContainers),
+      total: progress.totalContainers
+    })
+    : "";
+  const strategyCounter = progress.strategyIndex
+    ? t("decisionFlow.strategyCounter", { current: progress.strategyIndex, total: progress.strategyCount || SEARCH_STRATEGIES_FALLBACK_COUNT })
+    : "";
+  const remainingMeta = progress.remainingUnits
+    ? t("decisionFlow.remainingUnits", { count: progress.remainingUnits })
+    : "";
+  const layerMeta = layerNo ? t("decisionFlow.layerMeta", { layer: layerNo }) : "";
+  const holdMeta = holdNo ? t("decisionFlow.holdMeta", { hold: holdNo }) : "";
+  const meta = [scope, containerCounter, strategyCounter, holdMeta, layerMeta, remainingMeta].filter(Boolean).join(" · ");
+
+  if (phaseKey === "layer") {
+    return {
+      title: t("decisionFlow.customerLoadingTitle"),
+      phaseLabel: layerNo ? t("decisionFlow.customerLayerPhase", { layer: layerNo }) : t("decisionFlow.steps.layer.label"),
+      text: layerNo
+        ? t("decisionFlow.customerLayerText", { scope, layer: layerNo, detail })
+        : t("decisionFlow.customerGenericText", { scope, detail }),
+      meta
+    };
+  }
+  if (phaseKey === "repair") {
+    return {
+      title: t("decisionFlow.customerOptimizingTitle"),
+      phaseLabel: t("decisionFlow.steps.repair.label"),
+      text: t("decisionFlow.customerSupportTuningText", { scope }),
+      meta
+    };
+  }
+  if (phaseKey === "box") {
+    return {
+      title: t("decisionFlow.customerSummaryTitle"),
+      phaseLabel: t("decisionFlow.steps.box.label"),
+      text: holdNo
+        ? t("decisionFlow.customerBoxProgressText", { scope, hold: holdNo, remaining: progress.remainingUnits || 0 })
+        : t("decisionFlow.customerGenericText", { scope, detail }),
+      meta
+    };
+  }
+  if (phaseKey === "strategy") {
+    return {
+      title: t("decisionFlow.customerStrategyTitle"),
+      phaseLabel: t("decisionFlow.steps.strategy.label"),
+      text: t("decisionFlow.customerStrategyProgressText", {
+        scope,
+        current: progress.strategyIndex || 1,
+        total: progress.strategyCount || SEARCH_STRATEGIES_FALLBACK_COUNT,
+        detail
+      }),
+      meta
+    };
+  }
+  if (phaseKey === "container") {
+    return {
+      title: t("decisionFlow.customerEvaluatingTitle"),
+      phaseLabel: t("decisionFlow.steps.container.label"),
+      text: t("decisionFlow.customerContainerText", { scope }),
+      meta
+    };
+  }
+  if (phaseKey === "recommendation") {
+    return {
+      title: progress.partialReady ? t("packingStatus.partialReady") : t("decisionFlow.completeStage"),
+      phaseLabel: t("decisionFlow.steps.recommendation.label"),
+      text: progress.partialReady ? t("decisionFlow.partialReadyText", { scope }) : t("decisionFlow.customerRecommendationText"),
+      meta: progress.partialReady ? t("decisionFlow.partialReadyMeta") : meta
+    };
+  }
+  return {
+    title: t("decisionFlow.customerPrepareTitle"),
+    phaseLabel: t("decisionFlow.steps.start.label"),
+    text: t("decisionFlow.customerPrepareText"),
+    meta
+  };
+}
+
+const SEARCH_STRATEGIES_FALLBACK_COUNT = 5;
 
 function customerDecisionProgress(current) {
   const raw = String(current?.text || "");

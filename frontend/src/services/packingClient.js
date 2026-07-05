@@ -23,6 +23,7 @@ export function calculatePacking(payload, options = {}) {
   const startedAt = Date.now();
   const onDecision = typeof options.onDecision === "function" ? options.onDecision : null;
   const onPartialResult = typeof options.onPartialResult === "function" ? options.onPartialResult : null;
+  const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
 
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => {
@@ -35,10 +36,14 @@ export function calculatePacking(payload, options = {}) {
     }, timeoutMs);
 
     currentWorker.onmessage = (event) => {
-      const { id, type, result, message, decisions } = event.data || {};
+      const { id, type, result, message, decisions, progress } = event.data || {};
       if (id !== jobId) return;
       if (type === "decision") {
         onDecision?.(Array.isArray(decisions) ? decisions : []);
+        return;
+      }
+      if (type === "progress") {
+        onProgress?.(progress || null);
         return;
       }
       if (type === "partial") {
@@ -65,6 +70,10 @@ export function calculatePacking(payload, options = {}) {
           enabled: Boolean(onDecision),
           maxEntries: Number(options.maxDecisionEntries || 240),
           batchSize: Number(options.decisionBatchSize || 12)
+        },
+        progressOptions: {
+          enabled: Boolean(onProgress),
+          intervalMs: Number(options.progressIntervalMs || 250)
         }
       }
     });
@@ -83,9 +92,11 @@ function toWorkerPayload(payload) {
 }
 
 function packingTimeoutMsFromEstimate(estimate) {
-  const baseMs = estimate.level === "heavy" ? 180000 : estimate.level === "medium" ? 135000 : 90000;
+  const estimatedMs = Math.max(0, Number(estimate.seconds || 0)) * 1000;
+  const baseMs = estimate.level === "heavy" ? 420000 : estimate.level === "medium" ? 240000 : 120000;
+  const minMs = estimate.level === "heavy" ? 420000 : estimate.level === "medium" ? 300000 : 120000;
   const specialMs = Math.max(0, Number(estimate.specialContainerCount || 0)) * 45000;
-  return Math.min(900000, Math.max(120000, estimate.seconds * 1000 + baseMs + specialMs));
+  return Math.min(900000, Math.max(minMs, estimatedMs + baseMs + specialMs));
 }
 
 export function estimatePackingWorkload(payload = {}) {
