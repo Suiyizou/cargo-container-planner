@@ -21,6 +21,8 @@ const LOWER_GAP_SWAP_MIN_DROP_CM = 5;
 const SPARSE_TAIL_SPREAD_MIN_FREE_CM = 10;
 const SPARSE_TAIL_SPREAD_MAX_INSERT_GAP_CM = 45;
 const SPARSE_TAIL_SPREAD_MAX_CANDIDATES = 10;
+const VERTICAL_TAIL_FILL_MAX_PASSES = 16;
+const VERTICAL_TAIL_FILL_MAX_CANDIDATES = 24;
 const EDGE_ORIENTATION_REPACK_MAX_CANDIDATES = 6;
 const EDGE_ORIENTATION_REPACK_MAX_BAND_ROWS = 6;
 const NON_STACK_DISPLACEMENT_MAX_SWAPS = 2;
@@ -929,8 +931,10 @@ function packContainer(container, units) {
     });
     let gapSwapped = optimizeLowerGapSwaps(stackableContainer, baseBest, bestStrategy);
     gapSwapped = optimizeEdgeOrientationRows(stackableContainer, gapSwapped, bestStrategy);
+    gapSwapped = optimizeVerticalTailFills(stackableContainer, gapSwapped, bestStrategy);
     gapSwapped = optimizeLowerGapSwaps(stackableContainer, gapSwapped, bestStrategy);
     gapSwapped = optimizeEdgeOrientationRows(stackableContainer, gapSwapped, bestStrategy);
+    gapSwapped = optimizeVerticalTailFills(stackableContainer, gapSwapped, bestStrategy);
     gapSwapped = optimizeSparseTailSupport(stackableContainer, gapSwapped, bestStrategy);
     if (gapSwapped !== baseBest) {
       const finalGapSwapped = finalizeWithDeferredNonStack(container, gapSwapped, nonStack, bestStrategy, rejectedByBalance);
@@ -939,7 +943,7 @@ function packContainer(container, units) {
       traceDecision({
         phase: "repair",
         level: "summary",
-        text: `${container.name} - ${bestStrategy.id}: lower-gap/support tuning moved ${gapSwapped.strategySummary?.lowerGapSwapCount || 0} edge pcs down, spread ${gapSwapped.strategySummary?.sparseTailSpreadCount || 0} tail pcs, and backfilled ${gapSwapped.strategySummary?.sparseTailBackfillPlacedCount || 0} pcs.`
+        text: `${container.name} - ${bestStrategy.id}: lower-gap/support tuning moved ${gapSwapped.strategySummary?.lowerGapSwapCount || 0} edge pcs down, filled ${gapSwapped.strategySummary?.verticalTailFillCount || 0} vertical tail slots, spread ${gapSwapped.strategySummary?.sparseTailSpreadCount || 0} tail pcs, and backfilled ${gapSwapped.strategySummary?.sparseTailBackfillPlacedCount || 0} pcs.`
       });
     }
   }
@@ -963,8 +967,10 @@ function packContainer(container, units) {
     }
     refined = optimizeLowerGapSwaps(stackableContainer, refined, bestStrategy);
     refined = optimizeEdgeOrientationRows(stackableContainer, refined, bestStrategy);
+    refined = optimizeVerticalTailFills(stackableContainer, refined, bestStrategy);
     refined = optimizeLowerGapSwaps(stackableContainer, refined, bestStrategy);
     refined = optimizeEdgeOrientationRows(stackableContainer, refined, bestStrategy);
+    refined = optimizeVerticalTailFills(stackableContainer, refined, bestStrategy);
     refined = optimizeSparseTailSupport(stackableContainer, refined, bestStrategy);
     const finalRefined = finalizeWithDeferredNonStack(container, refined, nonStack, bestStrategy, rejectedByBalance);
     if (finalRefined.balanceValidation?.severity === "red") rejectedByBalance += 1;
@@ -2130,6 +2136,190 @@ function optimizeEdgeOrientationRows(container, attempt, strategy) {
   return movedTotal ? current : attempt;
 }
 
+function optimizeVerticalTailFills(container, attempt, strategy) {
+  if (!attempt?.placed?.length) return attempt;
+  const sourceAttempt = expandAttemptPlacementsForFineTuning(container, attempt);
+  let current = cloneAttempt(sourceAttempt);
+  let movedTotal = 0;
+  let supportGainTotal = 0;
+
+  for (let pass = 0; pass < VERTICAL_TAIL_FILL_MAX_PASSES; pass += 1) {
+    const candidate = buildBestVerticalTailFill(container, current, strategy);
+    if (!candidate) break;
+    movedTotal += candidate.movedCount;
+    supportGainTotal += candidate.supportGain;
+    current = makePackedBox(candidate.placed, current.unplaced.map(stripPlacement), {
+      id: current.strategyId,
+      name: current.strategyName
+    }, {
+      ...(current.strategySummary || {}),
+      verticalTailFillCount: Number(current.strategySummary?.verticalTailFillCount || 0) + candidate.movedCount,
+      verticalTailSupportGain: round(Number(current.strategySummary?.verticalTailSupportGain || 0) + candidate.supportGain),
+      layerCount: countLayers(candidate.placed)
+    });
+  }
+
+  if (!movedTotal && supportGainTotal <= EPS) return attempt;
+  return current;
+}
+
+function buildBestVerticalTailFill(container, attempt, strategy) {
+  let best = null;
+  for (const slot of verticalTailFillSlots(container, attempt.placed)) {
+    const candidate = buildVerticalTailFillCandidate(container, attempt.placed, slot, strategy);
+    if (!candidate) continue;
+    if (!best || candidate.score > best.score + EPS) best = candidate;
+  }
+  return best;
+}
+
+function verticalTailFillSlots(container, placed) {
+  const slots = new Map();
+  const addSlot = (slot) => {
+    const key = [
+      slot.sample.cargoId || "",
+      slot.sample.type || "",
+      round3(slot.x),
+      round3(slot.y),
+      round3(slot.z),
+      round3(slot.dims.lengthCm),
+      round3(slot.dims.widthCm),
+      round3(slot.dims.heightCm)
+    ].join("/");
+    if (!slots.has(key)) slots.set(key, slot);
+  };
+
+  for (const row of collectEdgeOrientationRows(placed)) {
+    if (row.units.length < 2) continue;
+    if (row.length <= row.width + EPS) continue;
+    const maxX = Math.max(...row.units.map((unit) => Number(unit.x || 0) + Number(unit.lengthCm || 0)));
+    const freeLength = Number(container.lengthCm || 0) - maxX;
+    if (freeLength <= EPS) continue;
+
+    const baseUnit = stripPlacement(row.sample);
+    const orientations = generateOrientations(baseUnit, { preferVertical: true })
+      .filter((dims) =>
+        dims.lengthCm <= freeLength + EPS
+        && dims.lengthCm < row.length - EPS
+        && dims.widthCm > row.width + EPS
+        && dims.heightCm <= row.length + EPS
+      );
+
+    for (const dims of orientations) {
+      addSlot({
+        sample: row.sample,
+        rowKeys: new Set(row.units.map((unit) => unit.unitKey)),
+        x: round3(maxX),
+        y: round3(row.y),
+        z: round3(row.z),
+        dims,
+        freeLength
+      });
+    }
+  }
+
+  for (const unit of placed) {
+    if (!isVerticalTailFillBase(container, unit)) continue;
+    const baseUnit = stripPlacement(unit);
+    const dims = orientationForDims(baseUnit, Number(unit.lengthCm || 0), Number(unit.widthCm || 0), Number(unit.heightCm || 0));
+    if (!dims) continue;
+    const z = Number(unit.z || 0) + Number(unit.heightCm || 0);
+    if (z + dims.heightCm > containerHeightLimit(container) + EPS) continue;
+    addSlot({
+      sample: unit,
+      rowKeys: new Set([unit.unitKey]),
+      x: round3(unit.x),
+      y: round3(unit.y),
+      z: round3(z),
+      dims,
+      freeLength: Number(container.lengthCm || 0) - (Number(unit.x || 0) + Number(unit.lengthCm || 0))
+    });
+  }
+
+  return [...slots.values()]
+    .sort((a, b) => {
+      if (Math.abs(a.z - b.z) > EPS) return a.z - b.z;
+      if (Math.abs(a.y - b.y) > EPS) return a.y - b.y;
+      return b.freeLength - a.freeLength;
+    })
+    .slice(0, VERTICAL_TAIL_FILL_MAX_CANDIDATES);
+}
+
+function isVerticalTailFillBase(container, unit) {
+  if (!isEdgeRepackCargo(unit) || unitQuantity(unit) > 1) return false;
+  const length = Number(unit.lengthCm || 0);
+  const width = Number(unit.widthCm || 0);
+  const height = Number(unit.heightCm || 0);
+  if (length <= EPS || width <= EPS || height <= EPS) return false;
+  if (length >= width - EPS || length >= height - EPS) return false;
+  const freeLength = Number(container.lengthCm || 0) - (Number(unit.x || 0) + length);
+  if (freeLength < -EPS || freeLength > Math.max(12, length * 0.5) + EPS) return false;
+  const baseUnit = stripPlacement(unit);
+  return Boolean(orientationForDims(baseUnit, length, width, height));
+}
+
+function buildVerticalTailFillCandidate(container, placed, slot, strategy) {
+  const movers = placed
+    .filter((unit) =>
+      isEdgeRepackCargo(unit)
+      && sameRepackCargo(unit, slot.sample)
+      && !slot.rowKeys.has(unit.unitKey)
+      && unitQuantity(unit) <= 1
+      && !hasAnyBoxInColumnAbove(unit, placed)
+      && Number(unit.z || 0) > slot.z + LOWER_GAP_SWAP_MIN_DROP_CM
+      && orientationForDims(stripPlacement(unit), slot.dims.lengthCm, slot.dims.widthCm, slot.dims.heightCm)
+    )
+    .sort((a, b) => {
+      const topDiff = (Number(b.z || 0) + Number(b.heightCm || 0)) - (Number(a.z || 0) + Number(a.heightCm || 0));
+      if (Math.abs(topDiff) > EPS) return topDiff;
+      const zDiff = Number(b.z || 0) - Number(a.z || 0);
+      if (Math.abs(zDiff) > EPS) return zDiff;
+      return centerDistancePenalty(container, b) - centerDistancePenalty(container, a);
+    })
+    .slice(0, VERTICAL_TAIL_FILL_MAX_CANDIDATES);
+
+  let best = null;
+  const baseSupportScore = sparseTailSupportScore(placed, container);
+  const baseMaxTop = maxTop(placed);
+  for (const source of movers) {
+    const unit = stripPlacement(source);
+    const orientation = orientationForDims(unit, slot.dims.lengthCm, slot.dims.widthCm, slot.dims.heightCm);
+    if (!orientation) continue;
+    const nextPlaced = placed
+      .filter((item) => item.unitKey !== source.unitKey)
+      .map(copyUnit);
+    const placement = {
+      ...orientation,
+      x: slot.x,
+      y: slot.y,
+      z: slot.z
+    };
+    const supportRatio = supportRatioForUnit(container, unit, strategy);
+    const validation = validatePlacement(container, nextPlaced, unit, placement, supportRatio);
+    if (!validation.valid) continue;
+    nextPlaced.push({ ...applyPlacement(unit, placement), supportRatioOverride: supportRatio });
+    const finalValidation = validateAllPlacementsDetailed(container, nextPlaced);
+    if (!finalValidation.valid) continue;
+    const movedDepth = (Number(source.z || 0) - slot.z) * unitQuantity(source);
+    const supportGain = sparseTailSupportScore(nextPlaced, container) - baseSupportScore;
+    const topReduction = baseMaxTop - maxTop(nextPlaced);
+    const score = movedDepth * 120000
+      + supportGain * 50
+      + Math.max(0, topReduction) * 300000
+      + slot.freeLength * 1000
+      - slot.z;
+    if (!best || score > best.score + EPS) {
+      best = {
+        placed: nextPlaced,
+        movedCount: unitQuantity(source),
+        supportGain,
+        score
+      };
+    }
+  }
+  return best;
+}
+
 function buildBestEdgeOrientationRepack(container, attempt, strategy) {
   let bestStack = null;
   for (const stack of mixedEdgeOrientationStacks(container, attempt.placed)) {
@@ -3184,6 +3374,8 @@ function makePackedBox(placed, unplaced, strategy, stats) {
       lowerGapSwapCount: Number(stats.lowerGapSwapCount || 0),
       lowerGapSwapLiftedCount: Number(stats.lowerGapSwapLiftedCount || 0),
       lowerGapSwapDepthCm: round(stats.lowerGapSwapDepthCm || 0),
+      verticalTailFillCount: Number(stats.verticalTailFillCount || 0),
+      verticalTailSupportGain: round(stats.verticalTailSupportGain || 0),
       sparseTailSpreadCount: Number(stats.sparseTailSpreadCount || 0),
       sparseTailBackfillPlacedCount: Number(stats.sparseTailBackfillPlacedCount || 0),
       sparseTailSupportGain: round(stats.sparseTailSupportGain || 0),
