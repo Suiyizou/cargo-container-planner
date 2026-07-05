@@ -3080,8 +3080,27 @@ function extremePoints(container, placed, dims, options = {}) {
   }
   if (options.denseTop) {
     for (const z of zs) {
-      for (const x of xs) {
-        for (const y of ys) add(x, y, z);
+      const supportsAtLevel = placed.filter((box) => Math.abs(box.z + box.heightCm - z) < EPS);
+      for (const box of supportsAtLevel) {
+        const localXs = [
+          0,
+          box.x - dims.lengthCm,
+          box.x,
+          box.x + box.lengthCm - dims.lengthCm,
+          box.x + box.lengthCm,
+          container.lengthCm - dims.lengthCm
+        ];
+        const localYs = [
+          0,
+          box.y - dims.widthCm,
+          box.y,
+          box.y + box.widthCm - dims.widthCm,
+          box.y + box.widthCm,
+          container.widthCm - dims.widthCm
+        ];
+        for (const x of localXs) {
+          for (const y of localYs) add(x, y, z);
+        }
       }
     }
   }
