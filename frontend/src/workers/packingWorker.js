@@ -50,6 +50,9 @@ const UTILIZATION_HIGH_WARN_PERCENT = 92;
 const RECOMMENDATION_TARGET_FILL_PERCENT = 72;
 const RECOMMENDATION_COST_WEIGHT = 520;
 const RECOMMENDATION_BOX_WEIGHT = 110;
+const AXIS_LENGTH = "\u957f";
+const AXIS_WIDTH = "\u5bbd";
+const AXIS_HEIGHT = "\u9ad8";
 
 const SEARCH_STRATEGIES = [
   { id: "laff-footprint", name: "LAFF 大底面积优先", unitOrder: "footprint", pointOrder: "low-wide", blueVertical: false },
@@ -4201,9 +4204,9 @@ function expandGroupedPlacement(unit) {
       groupQuantity: 1,
       groupCols: 1,
       groupRows: 1,
-      lengthAxis: unit.lengthAxis,
-      widthAxis: unit.widthAxis,
-      heightAxis: unit.heightAxis
+      lengthAxis: rotated ? AXIS_WIDTH : AXIS_LENGTH,
+      widthAxis: rotated ? AXIS_LENGTH : AXIS_WIDTH,
+      heightAxis: AXIS_HEIGHT
     };
     piece.orientations = generateOrientations(piece);
     pieces.push(piece);
@@ -4213,9 +4216,8 @@ function expandGroupedPlacement(unit) {
 }
 
 function toPlacementDto(unit) {
-  const xAxisBaseCm = axisBaseCm(unit, unit.lengthAxis);
-  const yAxisBaseCm = axisBaseCm(unit, unit.widthAxis);
-  const zAxisBaseCm = axisBaseCm(unit, unit.heightAxis);
+  const axisInfo = placementAxisInfo(unit);
+  const { xAxis, yAxis, zAxis, xAxisBaseCm, yAxisBaseCm, zAxisBaseCm } = axisInfo;
   return {
     unitKey: unit.unitKey,
     cargoId: unit.cargoId,
@@ -4230,16 +4232,16 @@ function toPlacementDto(unit) {
     lengthCm: round(unit.lengthCm),
     widthCm: round(unit.widthCm),
     heightCm: round(unit.heightCm),
-    xAxis: unit.lengthAxis || "长",
-    yAxis: unit.widthAxis || "宽",
-    zAxis: unit.heightAxis || "高",
+    xAxis,
+    yAxis,
+    zAxis,
     xAxisBaseCm: round(xAxisBaseCm),
     yAxisBaseCm: round(yAxisBaseCm),
     zAxisBaseCm: round(zAxisBaseCm),
-    bottomFace: `${unit.lengthAxis || "长"}×${unit.widthAxis || "宽"}`,
-    heightAxis: unit.heightAxis || "高",
-    bottomFaceDetail: `X向=${unit.lengthAxis || "长"}${round(xAxisBaseCm)}cm / Y向=${unit.widthAxis || "宽"}${round(yAxisBaseCm)}cm`,
-    orientationLabel: `底面 X向${unit.lengthAxis || "长"}${round(xAxisBaseCm)}cm × Y向${unit.widthAxis || "宽"}${round(yAxisBaseCm)}cm / 高度Z向${unit.heightAxis || "高"}${round(zAxisBaseCm)}cm`,
+    bottomFace: `${xAxis}×${yAxis}`,
+    heightAxis: zAxis,
+    bottomFaceDetail: `X\u5411=${xAxis}${round(xAxisBaseCm)}cm / Y\u5411=${yAxis}${round(yAxisBaseCm)}cm`,
+    orientationLabel: `\u5e95\u9762 X\u5411${xAxis}${round(xAxisBaseCm)}cm \u00d7 Y\u5411${yAxis}${round(yAxisBaseCm)}cm / \u9ad8\u5ea6Z\u5411${zAxis}${round(zAxisBaseCm)}cm`,
     xCm: round(unit.x),
     yCm: round(unit.y),
     zCm: round(unit.z),
@@ -4251,6 +4253,44 @@ function toPlacementDto(unit) {
     groupRows: Number(unit.groupRows || 1),
     nonStack: unit.nonStack
   };
+}
+
+function placementAxisInfo(unit) {
+  const used = new Set();
+  const x = axisInfoForDimension(unit, Number(unit.lengthCm || 0), unit.lengthAxis, used);
+  const y = axisInfoForDimension(unit, Number(unit.widthCm || 0), unit.widthAxis, used);
+  const z = axisInfoForDimension(unit, Number(unit.heightCm || 0), unit.heightAxis, used);
+  return {
+    xAxis: x.axis,
+    yAxis: y.axis,
+    zAxis: z.axis,
+    xAxisBaseCm: x.baseCm,
+    yAxisBaseCm: y.baseCm,
+    zAxisBaseCm: z.baseCm
+  };
+}
+
+function axisInfoForDimension(unit, dimensionCm, fallbackAxis, used) {
+  const gap = Number(unit.gapCm || 0);
+  const verticalGap = Number(unit.verticalGapCm || unit.extraGapCm || 0);
+  const candidates = [
+    { axis: AXIS_LENGTH, baseCm: Number(unit.baseLengthCm || 0), packedCm: Number(unit.baseLengthCm || 0) + gap },
+    { axis: AXIS_WIDTH, baseCm: Number(unit.baseWidthCm || 0), packedCm: Number(unit.baseWidthCm || 0) + gap },
+    { axis: AXIS_HEIGHT, baseCm: Number(unit.baseHeightCm || 0), packedCm: Number(unit.baseHeightCm || 0) + verticalGap }
+  ].filter((candidate) => candidate.baseCm > 0 && !used.has(candidate.axis));
+
+  const byPacked = candidates.find((candidate) => Math.abs(candidate.packedCm - dimensionCm) < 0.05);
+  const byBase = candidates.find((candidate) => Math.abs(candidate.baseCm - dimensionCm) < 0.05);
+  const best = byPacked || byBase || candidates
+    .slice()
+    .sort((a, b) => Math.abs(a.packedCm - dimensionCm) - Math.abs(b.packedCm - dimensionCm))[0];
+  if (best) {
+    used.add(best.axis);
+    return best;
+  }
+
+  const axis = fallbackAxis || AXIS_LENGTH;
+  return { axis, baseCm: axisBaseCm(unit, axis) };
 }
 
 function axisBaseCm(unit, axis) {
