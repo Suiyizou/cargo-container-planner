@@ -2201,7 +2201,7 @@ function verticalTailFillSlots(container, placed) {
       .filter((dims) =>
         dims.lengthCm <= freeLength + EPS
         && dims.lengthCm < row.length - EPS
-        && dims.widthCm > row.width + EPS
+        && dims.widthCm >= row.width - EPS
         && dims.heightCm <= row.length + EPS
       );
 
@@ -2303,9 +2303,12 @@ function buildVerticalTailFillCandidate(container, placed, slot, strategy) {
     const movedDepth = (Number(source.z || 0) - slot.z) * unitQuantity(source);
     const supportGain = sparseTailSupportScore(nextPlaced, container) - baseSupportScore;
     const topReduction = baseMaxTop - maxTop(nextPlaced);
+    const narrowTallBonus = Math.max(0, Number(placement.heightCm || 0) - Number(placement.widthCm || 0)) * 260000
+      + Math.max(0, Number(placement.widthCm || 0) - Number(placement.lengthCm || 0)) * 80000;
     const score = movedDepth * 120000
       + supportGain * 50
       + Math.max(0, topReduction) * 300000
+      + narrowTallBonus
       + slot.freeLength * 1000
       - slot.z;
     if (!best || score > best.score + EPS) {
