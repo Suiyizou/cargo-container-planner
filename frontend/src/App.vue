@@ -267,6 +267,10 @@
               <strong>常用工具</strong>
               <div class="config-tool-grid">
                 <el-button :icon="Star" @click="smartImportOpen = !smartImportOpen">{{ smartImportOpen ? "收起智能导入" : "智能/Excel 导入" }}</el-button>
+                <el-select v-model="quickImportMode" class="quick-import-mode" :aria-label="ui('excel.importMode')" :disabled="fileImporting">
+                  <el-option :label="ui('excel.appendCargo')" value="append" />
+                  <el-option :label="ui('excel.replaceCargo')" value="replace" />
+                </el-select>
                 <el-upload :auto-upload="false" :show-file-list="false" accept=".xlsx,.xls,.csv,.tsv,text/csv" :disabled="fileImporting" :on-change="handleWorkbookQuickUpload">
                   <el-button :icon="Upload" :loading="fileImporting">导入 Excel</el-button>
                 </el-upload>
@@ -347,7 +351,7 @@
         </div>
         <el-collapse-transition>
           <div v-if="smartImportOpen" class="embedded-smart-import config-embedded-import">
-            <ExcelTemplatePage key="config-smart-import" @import-cargos="importExcelCargos" />
+            <ExcelTemplatePage key="config-smart-import" :current-cargo-count="cargos.length" @import-cargos="importExcelCargos" />
           </div>
         </el-collapse-transition>
       </section>
@@ -398,7 +402,7 @@
           </template>
           <el-collapse-transition>
             <div v-if="smartImportOpen" class="embedded-smart-import">
-              <ExcelTemplatePage key="embedded-smart-import" @import-cargos="importExcelCargos" />
+              <ExcelTemplatePage key="embedded-smart-import" :current-cargo-count="cargos.length" @import-cargos="importExcelCargos" />
             </div>
           </el-collapse-transition>
           <el-table
@@ -488,6 +492,11 @@
               <b>{{ resultSummary.boxesText }}</b>
               <small>{{ trPlanSummary(resultSummary.containerName) }}</small>
             </div>
+            <div class="summary-card freight">
+              <span>{{ ui("result.bestFreight") }}</span>
+              <b>{{ resultSummary.freightText }}</b>
+              <small>{{ ui("result.freightFormula") }}</small>
+            </div>
           </div>
         </section>
         <section class="panel ranking-panel">
@@ -521,7 +530,8 @@
               <mark v-if="result?.bestContainerId === evaluation.container.id" class="container-recommend-mark">{{ tr("推荐") }}</mark>
               <strong>{{ trPlanSummary(evaluation.container.name) }}</strong>
               <small>{{ evaluationCardSubtitle(evaluation) }}</small>
-              <em>{{ evaluationCardMetric(evaluation) }}</em>
+              <em class="freight-cost">{{ evaluationFreightText(evaluation) }}</em>
+              <small class="utilization-line">{{ evaluationCardMetric(evaluation) }}</small>
               <b v-if="evaluationCardStatus(evaluation)" :class="['fit-status', evaluation.fitStatus || 'fit']">{{ evaluationCardStatus(evaluation) }}</b>
             </el-button>
           </div>
@@ -796,6 +806,7 @@ import { cargoLabel, fmt, shortType, uid } from "./utils/format";
 
 const STORAGE_KEY = "cargo-planner-vue-state";
 const TEMPLATE_STORAGE_KEY = "cargo-planner-cargo-templates";
+const REFERENCE_PRICE_BASE = 1000;
 const colors = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3", "#ca8a04", "#475569"];
 const DEFAULT_BALANCE_SETTINGS = {
   greenLimitPercent: 2.5,
@@ -897,6 +908,7 @@ const balanceSettings = ref(normalizeBalanceSettings());
 const activeBalancePreset = ref("standard");
 const loading = ref(false);
 const fileImporting = ref(false);
+const quickImportMode = ref("append");
 const switchingBox = ref(false);
 const sceneRendering = ref(false);
 const showRemaining = ref(true);
@@ -961,6 +973,7 @@ const resultSummary = computed(() => {
     ...counts,
     boxesText: boxes > 0 ? `${best?.estimatedBoxes ? "约 " : ""}${boxes} 箱` : "-",
     containerName: best?.mixedPlan?.summary || best?.container?.name || "暂无推荐",
+    freightText: best ? formatCurrency(evaluationFreightValue(best)) : "-",
     recommendationText: best
       ? `${best.mixedPlan?.summary || best.container.name} / ${evaluationFitText(best)}`
       : "暂无计算结果"
@@ -1835,16 +1848,18 @@ function normalizeResult(nextResult) {
 }
 
 function compareEvaluationForUi(a, b) {
+  const statusDiff = evaluationStatusRank(a) - evaluationStatusRank(b);
+  if (statusDiff) return statusDiff;
+  const freightDiff = compareFiniteNumbers(evaluationFreightValue(a), evaluationFreightValue(b));
+  if (freightDiff) return freightDiff;
+  const boxDiff = normalizedEvaluationBoxes(a) - normalizedEvaluationBoxes(b);
+  if (boxDiff) return boxDiff;
+  const fillDiff = Math.abs(evaluationAverageFill(a) - 72) - Math.abs(evaluationAverageFill(b) - 72);
+  if (fillDiff) return fillDiff;
   const scoreA = Number(a?.recommendation?.score);
   const scoreB = Number(b?.recommendation?.score);
   if (Number.isFinite(scoreA) && Number.isFinite(scoreB) && scoreA !== scoreB) return scoreA - scoreB;
-  const statusDiff = evaluationStatusRank(a) - evaluationStatusRank(b);
-  if (statusDiff) return statusDiff;
-  const costDiff = Number(a?.recommendation?.estimatedCost || 9999) - Number(b?.recommendation?.estimatedCost || 9999);
-  if (costDiff) return costDiff;
-  const boxDiff = normalizedEvaluationBoxes(a) - normalizedEvaluationBoxes(b);
-  if (boxDiff) return boxDiff;
-  return Math.abs(evaluationAverageFill(a) - 72) - Math.abs(evaluationAverageFill(b) - 72);
+  return 0;
 }
 
 function defaultPriorityContainers() {
@@ -2291,16 +2306,17 @@ async function importStructuredCargoFile(file: File, label = "文件") {
     const sheet = workbook?.sheets?.[0];
     if (!sheet) throw new Error("没有找到可导入的工作表。");
     const preview = await buildPreviewInWorker(sheet, sheet.mapping || {}, { dimensionUnit: "auto", weightUnit: "auto" });
-    const imported = preview.aggregated || [];
+    const imported = (preview.aggregated || []).map((cargo, index) => normalizeImportedCargo(cargo, index));
     if (!imported.length) {
       showToast(`未识别到有效货物，已发现 ${preview.invalidRows?.length || 0} 行异常，请打开智能/Excel 导入查看明细。`);
       smartImportOpen.value = true;
       return;
     }
-    cargos.value = normalizeCargoModels(imported);
-    result.value = null;
-    selectedBoxIndex.value = 1;
-    showToast(`已导入 ${imported.length} 类 / ${preview.importedQuantity || 0} 件货物${preview.invalidRows?.length ? `，跳过 ${preview.invalidRows.length} 行异常` : ""}。`);
+    importExcelCargos({
+      cargos: imported,
+      mode: quickImportMode.value,
+      skippedRows: preview.invalidRows?.length || 0
+    });
   } catch (error) {
     showToast(error?.message || `${label} 导入失败，请检查文件格式。`);
   } finally {
@@ -2354,6 +2370,53 @@ function evaluationCardMetric(evaluation) {
     return t("metrics.deckUtilizationWithLength", { value: fmt(fill, 1), length: lengthText });
   }
   return `${tr(Number(evaluation?.boxes || 0) > 1 || evaluation?.isMixedPlan ? "平均利用率" : "空间利用率")} ${fmt(fill, 1)}%`;
+}
+
+function evaluationFreightText(evaluation) {
+  const value = evaluationFreightValue(evaluation);
+  return `${ui("result.referenceFreight")} ${formatCurrency(value)}`;
+}
+
+function evaluationFreightValue(evaluation) {
+  const rawBoxes = Number(evaluation?.boxes || 0);
+  if (!evaluation || evaluation?.fitStatus === "oversize" || rawBoxes <= 0) return Number.POSITIVE_INFINITY;
+  const recommendation = evaluation?.recommendation || {};
+  const estimatedFreight = Number(recommendation.estimatedFreight);
+  if (Number.isFinite(estimatedFreight) && estimatedFreight > 0) return estimatedFreight;
+  const packedBoxes = Array.isArray(evaluation?.packedBoxes) ? evaluation.packedBoxes : [];
+  if (evaluation?.isMixedPlan || evaluation?.container?.mixedPlan) {
+    const mixedFreight = packedBoxes.reduce((sum, box) => sum + containerReferencePrice(box.container), 0);
+    if (mixedFreight > 0) return mixedFreight;
+  }
+  const boxes = normalizedEvaluationBoxes(evaluation);
+  if (boxes >= 9999) return Number.POSITIVE_INFINITY;
+  return boxes * containerReferencePrice(evaluation?.container);
+}
+
+function containerReferencePrice(container) {
+  const explicit = Number(container?.referencePrice ?? container?.price ?? container?.freightPrice);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  const costFactor = Number(container?.costFactor || 0);
+  return costFactor > 0 ? costFactor * REFERENCE_PRICE_BASE : REFERENCE_PRICE_BASE;
+}
+
+function formatCurrency(value) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric) || numeric <= 0) return "-";
+  const formatted = new Intl.NumberFormat(currentLocale.value === "en-US" ? "en-US" : "zh-CN", {
+    maximumFractionDigits: numeric >= 100 ? 0 : 2
+  }).format(numeric);
+  return `¥${formatted}`;
+}
+
+function compareFiniteNumbers(left, right) {
+  const a = Number(left);
+  const b = Number(right);
+  const aFinite = Number.isFinite(a);
+  const bFinite = Number.isFinite(b);
+  if (aFinite && bFinite && Math.abs(a - b) > 0.01) return a - b;
+  if (aFinite !== bFinite) return aFinite ? -1 : 1;
+  return 0;
 }
 
 function evaluationCardStatus(evaluation) {
@@ -2416,8 +2479,7 @@ function evaluationFitText(evaluation) {
 }
 
 function evaluationCostText(evaluation) {
-  const recommendation = evaluation?.recommendation || {};
-  return `成本：${priceTierText(recommendation.priceTier)}`;
+  return evaluationFreightText(evaluation);
 }
 
 function evaluationRecommendationText(evaluation) {
@@ -2431,14 +2493,13 @@ function evaluationRecommendationText(evaluation) {
 }
 
 function evaluationHint(evaluation) {
-  const recommendation = evaluation?.recommendation || {};
-  const score = Number(recommendation.score || 0);
-  const scoreText = score > 0
-    ? currentLocale.value === "en-US"
-      ? `; composite score ${score.toFixed(0)}, lower is better`
-      : `；综合评分 ${score.toFixed(0)}，分数越低越优`
-    : "";
-  return `${trPlanSummary(evaluation?.container?.name || "方案")}；${evaluationCardSubtitle(evaluation)}；${evaluationCardMetric(evaluation)}${scoreText}`;
+  return [
+    trPlanSummary(evaluation?.container?.name || ui("result.planFallback")),
+    evaluationCardSubtitle(evaluation),
+    evaluationFreightText(evaluation),
+    evaluationCardMetric(evaluation),
+    ui("result.priceFirstBasis")
+  ].filter(Boolean).join("; ");
 }
 
 function evaluationAverageFill(evaluation) {
@@ -2505,17 +2566,45 @@ function isEvaluationExportable(evaluation) {
   return Boolean(evaluation && evaluation.fitStatus !== "balance-blocked" && evaluation.fitStatus !== "oversize");
 }
 
+function normalizeImportedCargo(cargo, index = 0) {
+  return {
+    id: cargo.id || uid("cargo"),
+    name: String(cargo.name || "").trim(),
+    model: String(cargo.model || "").trim(),
+    lengthCm: round2(cargo.lengthCm),
+    widthCm: round2(cargo.widthCm),
+    heightCm: round2(cargo.heightCm),
+    quantity: Math.max(1, Math.round(Number(cargo.quantity || 1))),
+    weightKg: round2(cargo.weightKg),
+    type: cargo.type || "normal",
+    color: cargo.color || systemColorFor(index),
+    sku: cargo.sku || "",
+    remark: String(cargo.remark || "").trim(),
+    packageInfo: cargo.packageInfo || null
+  };
+}
+
 function importExcelCargos({ cargos: importedCargos, mode, skippedRows = 0 }) {
   if (!importedCargos?.length) return;
-  cargos.value = normalizeCargoModels(mode === "append" ? [...cargos.value, ...importedCargos] : importedCargos);
+  const nextMode = mode === "replace" ? "replace" : "append";
+  const normalizedImported = importedCargos.map((cargo, index) => normalizeImportedCargo(cargo, cargos.value.length + index));
+  cargos.value = normalizeCargoModels(nextMode === "append" ? [...cargos.value, ...normalizedImported] : normalizedImported);
   result.value = null;
   selectedBoxIndex.value = 1;
   router.push("/planner/cargos");
-  showToast(`${mode === "append" ? "已追加" : "已导入"} ${importedCargos.length} 类货物${skippedRows ? `，跳过 ${skippedRows} 行异常数据` : ""}`);
+  showToast(ui("app.importCargoSuccess", {
+    action: ui(nextMode === "append" ? "app.importActionAppend" : "app.importActionReplace"),
+    count: normalizedImported.length,
+    skipped: skippedRows ? ui("app.importSkippedRows", { count: skippedRows }) : ""
+  }));
 }
 
 function systemColorFor(index) {
   return colors[index % colors.length];
+}
+
+function round2(value) {
+  return Math.round(Number(value || 0) * 100) / 100;
 }
 
 function cargoDisplayName(cargo) {

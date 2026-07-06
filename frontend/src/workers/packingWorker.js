@@ -50,7 +50,8 @@ const FIT_STATUS = {
 const UTILIZATION_LOW_WARN_PERCENT = 55;
 const UTILIZATION_HIGH_WARN_PERCENT = 92;
 const RECOMMENDATION_TARGET_FILL_PERCENT = 72;
-const RECOMMENDATION_COST_WEIGHT = 520;
+const REFERENCE_PRICE_BASE = 1000;
+const RECOMMENDATION_FREIGHT_WEIGHT = 0.52;
 const RECOMMENDATION_BOX_WEIGHT = 110;
 const AXIS_LENGTH = "\u957f";
 const AXIS_WIDTH = "\u5bbd";
@@ -318,7 +319,7 @@ export function calculate(request = {}, options = {}) {
     phase: "recommendation",
     level: "summary",
     text: evaluations[0]
-      ? `推荐结果：${evaluations[0].mixedPlan?.summary || evaluations[0].container.name}，${evaluations[0].boxes > 0 ? `${evaluations[0].boxes} 箱` : "暂无完整方案"}，综合评分 ${round(evaluations[0].recommendation?.score)}。`
+      ? `推荐结果：${evaluations[0].mixedPlan?.summary || evaluations[0].container.name}，${evaluations[0].boxes > 0 ? `${evaluations[0].boxes} 箱` : "暂无完整方案"}，参考运价 ${formatFreightCost(estimatedFreightCost(evaluations[0]))}。`
       : "没有生成可推荐方案。"
   });
   return {
@@ -631,6 +632,7 @@ function buildMixedContainerEvaluation(containers, cargos, total, utilizationPer
     equipmentClass: "MIX",
     priceTier: "mixed",
     costFactor: mixedPlanCost(packedBoxes),
+    referencePrice: mixedPlanFreightCost(packedBoxes),
     mixedPlan: true
   };
   const multi = {
@@ -696,6 +698,10 @@ function mixedBoxCandidateScore(container, packed, remaining, utilizationPercent
 
 function mixedPlanCost(packedBoxes) {
   return packedBoxes.reduce((sum, box) => sum + equipmentMeta(box.container).costFactor, 0);
+}
+
+function mixedPlanFreightCost(packedBoxes) {
+  return packedBoxes.reduce((sum, box) => sum + equipmentMeta(box.container).referencePrice, 0);
 }
 
 function mixedPlanSummary(packedBoxes) {
@@ -4123,8 +4129,6 @@ function cargoDisplayName(cargo) {
 }
 
 function compareEvaluation(a, b) {
-  const scoreDiff = recommendationScoreValue(a) - recommendationScoreValue(b);
-  if (Math.abs(scoreDiff) > EPS) return scoreDiff;
   const statusDiff = fitStatusRank(a.fitStatus) - fitStatusRank(b.fitStatus);
   if (statusDiff) return statusDiff;
   const costDiff = estimatedFreightCost(a) - estimatedFreightCost(b);
@@ -4133,6 +4137,8 @@ function compareEvaluation(a, b) {
   if (boxDiff) return boxDiff;
   const targetDiff = Math.abs(recommendationFillPercent(a) - RECOMMENDATION_TARGET_FILL_PERCENT) - Math.abs(recommendationFillPercent(b) - RECOMMENDATION_TARGET_FILL_PERCENT);
   if (Math.abs(targetDiff) > EPS) return targetDiff;
+  const scoreDiff = recommendationScoreValue(a) - recommendationScoreValue(b);
+  if (Math.abs(scoreDiff) > EPS) return scoreDiff;
   return volumeM3(a.container) - volumeM3(b.container);
 }
 
@@ -4143,6 +4149,9 @@ function buildRecommendation(evaluation) {
   const cost = evaluation.isMixedPlan || evaluation.container?.mixedPlan
     ? Number(evaluation.container?.costFactor || 9999)
     : boxes >= 9999 ? 9999 : boxes * meta.costFactor;
+  const freightCost = evaluation.isMixedPlan || evaluation.container?.mixedPlan
+    ? mixedPlanFreightCost(evaluation.packedBoxes || []) || Number(evaluation.container?.referencePrice || 999999)
+    : boxes >= 9999 ? 999999 : boxes * meta.referencePrice;
   const fill = recommendationFillPercent(evaluation);
   const underusePenalty = Math.max(0, UTILIZATION_LOW_WARN_PERCENT - fill) * 42;
   const severeUnderusePenalty = Math.pow(Math.max(0, 45 - fill), 2) * 4;
@@ -4161,7 +4170,7 @@ function buildRecommendation(evaluation) {
   const score = oversizePenalty
     + balancePenalty
     + statusPenalty
-    + cost * RECOMMENDATION_COST_WEIGHT
+    + freightCost * RECOMMENDATION_FREIGHT_WEIGHT
     + boxes * RECOMMENDATION_BOX_WEIGHT
     + specialEquipmentPenalty
     + lowUseLargeBoxPenalty
@@ -4175,6 +4184,8 @@ function buildRecommendation(evaluation) {
     score: round(score),
     costFactor: round(meta.costFactor),
     estimatedCost: round(cost),
+    referencePrice: round(meta.referencePrice),
+    estimatedFreight: round(freightCost),
     priceTier: meta.priceTier,
     equipmentClass: meta.equipmentClass,
     utilizationBand: utilizationBand(fill),
@@ -4208,9 +4219,19 @@ function normalizedBoxCount(evaluation) {
 
 function estimatedFreightCost(evaluation) {
   const recommendation = evaluation?.recommendation;
-  if (Number.isFinite(Number(recommendation?.estimatedCost))) return Number(recommendation.estimatedCost);
+  if (Number.isFinite(Number(recommendation?.estimatedFreight))) return Number(recommendation.estimatedFreight);
+  if (evaluation?.isMixedPlan || evaluation?.container?.mixedPlan) {
+    const mixedFreight = mixedPlanFreightCost(evaluation?.packedBoxes || []);
+    if (mixedFreight > 0) return mixedFreight;
+  }
   const meta = equipmentMeta(evaluation?.container);
-  return normalizedBoxCount(evaluation) * meta.costFactor;
+  return normalizedBoxCount(evaluation) * meta.referencePrice;
+}
+
+function formatFreightCost(value) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric) || numeric <= 0) return "-";
+  return `¥${round(numeric)}`;
 }
 
 function equipmentMeta(container = {}) {
@@ -4218,6 +4239,7 @@ function equipmentMeta(container = {}) {
   const name = String(container.name || "").toLowerCase();
   const text = `${id} ${name}`;
   const explicitCost = Number(container.costFactor);
+  const explicitReferencePrice = Number(container.referencePrice ?? container.price ?? container.freightPrice);
   let equipmentClass = String(container.equipmentClass || "").toUpperCase();
   if (!["GP", "HQ", "45HQ", "RF", "FR", "MIX"].includes(equipmentClass)) {
     equipmentClass = "GP";
@@ -4242,6 +4264,9 @@ function equipmentMeta(container = {}) {
   const costFactor = Number.isFinite(explicitCost) && explicitCost > 0
     ? explicitCost
     : inferredCosts[id] || inferredByClass;
+  const referencePrice = Number.isFinite(explicitReferencePrice) && explicitReferencePrice > 0
+    ? explicitReferencePrice
+    : costFactor * REFERENCE_PRICE_BASE;
   const explicitTier = String(container.priceTier || "").trim();
   const priceTier = explicitTier || (
     costFactor <= 1.15
@@ -4253,7 +4278,7 @@ function equipmentMeta(container = {}) {
           : "special"
   );
 
-  return { costFactor, priceTier, equipmentClass };
+  return { costFactor, referencePrice, priceTier, equipmentClass };
 }
 
 function utilizationBand(fillPercent) {
@@ -4282,7 +4307,7 @@ function buildTrace(container, units, total, multi, metrics) {
       "候选落位必须满足边界、不相交、底面支撑和不可重压货物不承载上层货物",
       "首轮失败时执行局部搜索，移出一小组已摆货物与剩余货物重排，而不是立刻开启第二箱",
       "同一箱型选择已摆数量更多、占用体积更高、承重支撑面更好的方案",
-      "所有箱型按合规状态、参考费用、箱数、利用率区间和特种箱惩罚进行综合推荐"
+      "所有箱型先按合规状态筛选，再按总参考运价、箱数和利用率辅助条件推荐"
     ],
     strategies: SEARCH_STRATEGIES.map((strategy) => strategy.name),
     selectedStrategy: firstBox.strategyName || "",

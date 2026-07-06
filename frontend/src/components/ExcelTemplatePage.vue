@@ -571,6 +571,12 @@ import { translateUiText } from "../i18n/uiText";
 import { uid } from "../utils/format";
 
 const emit = defineEmits(["import-cargos"]);
+const props = defineProps({
+  currentCargoCount: {
+    type: Number,
+    default: 0
+  }
+});
 
 function tr(value) {
   return translateLegacyText(value == null ? "" : String(value), currentLocale.value);
@@ -629,7 +635,7 @@ const recognitionEditForm = reactive({
   remark: ""
 });
 const options = reactive({ dimensionUnit: "auto", weightUnit: "auto" });
-const importMode = ref("replace");
+const importMode = ref(props.currentCargoCount > 0 ? "append" : "replace");
 const visibleMappingFields = computed(() =>
   importFields.filter((field) => field.key !== "totalWeightKg" || mapping.totalWeightKg || activeSheet.value?.headers.length)
 );
@@ -968,7 +974,10 @@ function importPreview() {
     quantity: cargo.quantity,
     weightKg: cargo.weightKg,
     type: cargo.type,
-    color: cargo.color || colors[index % colors.length]
+    color: cargo.color || colors[index % colors.length],
+    sku: cargo.sku || "",
+    remark: cargo.remark || "",
+    packageInfo: cargo.packageInfo || null
   }));
   emit("import-cargos", { cargos, mode: importMode.value, skippedRows: unresolvedInvalidRows.value.length });
 }
@@ -986,7 +995,8 @@ function normalizeImportedCargo(cargo, index) {
     type: cargo.type || "normal",
     color: cargo.color || colors[index % colors.length],
     sku: cargo.sku || "",
-    remark: cargo.remark || ""
+    remark: cargo.remark || "",
+    packageInfo: cargo.packageInfo || null
   };
 }
 
@@ -1042,7 +1052,8 @@ function normalizeRecognitionEditCargo() {
     type: recognitionEditForm.type || "normal",
     color: recognitionEditForm.color || "",
     sku: recognitionEditForm.sku || "",
-    remark: String(recognitionEditForm.remark || "").trim()
+    remark: String(recognitionEditForm.remark || "").trim(),
+    packageInfo: recognitionRows.value[recognitionEditIndex.value]?.packageInfo || null
   };
 }
 

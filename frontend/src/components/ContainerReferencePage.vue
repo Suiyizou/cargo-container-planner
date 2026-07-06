@@ -46,6 +46,7 @@
           <dl class="container-reference-specs">
             <div><dt>{{ ui('container.calcSize') }}</dt><dd>{{ dimensionText(container) }} cm</dd></div>
             <div><dt>{{ ui('container.maxPayload') }}</dt><dd>{{ payloadText(container) }}</dd></div>
+            <div class="container-reference-price"><dt>{{ ui('container.referencePrice') }}</dt><dd>{{ priceText(container) }}</dd></div>
             <div><dt>{{ ui('container.dimensionBasis') }}</dt><dd>{{ sourceText(container.dimensionBasis, ui('container.manualDimensions')) }}</dd></div>
           </dl>
 
@@ -114,10 +115,31 @@ function payloadText(container: any) {
   return value >= 1000 ? `${formatNumber(value / 1000)} t` : `${formatNumber(value)} kg`;
 }
 
+function priceText(container: any) {
+  const value = referencePriceValue(container);
+  if (!value) return "-";
+  return `¥${formatMoney(value)}`;
+}
+
+function referencePriceValue(container: any) {
+  const explicit = Number(container?.referencePrice ?? container?.price ?? container?.freightPrice);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  const costFactor = Number(container?.costFactor || 0);
+  return costFactor > 0 ? costFactor * 1000 : 0;
+}
+
 function formatNumber(value: unknown) {
   const numeric = Number(value || 0);
   if (!Number.isFinite(numeric) || numeric <= 0) return "-";
   return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(1).replace(/\.0$/, "");
+}
+
+function formatMoney(value: number) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric) || numeric <= 0) return "-";
+  return new Intl.NumberFormat(currentLocale.value === "en-US" ? "en-US" : "zh-CN", {
+    maximumFractionDigits: numeric >= 100 ? 0 : 2
+  }).format(numeric);
 }
 
 function priorityText(value: string) {

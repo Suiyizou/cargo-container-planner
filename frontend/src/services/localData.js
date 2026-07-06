@@ -122,14 +122,14 @@ export const defaultContainers = [
 ];
 
 const defaultContainerProfiles = {
-  "20gp": { costFactor: 1, priceTier: "economy", equipmentClass: "GP" },
-  "20hq": { costFactor: 1.08, priceTier: "economy", equipmentClass: "HQ" },
-  "40gp": { costFactor: 1.55, priceTier: "standard", equipmentClass: "GP" },
-  "40hq": { costFactor: 1.68, priceTier: "standard", equipmentClass: "HQ" },
-  "20rf": { costFactor: 1.65, priceTier: "standard", equipmentClass: "RF" },
-  "40rf": { costFactor: 2.45, priceTier: "special", equipmentClass: "RF" },
-  "20fr": { costFactor: 2.15, priceTier: "high", equipmentClass: "FR" },
-  "40fr": { costFactor: 3.2, priceTier: "special", equipmentClass: "FR" }
+  "20gp": { costFactor: 1, referencePrice: 1000, priceTier: "economy", equipmentClass: "GP" },
+  "20hq": { costFactor: 1.08, referencePrice: 1080, priceTier: "economy", equipmentClass: "HQ" },
+  "40gp": { costFactor: 1.55, referencePrice: 1550, priceTier: "standard", equipmentClass: "GP" },
+  "40hq": { costFactor: 1.68, referencePrice: 1680, priceTier: "standard", equipmentClass: "HQ" },
+  "20rf": { costFactor: 1.65, referencePrice: 1650, priceTier: "standard", equipmentClass: "RF" },
+  "40rf": { costFactor: 2.45, referencePrice: 2450, priceTier: "special", equipmentClass: "RF" },
+  "20fr": { costFactor: 2.15, referencePrice: 2150, priceTier: "high", equipmentClass: "FR" },
+  "40fr": { costFactor: 3.2, referencePrice: 3200, priceTier: "special", equipmentClass: "FR" }
 };
 
 const defaultContainerById = new Map(defaultContainers.map((item) => [item.id, item]));
@@ -156,6 +156,7 @@ function withDefaultProfile(container, options = {}) {
     ...profile,
     ...container,
     costFactor: container?.costFactor ?? profile.costFactor,
+    referencePrice: container?.referencePrice ?? profile.referencePrice,
     priceTier: container?.priceTier ?? profile.priceTier,
     equipmentClass: container?.equipmentClass ?? profile.equipmentClass
   };

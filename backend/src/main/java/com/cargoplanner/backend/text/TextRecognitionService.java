@@ -286,6 +286,11 @@ public class TextRecognitionService {
   }
 
   private RecognitionResult recognize(String text, String languageHint) {
+    RecognitionResult packingListResult = recognizePackingListTable(text);
+    if (packingListResult != null) {
+      return packingListResult;
+    }
+
     LlmRuntimeSettings settings = llmSettingsService.runtimeSettings();
     if (settings.enabled()) {
       if (settings.hasApiKey()) {
@@ -460,6 +465,182 @@ public class TextRecognitionService {
     return trim(text, 300);
   }
 
+  private RecognitionResult recognizePackingListTable(String text) {
+    if (!looksLikePackingListTable(text)) return null;
+
+    List<String> lines = textRows(text);
+    List<Map<String, Object>> validRows = new ArrayList<>();
+    List<Map<String, Object>> issues = new ArrayList<>();
+    for (int index = 0; index < lines.size(); index++) {
+      ParsedCargo parsed = parsePackingListTableLine(lines.get(index), index + 1);
+      if (!parsed.matched()) continue;
+      if (parsed.errors().isEmpty()) {
+        validRows.add(parsed.cargo());
+      } else {
+        issues.add(buildIssue(index + 1, parsed.text(), parsed.errors(), parsed.cargo()));
+      }
+    }
+
+    if (validRows.isEmpty()) return null;
+    List<Map<String, Object>> cleanedRows = aggregateCargos(validRows);
+    String notes = "识别为 PL 纸箱清单：按 T.CTNS/总箱数和 CARTON SIZE 导入；Order Qty/散件数量、PCS/CTN、PALLET SIZE、T.CBM 和托盘总重量仅作为备注，不参与装箱计算。";
+    return new RecognitionResult(lines.size(), validRows.size(), issues.size(), cleanedRows, issues, notes);
+  }
+
+  private boolean looksLikePackingListTable(String text) {
+    String lower = cleanCell(text).toLowerCase(Locale.ROOT);
+    if (lower.isBlank()) return false;
+    boolean hasCartonCount = lower.contains("t.ctns") || lower.contains("t. ctns")
+        || lower.contains("total ctn") || lower.contains("总箱数");
+    boolean hasPiecesPerCarton = lower.contains("pcs/ctn") || lower.contains("pcs / ctn")
+        || lower.contains("个/箱") || lower.contains("每箱");
+    boolean hasOrderQuantity = lower.contains("order qty") || lower.contains("订单数量")
+        || lower.contains("总数量");
+    boolean hasCartonSize = lower.contains("carton size") || lower.contains("纸箱尺寸")
+        || lower.contains("单纸箱尺寸");
+    return hasCartonCount && hasPiecesPerCarton && hasOrderQuantity && hasCartonSize;
+  }
+
+  private ParsedCargo parsePackingListTableLine(String line, int rowNumber) {
+    String text = cleanCell(line);
+    if (text.isBlank()) return new ParsedCargo(false, line, Map.of(), List.of());
+
+    String[] tokens = text.split("[\\s,，\\t]+");
+    if (tokens.length < 11) return new ParsedCargo(false, line, Map.of(), List.of());
+
+    String name = cleanCell(tokens[0]);
+    if (name.isBlank() || name.matches("(?i)size|尺寸|total|合计")) {
+      return new ParsedCargo(false, line, Map.of(), List.of());
+    }
+
+    List<Double> numbers = new ArrayList<>();
+    for (int i = 1; i < tokens.length; i++) {
+      Double number = firstNumberInToken(tokens[i]);
+      if (number != null) numbers.add(number);
+    }
+    if (numbers.size() < 10) return new ParsedCargo(false, line, Map.of(), List.of());
+
+    int totalCartons = Math.max(0, (int) Math.round(numbers.get(0)));
+    double piecesPerCarton = numbers.get(1);
+    double orderQuantity = numbers.get(2);
+    double unitNetWeight = numbers.get(3);
+    double unitGrossWeight = numbers.get(4);
+    double totalNetWeight = numbers.size() > 5 ? numbers.get(5) : 0;
+    double totalGrossWeight = numbers.size() > 6 ? numbers.get(6) : 0;
+    double cartonLengthCm = numbers.get(7);
+    double cartonWidthCm = numbers.get(8);
+    double cartonHeightCm = numbers.get(9);
+    if (unitGrossWeight <= 0 && totalGrossWeight > 0 && totalCartons > 0) {
+      unitGrossWeight = totalGrossWeight / totalCartons;
+    }
+
+    if (totalCartons <= 0 || cartonLengthCm <= 0 || cartonWidthCm <= 0 || cartonHeightCm <= 0) {
+      return new ParsedCargo(false, line, Map.of(), List.of());
+    }
+
+    String remark = "PL纸箱清单；Order Qty " + formatNumber(orderQuantity)
+        + " 为散件数量不参与装箱；PCS/CTN " + formatNumber(piecesPerCarton)
+        + " 仅备注；单箱净重 " + formatNumber(unitNetWeight)
+        + "kg，总净重 " + formatNumber(totalNetWeight)
+        + "kg，总毛重 " + formatNumber(totalGrossWeight) + "kg";
+    if (numbers.size() >= 13) {
+      remark += "；托盘尺寸 " + formatNumber(numbers.get(10)) + "x"
+          + formatNumber(numbers.get(11)) + "x" + formatNumber(numbers.get(12))
+          + "m 不是逐托导入尺寸";
+    }
+    if (numbers.size() >= 15) {
+      remark += "；T.CBM " + formatNumber(numbers.get(13))
+          + "、托盘总重 " + formatNumber(numbers.get(14)) + "kg 仅备注";
+    }
+
+    Map<String, Object> cargo = cargoMap(
+        name,
+        "",
+        cartonLengthCm,
+        cartonWidthCm,
+        cartonHeightCm,
+        totalCartons,
+        unitGrossWeight,
+        "normal",
+        "",
+        "",
+        remark
+    );
+    cargo.put("packageInfo", packingListPackageInfo(
+        "carton",
+        totalCartons,
+        cartonLengthCm,
+        cartonWidthCm,
+        cartonHeightCm,
+        unitGrossWeight,
+        totalGrossWeight,
+        orderQuantity,
+        piecesPerCarton
+    ));
+    List<String> errors = validateCargo(cargo);
+    return new ParsedCargo(true, line, cargo, errors);
+  }
+
+  private Double firstNumberInToken(String token) {
+    Matcher matcher = Pattern.compile("-?\\d+(?:[.,]\\d+)?").matcher(cleanCell(token));
+    if (!matcher.find()) return null;
+    try {
+      return parseFlexibleNumber(matcher.group());
+    } catch (NumberFormatException error) {
+      return null;
+    }
+  }
+
+  private Map<String, Object> packingListPackageInfo(
+      String packageUnit,
+      int packageQuantity,
+      double lengthCm,
+      double widthCm,
+      double heightCm,
+      double packageGrossWeightKg,
+      double totalGrossWeightKg,
+      double innerTotalQuantity,
+      double innerPiecesPerPackage
+  ) {
+    Map<String, Object> dimensions = new LinkedHashMap<>();
+    dimensions.put("lengthCm", round2(lengthCm));
+    dimensions.put("widthCm", round2(widthCm));
+    dimensions.put("heightCm", round2(heightCm));
+
+    Map<String, Object> innerCargo = new LinkedHashMap<>();
+    if (innerTotalQuantity > 0) innerCargo.put("totalQuantity", Math.round(innerTotalQuantity));
+    if (innerPiecesPerPackage > 0) innerCargo.put("piecesPerPackage", round2(innerPiecesPerPackage));
+    if (!innerCargo.isEmpty()) innerCargo.put("quantityUnit", "pcs");
+
+    Map<String, Object> info = new LinkedHashMap<>();
+    info.put("algorithmBasis", "package-unit");
+    info.put("packageUnit", firstNonBlank(packageUnit, "carton"));
+    info.put("packageQuantity", packageQuantity);
+    info.put("packageDimensionsCm", compactObject(dimensions));
+    info.put("packageGrossWeightKg", round2(packageGrossWeightKg));
+    info.put("packageTotalGrossWeightKg", totalGrossWeightKg > 0 ? round2(totalGrossWeightKg) : round2(packageGrossWeightKg * packageQuantity));
+    if (!innerCargo.isEmpty()) info.put("innerCargo", innerCargo);
+    return compactObject(info);
+  }
+
+  private Map<String, Object> compactObject(Map<String, Object> object) {
+    Map<String, Object> result = new LinkedHashMap<>();
+    for (Map.Entry<String, Object> entry : object.entrySet()) {
+      Object value = entry.getValue();
+      if (value == null) continue;
+      if (value instanceof String text && text.isBlank()) continue;
+      if (value instanceof Number number && !Double.isFinite(number.doubleValue())) continue;
+      if (value instanceof Map<?, ?> map && map.isEmpty()) continue;
+      result.put(entry.getKey(), value);
+    }
+    return result;
+  }
+
+  private String formatNumber(double value) {
+    if (Math.abs(value - Math.rint(value)) < 0.0001) return String.valueOf((long) Math.rint(value));
+    return String.format(Locale.ROOT, "%.2f", value).replaceAll("0+$", "").replaceAll("\\.$", "");
+  }
+
   private RecognitionResult recognizeWithRules(String text) {
     List<String> lines = textRows(text);
     List<Map<String, Object>> validRows = new ArrayList<>();
@@ -569,6 +750,17 @@ public class TextRecognitionService {
           "",
           "文本识别：" + pack
       );
+      cargo.put("packageInfo", packingListPackageInfo(
+          isPalletLike(pack) ? "pallet" : "carton",
+          intValue(skid.group("quantity"), 1),
+          numberValue(cargo.get("lengthCm")),
+          numberValue(cargo.get("widthCm")),
+          numberValue(cargo.get("heightCm")),
+          numberValue(cargo.get("weightKg")),
+          numberValue(cargo.get("weightKg")) * intValue(cargo.get("quantity"), 1),
+          0,
+          0
+      ));
       List<String> errors = validateCargo(cargo);
       return new ParsedCargo(true, line, cargo, errors);
     }
@@ -674,6 +866,9 @@ public class TextRecognitionService {
         cleanCell(firstNonBlank(row.get("sku"), row.get("id"))),
         cleanCell(row.get("remark"))
     );
+    if (row.get("packageInfo") instanceof Map<?, ?> packageInfo) {
+      cargo.put("packageInfo", new LinkedHashMap<>(packageInfo));
+    }
     List<String> errors = validateCargo(cargo);
     return new ParsedCargo(true, sourceText.isBlank() ? "AI row " + rowNumber : sourceText, cargo, errors);
   }
@@ -744,9 +939,35 @@ public class TextRecognitionService {
         aggregate.put(key, new LinkedHashMap<>(cargo));
       } else {
         existing.put("quantity", intValue(existing.get("quantity"), 0) + intValue(cargo.get("quantity"), 0));
+        Map<String, Object> mergedPackageInfo = mergePackageInfo(existing.get("packageInfo"), cargo.get("packageInfo"), intValue(existing.get("quantity"), 0));
+        if (!mergedPackageInfo.isEmpty()) existing.put("packageInfo", mergedPackageInfo);
       }
     }
     return assignCargoModels(new ArrayList<>(aggregate.values()));
+  }
+
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> mergePackageInfo(Object leftValue, Object rightValue, int packageQuantity) {
+    Map<String, Object> left = leftValue instanceof Map<?, ?> map ? new LinkedHashMap<>((Map<String, Object>) map) : new LinkedHashMap<>();
+    Map<String, Object> right = rightValue instanceof Map<?, ?> map ? new LinkedHashMap<>((Map<String, Object>) map) : new LinkedHashMap<>();
+    if (left.isEmpty() && right.isEmpty()) return Map.of();
+    Map<String, Object> base = new LinkedHashMap<>(left.isEmpty() ? right : left);
+    base.put("packageQuantity", packageQuantity);
+
+    Map<String, Object> leftInner = left.get("innerCargo") instanceof Map<?, ?> map ? new LinkedHashMap<>((Map<String, Object>) map) : new LinkedHashMap<>();
+    Map<String, Object> rightInner = right.get("innerCargo") instanceof Map<?, ?> map ? new LinkedHashMap<>((Map<String, Object>) map) : new LinkedHashMap<>();
+    double totalInnerQuantity = numberValue(leftInner.get("totalQuantity")) + numberValue(rightInner.get("totalQuantity"));
+    if (totalInnerQuantity > 0) {
+      Map<String, Object> inner = new LinkedHashMap<>(leftInner);
+      inner.putAll(rightInner);
+      inner.put("totalQuantity", Math.round(totalInnerQuantity));
+      inner.putIfAbsent("quantityUnit", "pcs");
+      base.put("innerCargo", inner);
+    }
+
+    double totalWeight = numberValue(left.get("packageTotalGrossWeightKg")) + numberValue(right.get("packageTotalGrossWeightKg"));
+    if (totalWeight > 0) base.put("packageTotalGrossWeightKg", round2(totalWeight));
+    return compactObject(base);
   }
 
   private List<Map<String, Object>> assignCargoModels(List<Map<String, Object>> cargos) {
@@ -801,7 +1022,16 @@ public class TextRecognitionService {
               "quantity": 1,
               "weightKg": 0,
               "type": "normal|pallet|upright|nonstack",
-              "remark": "short note"
+              "remark": "short note",
+              "packageInfo": {
+                "algorithmBasis": "package-unit",
+                "packageUnit": "carton|pallet|crate",
+                "packageQuantity": 1,
+                "packageDimensionsCm": {"lengthCm": 0, "widthCm": 0, "heightCm": 0},
+                "packageGrossWeightKg": 0,
+                "packageTotalGrossWeightKg": 0,
+                "innerCargo": {"totalQuantity": 0, "piecesPerPackage": 0, "quantityUnit": "pcs"}
+              }
             }
           ],
           "issues": [
@@ -812,8 +1042,19 @@ public class TextRecognitionService {
         Rules:
         - All dimensions must be centimeters.
         - All weights must be kilograms per single item.
+        - The algorithm fields lengthCm,widthCm,heightCm,quantity,weightKg must always describe the final handled package unit: pallet, carton, crate, wooden case, or box. Never put loose-piece dimensions into these fields when the goods are shipped inside cartons/pallets.
+        - If loose-piece/order details exist, store them only in packageInfo.innerCargo and/or remark. packageInfo is optional but recommended for packing-list rows.
         - English examples like "2 skids - each 31.200 kgs / 1080 x 200 x 340 cm" mean quantity=2, weightKg=31200, dimensions in cm.
         - Important: in English shipment weights, a dot followed by exactly three digits before kg/kgs is a thousands separator, not a decimal point. Output 29.200 kgs as 29200 kg, never 29.2 kg.
+        - For PL / packing-list tables with columns like Size, T.CTNS, PCS/CTN, Order Qty, N.W, G.W, CARTON SIZE(CM), PALLET SIZE(M), T.CBM:
+          extract the carton packing unit, not loose product pieces and not pallet summary totals.
+          Use Size as name/model text when no product name exists.
+          Use T.CTNS / total cartons / 总箱数 as quantity.
+          Use CARTON SIZE(CM) / 纸箱尺寸 as lengthCm,widthCm,heightCm.
+          Use per-carton G.W / 单箱毛重 as weightKg. If only total gross weight exists, divide it by T.CTNS.
+          PCS/CTN and Order Qty are loose-piece/product counts; keep them only in remark and never use Order Qty as quantity.
+          PALLET SIZE(M), T.CBM, "12 pallets" totals, and pallet gross totals are summary/reference fields only unless the text is explicitly a final pallet-by-pallet list.
+        - Do not calculate loose pieces / 散件 for container packing. Import the actual handled package unit: carton, crate, wooden case, or explicit final pallet unit.
         - If one product title is followed by multiple skid lines, use that title as the name for those rows.
         - If the same name has different dimensions and no model, leave model empty; the backend will assign 型号 A/B/C.
         - Map skids, pallets, wooden cases and crates to type "pallet"; fragile/no stack to "nonstack"; this side up/upright to "upright"; otherwise "normal".

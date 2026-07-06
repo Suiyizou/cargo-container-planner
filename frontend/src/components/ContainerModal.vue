@@ -29,6 +29,9 @@
       <el-form-item label="载重 kg" required>
         <el-input-number v-model="model.payloadKg" :min="1" :step="1" :precision="0" controls-position="right" />
       </el-form-item>
+      <el-form-item :label="ui('container.referencePrice')">
+        <el-input-number v-model="model.referencePrice" :min="0" :step="100" :precision="0" controls-position="right" />
+      </el-form-item>
       <el-form-item label="使用属性">
         <el-select v-model="model.usagePriority" placeholder="选择使用属性">
           <el-option label="常用箱型" value="common" />
@@ -49,6 +52,8 @@
 
 <script setup>
 import { computed, reactive } from "vue";
+import { currentLocale } from "../i18n";
+import { translateUiText } from "../i18n/uiText";
 import { uid } from "../utils/format";
 
 const emit = defineEmits(["close", "save"]);
@@ -67,6 +72,7 @@ const model = reactive({
   visualKind: props.container?.visualKind || "",
   ignoreHeightLimit: Boolean(props.container?.ignoreHeightLimit),
   costFactor: props.container?.costFactor,
+  referencePrice: props.container?.referencePrice ?? null,
   priceTier: props.container?.priceTier,
   equipmentClass: props.container?.equipmentClass,
   dimensionSource: props.container?.dimensionSource || "用户自定义",
@@ -77,6 +83,15 @@ const model = reactive({
 
 function submit() {
   if (!String(model.name || "").trim()) return;
-  emit("save", { ...model, id: model.id || uid("container") });
+  const referencePrice = Number(model.referencePrice || 0);
+  emit("save", {
+    ...model,
+    id: model.id || uid("container"),
+    referencePrice: Number.isFinite(referencePrice) && referencePrice > 0 ? referencePrice : undefined
+  });
+}
+
+function ui(key, params) {
+  return translateUiText(key, currentLocale.value, params);
 }
 </script>

@@ -22,14 +22,14 @@ const FIELD_ALIASES = {
   lengthCm: ["lengthCm", "length", "l", "长", "长度", "外长", "长cm", "长度cm", "长厘米", "长mm", "长度mm", "长毫米", "长m", "长度m"],
   widthCm: ["widthCm", "width", "w", "宽", "宽度", "外宽", "宽cm", "宽度cm", "宽厘米", "宽mm", "宽度mm", "宽毫米", "宽m", "宽度m"],
   heightCm: ["heightCm", "height", "h", "高", "高度", "外高", "高cm", "高度cm", "高厘米", "高mm", "高度mm", "高毫米", "高m", "高度m"],
-  quantity: ["quantity", "qty", "count", "num", "pcs", "数量", "件数", "箱数", "个数", "数量pcs", "总件数"],
+  quantity: ["quantity", "qty", "count", "num", "pcs", "palletqty", "pallets", "skids", "数量", "件数", "箱数", "个数", "数量pcs", "总件数", "托盘数", "托数", "栈板数"],
   weightKg: ["weightKg", "unitWeight", "unitWeightKg", "weight", "单重", "单件重量", "每件重量", "重量kg", "单重kg", "单件重量kg", "毛重kg", "净重kg"],
   totalWeightKg: ["totalWeight", "totalWeightKg", "grossWeight", "总重", "总重量", "总毛重", "毛重", "总净重", "总重量kg"],
   type: ["type", "cargoType", "rule", "货物类型", "类型", "规则", "摆放规则", "堆叠规则", "属性"],
   color: ["color", "颜色", "色值", "显示颜色"],
   id: ["id", "sku", "code", "cargoId", "goodsId", "productId", "货物ID", "货物编号", "货号", "编号", "物料编码", "产品编号", "条码"],
   remark: ["remark", "remarks", "note", "notes", "备注", "说明", "特殊要求", "装箱要求"],
-  dimensionText: ["dimension", "dimensions", "size", "规格", "尺寸", "外尺寸", "长宽高", "尺寸cm", "尺寸mm", "规格尺寸"]
+  dimensionText: ["dimension", "dimensions", "size", "palletsize", "skidsize", "packagesize", "规格", "尺寸", "外尺寸", "长宽高", "尺寸cm", "尺寸mm", "规格尺寸", "托盘尺寸", "托盘尺寸cm", "栈板尺寸", "包装尺寸"]
 };
 
 const TYPE_ALIASES = [
@@ -75,9 +75,12 @@ export function buildPreview(sheet, mapping, options = {}) {
   const weightUnit = options.weightUnit || "auto";
   const validRows = [];
   const invalidRows = [];
+  let parsedRowCount = 0;
 
   sheet.rows.forEach((cells, index) => {
     const raw = rowObject(sheet.headers, cells);
+    if (shouldSkipDataRow(raw, mapping, cells)) return;
+    parsedRowCount += 1;
     const parsed = parseCargoRow(raw, mapping, {
       rowNumber: sheet.headerRowIndex + index + 2,
       dimensionUnit,
@@ -89,7 +92,7 @@ export function buildPreview(sheet, mapping, options = {}) {
 
   const aggregated = aggregateCargos(validRows.map((row) => row.cargo));
   return {
-    totalRows: sheet.rows.length,
+    totalRows: parsedRowCount,
     validRows,
     invalidRows,
     aggregated,
@@ -135,7 +138,169 @@ export function guessMapping(headers) {
     mapping[field.key] = matchIndex >= 0 ? headers[matchIndex] : "";
   }
   if (!mapping.name && mapping.id) mapping.name = mapping.id;
-  return mapping;
+  return refineMapping(headers, mapping);
+}
+
+function refineMapping(headers, mapping) {
+  const refined = { ...mapping };
+  applyPackingListMapping(headers, refined);
+  return refined;
+}
+
+function applyPackingListMapping(headers, mapping) {
+  const productHeaders = headers.slice(0, firstPalletColumnIndex(headers));
+  const nameHeader = firstHeader(productHeaders, isCargoNameHeader);
+  const outerDimensionHeader = firstHeader(productHeaders, isOuterCartonDimensionHeader);
+  const packageCountHeader = firstHeader(productHeaders, isPackageCountHeader);
+  const packingQuantityHeader = firstHeader(productHeaders, isPackingQuantityHeader);
+  const sourceQuantityHeader = firstHeader(productHeaders, isSourceQuantityHeader);
+  const unitGrossWeightHeader = firstHeader(productHeaders, isUnitGrossWeightHeader);
+  const totalWeightHeader = firstHeader(productHeaders, isTotalWeightHeader);
+  const remarkHeader = firstHeader(productHeaders, isRemarkHeader);
+
+  const looksLikePackingList = nameHeader
+    && outerDimensionHeader
+    && (packageCountHeader || packingQuantityHeader || unitGrossWeightHeader || totalWeightHeader);
+  if (!looksLikePackingList) return;
+
+  mapping.__packingList = "true";
+  mapping.__packageUnit = "carton";
+  mapping.name = nameHeader;
+  mapping.dimensionText = outerDimensionHeader;
+  mapping.lengthCm = "";
+  mapping.widthCm = "";
+  mapping.heightCm = "";
+  if (packageCountHeader) mapping.quantity = packageCountHeader;
+  else if (sourceQuantityHeader && packingQuantityHeader) mapping.quantity = "";
+  if (unitGrossWeightHeader) mapping.weightKg = unitGrossWeightHeader;
+  else if (totalWeightHeader) mapping.weightKg = "";
+  if (totalWeightHeader) mapping.totalWeightKg = totalWeightHeader;
+  if (remarkHeader) mapping.remark = remarkHeader;
+  if (sourceQuantityHeader) mapping.__sourceQuantity = sourceQuantityHeader;
+  if (packingQuantityHeader) mapping.__packingQuantity = packingQuantityHeader;
+}
+
+function firstPalletColumnIndex(headers) {
+  const index = headers.findIndex(isPalletHeader);
+  return index < 0 ? headers.length : index;
+}
+
+function firstHeader(headers, predicate) {
+  return headers.find((header) => predicate(normalizeHeader(header))) || "";
+}
+
+function isCargoNameHeader(header) {
+  return [
+    "\u54c1\u540d",
+    "\u4ea7\u54c1\u540d\u79f0",
+    "\u8d27\u7269\u540d\u79f0",
+    "\u8d27\u540d",
+    "\u540d\u79f0",
+    "size",
+    "name",
+    "goodsname",
+    "productname"
+  ].includes(header);
+}
+
+function isOuterCartonDimensionHeader(header) {
+  return header.includes("\u5916\u7bb1\u5c3a\u5bf8")
+    || header.includes("\u5916\u7bb1\u89c4\u683c")
+    || header.includes("\u7eb8\u7bb1\u5c3a\u5bf8")
+    || header.includes("\u5305\u88c5\u5c3a\u5bf8")
+    || header === "\u7bb1\u89c4"
+    || header === "\u7bb1\u5c3a\u5bf8"
+    || header.includes("cartonsize")
+    || header.includes("outersize")
+    || header.includes("outercarton");
+}
+
+function isPackageCountHeader(header) {
+  return [
+    "\u4ef6\u6570",
+    "\u7bb1\u6570",
+    "\u603b\u4ef6\u6570",
+    "\u603b\u7bb1\u6570",
+    "ctn",
+    "ctns",
+    "tctn",
+    "tctns",
+    "totalctn",
+    "totalctns",
+    "totalcarton",
+    "totalcartons",
+    "carton",
+    "cartons",
+    "boxes"
+  ].includes(header) && !header.includes("\u88c5\u7bb1");
+}
+
+function isPackingQuantityHeader(header) {
+  return header.includes("\u88c5\u7bb1\u6570\u91cf")
+    || header.includes("\u6bcf\u7bb1\u6570\u91cf")
+    || header.includes("\u5165\u6570")
+    || header.includes("pcsctn")
+    || header.includes("qtyctn");
+}
+
+function isSourceQuantityHeader(header) {
+  return [
+    "\u6570\u91cf",
+    "\u4ea7\u54c1\u6570\u91cf",
+    "\u603b\u6570\u91cf",
+    "qty",
+    "quantity",
+    "orderqty",
+    "orderquantity",
+    "pcs"
+  ].includes(header);
+}
+
+function isUnitGrossWeightHeader(header) {
+  return [
+    "\u6bdb\u91cd",
+    "\u6bdb\u91cdkg",
+    "\u5355\u7bb1\u6bdb\u91cd",
+    "\u5355\u7bb1\u6bdb\u91cdkg",
+    "\u6bcf\u7bb1\u6bdb\u91cd",
+    "\u7bb1\u6bdb\u91cd",
+    "\u7bb1\u91cd",
+    "gw",
+    "gwkg",
+    "gwkgs",
+    "gweight",
+    "gweightkg",
+    "gweightkgs",
+    "grossweight"
+  ].includes(header) && !header.includes("\u603b") && !isPalletHeader(header);
+}
+
+function isTotalWeightHeader(header) {
+  return (header.includes("\u603b\u91cd\u91cf")
+    || header.includes("\u603b\u91cd")
+    || header.includes("\u603b\u6bdb\u91cd")
+    || header.includes("\u91cd\u91cf\u5408\u8ba1")
+    || header.includes("\u5408\u8ba1\u91cd\u91cf")
+    || header.includes("totalweight")
+    || header.includes("tgw")
+    || header.includes("tgwkg")
+    || header.includes("tgwkgs")
+    || header.includes("totalgw")
+    || header.includes("grossweighttotal"))
+    && !header.includes("\u4f53\u79ef")
+    && !isPalletHeader(header);
+}
+
+function isRemarkHeader(header) {
+  return ["\u5907\u6ce8", "remark", "remarks", "note"].includes(header);
+}
+
+function isPalletHeader(header) {
+  const normalized = normalizeHeader(header);
+  return normalized.includes("\u6258\u76d8")
+    || normalized.includes("\u6808\u677f")
+    || normalized.includes("\u514d\u718f\u84b8")
+    || normalized.includes("pallet");
 }
 
 function parseCargoTextLine(line, rowNumber, options = {}) {
@@ -368,20 +533,29 @@ function parseCargoRow(raw, mapping, context) {
   const errors = [];
   const dimensionText = valueFor(raw, mapping.dimensionText);
   const dimensions = parseDimensionText(dimensionText, context.dimensionUnit);
-  const quantity = positiveInteger(valueFor(raw, mapping.quantity));
+  let quantity = positiveInteger(valueFor(raw, mapping.quantity));
+  if (!quantity && isPackingListMapping(mapping)) {
+    quantity = inferPackageQuantity(
+      valueFor(raw, mapping.__sourceQuantity),
+      valueFor(raw, mapping.__packingQuantity)
+    );
+    if (quantity) notes.push("\u5df2\u7528\u4ea7\u54c1\u6570\u91cf / \u88c5\u7bb1\u6570\u91cf\u6362\u7b97\u8fd0\u8f93\u4ef6\u6570");
+  }
   const lengthCm = positiveNumber(valueFor(raw, mapping.lengthCm), unitFromHeader(mapping.lengthCm, context.dimensionUnit), dimensions?.[0]);
   const widthCm = positiveNumber(valueFor(raw, mapping.widthCm), unitFromHeader(mapping.widthCm, context.dimensionUnit), dimensions?.[1]);
   const heightCm = positiveNumber(valueFor(raw, mapping.heightCm), unitFromHeader(mapping.heightCm, context.dimensionUnit), dimensions?.[2]);
   const totalWeightKg = nonNegativeNumber(valueFor(raw, mapping.totalWeightKg), weightUnitFromHeader(mapping.totalWeightKg, context.weightUnit), null);
+  const weightSource = mapping.weightKg && mapping.weightKg !== mapping.totalWeightKg ? valueFor(raw, mapping.weightKg) : "";
   const weightKg = nonNegativeNumber(
-    valueFor(raw, mapping.weightKg),
+    weightSource,
     weightUnitFromHeader(mapping.weightKg, context.weightUnit),
     totalWeightKg != null && quantity ? totalWeightKg / quantity : null
   );
   const name = cleanCell(valueFor(raw, mapping.name) || valueFor(raw, mapping.id));
   const model = cleanCell(valueFor(raw, mapping.model));
   const remark = cleanCell(valueFor(raw, mapping.remark));
-  const type = normalizeType(valueFor(raw, mapping.type), remark);
+  let type = normalizeType(valueFor(raw, mapping.type), remark);
+  if (type === "normal" && packageUnitFromMapping(mapping) === "pallet") type = "pallet";
   const color = normalizeColor(valueFor(raw, mapping.color));
   const sku = cleanCell(valueFor(raw, mapping.id));
 
@@ -392,9 +566,23 @@ function parseCargoRow(raw, mapping, context) {
   if (!quantity) errors.push("数量必须是正整数");
   if (weightKg == null) errors.push("单件重量必须大于等于 0");
   if (dimensionText && !dimensions) notes.push("合并尺寸未识别，已尝试使用独立长宽高字段");
-  if (totalWeightKg != null && !valueFor(raw, mapping.weightKg)) notes.push("已用总重量 / 数量换算单件重量");
+  if (totalWeightKg != null && !weightSource) notes.push("已用总重量 / 数量换算单件重量");
 
-  const cargo = parsedCargo({ name, model, lengthCm, widthCm, heightCm, quantity, weightKg, type, color, sku, remark });
+  const packageInfo = buildPackageInfo({
+    mapping,
+    raw,
+    quantity,
+    lengthCm,
+    widthCm,
+    heightCm,
+    weightKg,
+    totalWeightKg
+  });
+  if (packageInfo && isPackingListMapping(mapping)) {
+    notes.push("导入口径：算法货物=外包装箱/托盘，散件数量仅保存为包装明细");
+  }
+
+  const cargo = parsedCargo({ name, model, lengthCm, widthCm, heightCm, quantity, weightKg, type, color, sku, remark, packageInfo });
 
   return {
     rowNumber: context.rowNumber,
@@ -421,10 +609,37 @@ export function aggregateCargos(cargos) {
       cargo.color
     ].join("|");
     const existing = map.get(key);
-    if (existing) existing.quantity += cargo.quantity;
-    else map.set(key, { ...cargo });
+    if (existing) {
+      existing.quantity += cargo.quantity;
+      existing.packageInfo = mergePackageInfo(existing.packageInfo, cargo.packageInfo, existing.quantity);
+    } else {
+      map.set(key, { ...cargo });
+    }
   });
   return assignCargoModels([...map.values()]);
+}
+
+function mergePackageInfo(left, right, packageQuantity) {
+  if (!left && !right) return undefined;
+  const base = { ...(left || right || {}) };
+  base.packageQuantity = packageQuantity;
+  const leftInner = left?.innerCargo || {};
+  const rightInner = right?.innerCargo || {};
+  const totalQuantity = Number(leftInner.totalQuantity || 0) + Number(rightInner.totalQuantity || 0);
+  const leftTotalWeight = Number(left?.packageTotalGrossWeightKg || 0);
+  const rightTotalWeight = Number(right?.packageTotalGrossWeightKg || 0);
+  if (totalQuantity > 0) {
+    base.innerCargo = {
+      ...leftInner,
+      ...rightInner,
+      totalQuantity: Math.round(totalQuantity),
+      quantityUnit: leftInner.quantityUnit || rightInner.quantityUnit || "pcs"
+    };
+  }
+  if (leftTotalWeight > 0 || rightTotalWeight > 0) {
+    base.packageTotalGrossWeightKg = round2(leftTotalWeight + rightTotalWeight);
+  }
+  return compactObject(base);
 }
 
 export function assignCargoModels(cargos) {
@@ -514,9 +729,10 @@ function parsedCargo({
   type,
   color,
   sku,
-  remark
+  remark,
+  packageInfo
 }) {
-  return {
+  const cargo = {
       name,
       model,
       lengthCm: round2(lengthCm),
@@ -529,6 +745,8 @@ function parsedCargo({
       sku,
       remark
   };
+  if (packageInfo) cargo.packageInfo = packageInfo;
+  return cargo;
 }
 
 function rowObject(headers, cells) {
@@ -550,6 +768,90 @@ function normalizeHeader(value) {
 
 function canFuzzyMatchAlias(alias) {
   return alias.length > 2 || /[\u4e00-\u9fa5]/.test(alias);
+}
+
+function isPackingListMapping(mapping) {
+  return mapping?.__packingList === "true";
+}
+
+function inferPackageQuantity(sourceQuantity, packingQuantity) {
+  const total = numberFromCell(sourceQuantity);
+  const perPackage = numberFromCell(packingQuantity);
+  if (!(total > 0) || !(perPackage > 0)) return null;
+  return Math.max(1, Math.ceil(total / perPackage));
+}
+
+function buildPackageInfo({
+  mapping,
+  raw,
+  quantity,
+  lengthCm,
+  widthCm,
+  heightCm,
+  weightKg,
+  totalWeightKg
+}) {
+  const packageQuantity = Math.max(0, Math.round(Number(quantity || 0)));
+  const packageGrossWeightKg = round2(weightKg || 0);
+  const innerTotalQuantity = numberFromCell(valueFor(raw, mapping.__sourceQuantity));
+  const innerPiecesPerPackage = numberFromCell(valueFor(raw, mapping.__packingQuantity));
+  const hasPackageSignal = isPackingListMapping(mapping)
+    || normalizeHeader(mapping.dimensionText).includes("pallet")
+    || normalizeHeader(mapping.dimensionText).includes("skid")
+    || normalizeHeader(mapping.dimensionText).includes("\u6258\u76d8")
+    || normalizeHeader(mapping.dimensionText).includes("\u6808\u677f");
+  const hasInnerInfo = innerTotalQuantity > 0 || innerPiecesPerPackage > 0;
+  if (!hasPackageSignal && !hasInnerInfo) return null;
+
+  const unit = packageUnitFromMapping(mapping);
+  const packageTotalGrossWeightKg = totalWeightKg != null
+    ? round2(totalWeightKg)
+    : round2(packageGrossWeightKg * packageQuantity);
+  return compactObject({
+    algorithmBasis: "package-unit",
+    packageUnit: unit,
+    packageQuantity,
+    packageDimensionsCm: compactObject({
+      lengthCm: round2(lengthCm || 0),
+      widthCm: round2(widthCm || 0),
+      heightCm: round2(heightCm || 0)
+    }),
+    packageGrossWeightKg,
+    packageTotalGrossWeightKg,
+    innerCargo: compactObject({
+      totalQuantity: innerTotalQuantity > 0 ? Math.round(innerTotalQuantity) : null,
+      piecesPerPackage: innerPiecesPerPackage > 0 ? innerPiecesPerPackage : null,
+      quantityUnit: hasInnerInfo ? "pcs" : null
+    })
+  });
+}
+
+function packageUnitFromMapping(mapping = {}) {
+  const text = `${mapping.__packageUnit || ""} ${mapping.dimensionText || ""}`.toLowerCase();
+  const normalized = normalizeHeader(text);
+  if (normalized.includes("pallet") || normalized.includes("skid") || normalized.includes("\u6258\u76d8") || normalized.includes("\u6808\u677f")) return "pallet";
+  if (normalized.includes("crate") || normalized.includes("wood") || normalized.includes("\u6728\u7bb1")) return "crate";
+  return "carton";
+}
+
+function compactObject(object) {
+  return Object.fromEntries(Object.entries(object).filter(([, value]) => {
+    if (value == null || value === "") return false;
+    if (typeof value === "number" && !Number.isFinite(value)) return false;
+    if (value && typeof value === "object" && !Array.isArray(value)) return Object.keys(value).length > 0;
+    return true;
+  }));
+}
+
+function shouldSkipDataRow(raw, mapping, cells) {
+  const name = cleanCell(valueFor(raw, mapping.name));
+  if (isSummaryText(name)) return true;
+  if (isPackingListMapping(mapping) && !name) return true;
+  return !name && cells.map(normalizeHeader).some(isSummaryText);
+}
+
+function isSummaryText(value) {
+  return ["\u5408\u8ba1", "\u5c0f\u8ba1", "\u603b\u8ba1", "total", "subtotal"].includes(normalizeHeader(value));
 }
 
 function uniquifyHeaders(headers) {
@@ -624,6 +926,7 @@ function normalizeDimensionUnit(unit) {
 function weightUnitFromHeader(header, selectedUnit) {
   if (selectedUnit && selectedUnit !== "auto") return selectedUnit;
   const text = cleanCell(header).toLowerCase();
+  if (/kg|kgs|公斤|千克/.test(text)) return "kg";
   if (/吨|ton|t\b/.test(text)) return "t";
   if (/克|g\b/.test(text) && !/kg|公斤|千克/.test(text)) return "g";
   return "kg";

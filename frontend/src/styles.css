@@ -543,7 +543,8 @@ select {
 
 .config-tool-grid .el-button,
 .config-tool-grid .el-upload,
-.config-tool-grid .el-upload .el-button {
+.config-tool-grid .el-upload .el-button,
+.config-tool-grid .quick-import-mode {
   width: 100%;
 }
 
@@ -1960,6 +1961,10 @@ select {
   font-weight: 800;
 }
 
+.container-reference-specs .container-reference-price dd {
+  color: #dc2626;
+}
+
 .container-reference-note {
   margin: 0;
   color: #52677f;
@@ -1993,7 +1998,7 @@ select {
 
 .result-summary-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -2039,6 +2044,15 @@ select {
 .summary-card.primary {
   border-color: #bfdbfe;
   background: #eff6ff;
+}
+
+.summary-card.freight {
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.summary-card.freight b {
+  color: #dc2626;
 }
 
 .decision-flow-empty {
@@ -2346,7 +2360,7 @@ select {
 .container-card.el-button > span {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr);
-  grid-template-rows: auto auto auto;
+  grid-template-rows: repeat(5, auto);
   gap: 4px 10px;
   width: 100%;
   align-items: start;
@@ -2392,7 +2406,7 @@ select {
 }
 
 .container-icon {
-  grid-row: 1 / 4;
+  grid-row: 1 / span 5;
   display: grid;
   place-items: center;
   align-self: stretch;
@@ -2418,6 +2432,15 @@ select {
 .container-card em {
   white-space: nowrap;
   font-weight: 800;
+}
+
+.container-card .freight-cost {
+  color: #dc2626;
+  font-weight: 900;
+}
+
+.container-card .utilization-line {
+  color: #60738a;
 }
 
 .container-card .fit-status.balance-blocked {

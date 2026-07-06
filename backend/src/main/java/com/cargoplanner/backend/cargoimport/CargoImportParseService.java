@@ -62,8 +62,8 @@ public class CargoImportParseService {
           "\u5bbd", "\u5bbd\u5ea6", "\u5916\u5bbd", "\u5bbdcm", "\u5bbd\u5ea6cm", "\u5bbdmm", "\u5bbd\u5ea6mm", "\u5bbdm", "\u5bbd\u5ea6m")),
       Map.entry("heightCm", List.of("heightcm", "height", "h",
           "\u9ad8", "\u9ad8\u5ea6", "\u5916\u9ad8", "\u9ad8cm", "\u9ad8\u5ea6cm", "\u9ad8mm", "\u9ad8\u5ea6mm", "\u9ad8m", "\u9ad8\u5ea6m")),
-      Map.entry("quantity", List.of("quantity", "qty", "count", "num", "pcs", "pieces",
-          "\u6570\u91cf", "\u4ef6\u6570", "\u7bb1\u6570", "\u4e2a\u6570", "\u603b\u4ef6\u6570")),
+      Map.entry("quantity", List.of("quantity", "qty", "count", "num", "pcs", "pieces", "palletqty", "pallets", "skids",
+          "\u6570\u91cf", "\u4ef6\u6570", "\u7bb1\u6570", "\u4e2a\u6570", "\u603b\u4ef6\u6570", "\u6258\u76d8\u6570", "\u6258\u6570", "\u6808\u677f\u6570")),
       Map.entry("weightKg", List.of("weightkg", "unitweight", "unitweightkg", "weight", "netweight",
           "\u5355\u91cd", "\u5355\u4ef6\u91cd\u91cf", "\u6bcf\u4ef6\u91cd\u91cf", "\u91cd\u91cfkg", "\u5355\u91cdkg", "\u51c0\u91cdkg")),
       Map.entry("totalWeightKg", List.of("totalweight", "totalweightkg", "grossweight", "totalgrossweight",
@@ -76,7 +76,9 @@ public class CargoImportParseService {
       Map.entry("remark", List.of("remark", "remarks", "note", "notes", "comment",
           "\u5907\u6ce8", "\u8bf4\u660e", "\u7279\u6b8a\u8981\u6c42", "\u88c5\u7bb1\u8981\u6c42")),
       Map.entry("dimensionText", List.of("dimension", "dimensions", "size", "sizes",
-          "\u5c3a\u5bf8", "\u89c4\u683c", "\u5916\u5c3a\u5bf8", "\u957f\u5bbd\u9ad8", "\u5c3a\u5bf8cm", "\u5c3a\u5bf8mm", "\u89c4\u683c\u5c3a\u5bf8"))
+          "palletsize", "skidsize", "packagesize",
+          "\u5c3a\u5bf8", "\u89c4\u683c", "\u5916\u5c3a\u5bf8", "\u957f\u5bbd\u9ad8", "\u5c3a\u5bf8cm", "\u5c3a\u5bf8mm", "\u89c4\u683c\u5c3a\u5bf8",
+          "\u6258\u76d8\u5c3a\u5bf8", "\u6258\u76d8\u5c3a\u5bf8cm", "\u6808\u677f\u5c3a\u5bf8", "\u5305\u88c5\u5c3a\u5bf8"))
   );
 
   private static final List<TypeAlias> TYPE_ALIASES = List.of(
@@ -211,12 +213,13 @@ public class CargoImportParseService {
     }
     int headerRowIndex = findHeaderRow(rows);
     List<String> headers = uniquifyHeaders(cleanCells(rows.get(headerRowIndex)));
-    Map<String, String> mapping = guessMapping(headers);
+    Map<String, String> mapping = refineMapping(headers, guessMapping(headers));
     List<ParsedRow> parsed = new ArrayList<>();
     for (int rowIndex = headerRowIndex + 1; rowIndex < rows.size(); rowIndex++) {
       List<String> cells = padRow(rows.get(rowIndex), headers.size());
       if (cells.stream().allMatch(String::isBlank)) continue;
       Map<String, String> raw = rowObject(headers, cells);
+      if (shouldSkipDataRow(raw, mapping, cells)) continue;
       parsed.add(parseCargoRow(sheetName, rowIndex + 1, raw, mapping));
     }
     return new SheetParseResult(sheetSummary(sheetName, headerRowIndex, headers, mapping, parsed.size()), parsed);
@@ -289,12 +292,24 @@ public class CargoImportParseService {
     String dimensionText = valueFor(raw, mapping.get("dimensionText"));
     List<Double> dimensions = parseDimensionText(dimensionText);
     Integer quantity = positiveInteger(valueFor(raw, mapping.get("quantity")));
+    if ((quantity == null || quantity <= 0) && isPackingListMapping(mapping)) {
+      quantity = inferPackageQuantity(
+          valueFor(raw, mapping.get("__sourceQuantity")),
+          valueFor(raw, mapping.get("__packingQuantity"))
+      );
+      if (quantity != null && quantity > 0) {
+        notes.add("\u5df2\u7528\u4ea7\u54c1\u6570\u91cf / \u88c5\u7bb1\u6570\u91cf\u6362\u7b97\u8fd0\u8f93\u4ef6\u6570");
+      }
+    }
     Double lengthCm = positiveNumber(valueFor(raw, mapping.get("lengthCm")), unitFromText(mapping.get("lengthCm"), valueFor(raw, mapping.get("lengthCm"))), dimensionValue(dimensions, 0));
     Double widthCm = positiveNumber(valueFor(raw, mapping.get("widthCm")), unitFromText(mapping.get("widthCm"), valueFor(raw, mapping.get("widthCm"))), dimensionValue(dimensions, 1));
     Double heightCm = positiveNumber(valueFor(raw, mapping.get("heightCm")), unitFromText(mapping.get("heightCm"), valueFor(raw, mapping.get("heightCm"))), dimensionValue(dimensions, 2));
     Double totalWeightKg = nonNegativeNumber(valueFor(raw, mapping.get("totalWeightKg")), weightUnitFromText(mapping.get("totalWeightKg"), valueFor(raw, mapping.get("totalWeightKg"))), null);
+    String weightHeader = mapping.get("weightKg");
+    String totalWeightHeader = mapping.get("totalWeightKg");
+    String weightSource = weightHeader != null && !weightHeader.equals(totalWeightHeader) ? valueFor(raw, weightHeader) : "";
     Double weightKg = nonNegativeNumber(
-        valueFor(raw, mapping.get("weightKg")),
+        weightSource,
         weightUnitFromText(mapping.get("weightKg"), valueFor(raw, mapping.get("weightKg"))),
         totalWeightKg != null && quantity != null && quantity > 0 ? totalWeightKg / quantity : null
     );
@@ -302,6 +317,7 @@ public class CargoImportParseService {
     String model = cleanCell(valueFor(raw, mapping.get("model")));
     String remark = cleanCell(valueFor(raw, mapping.get("remark")));
     String type = normalizeType(valueFor(raw, mapping.get("type")), remark);
+    if ("normal".equals(type) && "pallet".equals(packageUnitFromMapping(mapping))) type = "pallet";
     String color = normalizeColor(valueFor(raw, mapping.get("color")));
     String sku = cleanCell(valueFor(raw, mapping.get("id")));
 
@@ -312,9 +328,16 @@ public class CargoImportParseService {
     if (quantity == null || quantity <= 0) errors.add("\u6570\u91cf\u5fc5\u987b\u662f\u6b63\u6574\u6570");
     if (weightKg == null) errors.add("\u5355\u4ef6\u91cd\u91cf\u5fc5\u987b\u5927\u4e8e\u7b49\u4e8e 0");
     if (!dimensionText.isBlank() && dimensions == null) notes.add("\u5408\u5e76\u5c3a\u5bf8\u672a\u8bc6\u522b\uff0c\u5df2\u5c1d\u8bd5\u4f7f\u7528\u72ec\u7acb\u957f\u5bbd\u9ad8\u5b57\u6bb5");
-    if (totalWeightKg != null && valueFor(raw, mapping.get("weightKg")).isBlank()) notes.add("\u5df2\u7528\u603b\u91cd\u91cf / \u6570\u91cf\u6362\u7b97\u5355\u4ef6\u91cd\u91cf");
+    if (totalWeightKg != null && weightSource.isBlank()) notes.add("\u5df2\u7528\u603b\u91cd\u91cf / \u6570\u91cf\u6362\u7b97\u5355\u4ef6\u91cd\u91cf");
 
     Map<String, Object> cargo = cargoMap(name, model, lengthCm, widthCm, heightCm, quantity, weightKg, type, color, sku, remark);
+    Map<String, Object> packageInfo = buildPackageInfo(mapping, raw, quantity, lengthCm, widthCm, heightCm, weightKg, totalWeightKg);
+    if (!packageInfo.isEmpty()) {
+      cargo.put("packageInfo", packageInfo);
+      if (isPackingListMapping(mapping)) {
+        notes.add("\u5bfc\u5165\u53e3\u5f84\uff1a\u7b97\u6cd5\u8d27\u7269=\u5916\u5305\u88c5\u7bb1/\u6258\u76d8\uff0c\u6563\u4ef6\u6570\u91cf\u4ec5\u4fdd\u5b58\u4e3a\u5305\u88c5\u660e\u7ec6");
+      }
+    }
     return new ParsedRow(sheetName, rowNumber, raw, cargo, errors, notes, buildSuggestion(raw, cargo, errors, rowNumber));
   }
 
@@ -395,9 +418,35 @@ public class CargoImportParseService {
         aggregate.put(key, new LinkedHashMap<>(cargo));
       } else {
         existing.put("quantity", intValue(existing.get("quantity")) + intValue(cargo.get("quantity")));
+        Map<String, Object> mergedPackageInfo = mergePackageInfo(existing.get("packageInfo"), cargo.get("packageInfo"), intValue(existing.get("quantity")));
+        if (!mergedPackageInfo.isEmpty()) existing.put("packageInfo", mergedPackageInfo);
       }
     }
     return assignCargoModels(new ArrayList<>(aggregate.values()));
+  }
+
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> mergePackageInfo(Object leftValue, Object rightValue, int packageQuantity) {
+    Map<String, Object> left = leftValue instanceof Map<?, ?> map ? new LinkedHashMap<>((Map<String, Object>) map) : new LinkedHashMap<>();
+    Map<String, Object> right = rightValue instanceof Map<?, ?> map ? new LinkedHashMap<>((Map<String, Object>) map) : new LinkedHashMap<>();
+    if (left.isEmpty() && right.isEmpty()) return Map.of();
+    Map<String, Object> base = new LinkedHashMap<>(left.isEmpty() ? right : left);
+    base.put("packageQuantity", packageQuantity);
+
+    Map<String, Object> leftInner = left.get("innerCargo") instanceof Map<?, ?> map ? new LinkedHashMap<>((Map<String, Object>) map) : new LinkedHashMap<>();
+    Map<String, Object> rightInner = right.get("innerCargo") instanceof Map<?, ?> map ? new LinkedHashMap<>((Map<String, Object>) map) : new LinkedHashMap<>();
+    double totalInnerQuantity = numberValue(leftInner.get("totalQuantity")) + numberValue(rightInner.get("totalQuantity"));
+    if (totalInnerQuantity > 0) {
+      Map<String, Object> inner = new LinkedHashMap<>(leftInner);
+      inner.putAll(rightInner);
+      inner.put("totalQuantity", Math.round(totalInnerQuantity));
+      inner.putIfAbsent("quantityUnit", "pcs");
+      base.put("innerCargo", inner);
+    }
+
+    double totalWeight = numberValue(left.get("packageTotalGrossWeightKg")) + numberValue(right.get("packageTotalGrossWeightKg"));
+    if (totalWeight > 0) base.put("packageTotalGrossWeightKg", round2(totalWeight));
+    return compactObject(base);
   }
 
   private List<Map<String, Object>> assignCargoModels(List<Map<String, Object>> cargos) {
@@ -481,6 +530,276 @@ public class CargoImportParseService {
     return mapping;
   }
 
+  private Map<String, String> refineMapping(List<String> headers, Map<String, String> mapping) {
+    Map<String, String> refined = new LinkedHashMap<>(mapping);
+    applyPackingListMapping(headers, refined);
+    return refined;
+  }
+
+  private void applyPackingListMapping(List<String> headers, Map<String, String> mapping) {
+    int productColumnLimit = firstPalletColumnIndex(headers);
+    List<String> productHeaders = headers.subList(0, productColumnLimit);
+    String nameHeader = firstHeader(productHeaders, this::isCargoNameHeader);
+    String outerDimensionHeader = firstHeader(productHeaders, this::isOuterCartonDimensionHeader);
+    String packageCountHeader = firstHeader(productHeaders, this::isPackageCountHeader);
+    String packingQuantityHeader = firstHeader(productHeaders, this::isPackingQuantityHeader);
+    String sourceQuantityHeader = firstHeader(productHeaders, this::isSourceQuantityHeader);
+    String unitGrossWeightHeader = firstHeader(productHeaders, this::isUnitGrossWeightHeader);
+    String totalWeightHeader = firstHeader(productHeaders, this::isTotalWeightHeader);
+    String remarkHeader = firstHeader(productHeaders, this::isRemarkHeader);
+
+    boolean looksLikePackingList = !nameHeader.isBlank()
+        && !outerDimensionHeader.isBlank()
+        && (!packageCountHeader.isBlank()
+            || !packingQuantityHeader.isBlank()
+            || !unitGrossWeightHeader.isBlank()
+            || !totalWeightHeader.isBlank());
+    if (!looksLikePackingList) return;
+
+    mapping.put("__packingList", "true");
+    mapping.put("__packageUnit", "carton");
+    mapping.put("name", nameHeader);
+    mapping.put("dimensionText", outerDimensionHeader);
+    mapping.put("lengthCm", "");
+    mapping.put("widthCm", "");
+    mapping.put("heightCm", "");
+    if (!packageCountHeader.isBlank()) {
+      mapping.put("quantity", packageCountHeader);
+    } else if (!sourceQuantityHeader.isBlank() && !packingQuantityHeader.isBlank()) {
+      mapping.put("quantity", "");
+    }
+    if (!unitGrossWeightHeader.isBlank()) {
+      mapping.put("weightKg", unitGrossWeightHeader);
+    } else if (!totalWeightHeader.isBlank()) {
+      mapping.put("weightKg", "");
+    }
+    if (!totalWeightHeader.isBlank()) mapping.put("totalWeightKg", totalWeightHeader);
+    if (!remarkHeader.isBlank()) mapping.put("remark", remarkHeader);
+    if (!sourceQuantityHeader.isBlank()) mapping.put("__sourceQuantity", sourceQuantityHeader);
+    if (!packingQuantityHeader.isBlank()) mapping.put("__packingQuantity", packingQuantityHeader);
+  }
+
+  private int firstPalletColumnIndex(List<String> headers) {
+    for (int i = 0; i < headers.size(); i++) {
+      if (isPalletHeader(headers.get(i))) return i;
+    }
+    return headers.size();
+  }
+
+  private String firstHeader(List<String> headers, HeaderPredicate predicate) {
+    return headers.stream()
+        .filter((header) -> predicate.test(normalizeHeader(header)))
+        .findFirst()
+        .orElse("");
+  }
+
+  private boolean isCargoNameHeader(String header) {
+    return header.equals("\u54c1\u540d")
+        || header.equals("\u4ea7\u54c1\u540d\u79f0")
+        || header.equals("\u8d27\u7269\u540d\u79f0")
+        || header.equals("\u8d27\u540d")
+        || header.equals("\u540d\u79f0")
+        || header.equals("size")
+        || header.equals("name")
+        || header.equals("goodsname")
+        || header.equals("productname");
+  }
+
+  private boolean isOuterCartonDimensionHeader(String header) {
+    return header.contains("\u5916\u7bb1\u5c3a\u5bf8")
+        || header.contains("\u5916\u7bb1\u89c4\u683c")
+        || header.contains("\u7eb8\u7bb1\u5c3a\u5bf8")
+        || header.contains("\u5305\u88c5\u5c3a\u5bf8")
+        || header.equals("\u7bb1\u89c4")
+        || header.equals("\u7bb1\u5c3a\u5bf8")
+        || header.contains("cartonsize")
+        || header.contains("outersize")
+        || header.contains("outercarton");
+  }
+
+  private boolean isPackageCountHeader(String header) {
+    return (header.equals("\u4ef6\u6570")
+        || header.equals("\u7bb1\u6570")
+        || header.equals("\u603b\u4ef6\u6570")
+        || header.equals("\u603b\u7bb1\u6570")
+        || header.equals("ctn")
+        || header.equals("ctns")
+        || header.equals("tctn")
+        || header.equals("tctns")
+        || header.equals("totalctn")
+        || header.equals("totalctns")
+        || header.equals("totalcarton")
+        || header.equals("totalcartons")
+        || header.equals("carton")
+        || header.equals("cartons")
+        || header.equals("boxes"))
+        && !header.contains("\u88c5\u7bb1");
+  }
+
+  private boolean isPackingQuantityHeader(String header) {
+    return header.contains("\u88c5\u7bb1\u6570\u91cf")
+        || header.contains("\u6bcf\u7bb1\u6570\u91cf")
+        || header.contains("\u5165\u6570")
+        || header.contains("pcsctn")
+        || header.contains("qtyctn");
+  }
+
+  private boolean isSourceQuantityHeader(String header) {
+    return header.equals("\u6570\u91cf")
+        || header.equals("\u4ea7\u54c1\u6570\u91cf")
+        || header.equals("\u603b\u6570\u91cf")
+        || header.equals("qty")
+        || header.equals("quantity")
+        || header.equals("orderqty")
+        || header.equals("orderquantity")
+        || header.equals("pcs");
+  }
+
+  private boolean isUnitGrossWeightHeader(String header) {
+    return (header.equals("\u6bdb\u91cd")
+        || header.equals("\u6bdb\u91cdkg")
+        || header.equals("\u5355\u7bb1\u6bdb\u91cd")
+        || header.equals("\u5355\u7bb1\u6bdb\u91cdkg")
+        || header.equals("\u6bcf\u7bb1\u6bdb\u91cd")
+        || header.equals("\u7bb1\u6bdb\u91cd")
+        || header.equals("\u7bb1\u91cd")
+        || header.equals("gw")
+        || header.equals("gwkg")
+        || header.equals("gwkgs")
+        || header.equals("gweight")
+        || header.equals("gweightkg")
+        || header.equals("gweightkgs")
+        || header.equals("grossweight"))
+        && !header.contains("\u603b")
+        && !isPalletHeader(header);
+  }
+
+  private boolean isTotalWeightHeader(String header) {
+    return (header.contains("\u603b\u91cd\u91cf")
+        || header.contains("\u603b\u91cd")
+        || header.contains("\u603b\u6bdb\u91cd")
+        || header.contains("\u91cd\u91cf\u5408\u8ba1")
+        || header.contains("\u5408\u8ba1\u91cd\u91cf")
+        || header.contains("totalweight")
+        || header.contains("tgw")
+        || header.contains("tgwkg")
+        || header.contains("tgwkgs")
+        || header.contains("totalgw")
+        || header.contains("grossweighttotal"))
+        && !header.contains("\u4f53\u79ef")
+        && !isPalletHeader(header);
+  }
+
+  private boolean isRemarkHeader(String header) {
+    return header.equals("\u5907\u6ce8") || header.equals("remark") || header.equals("remarks") || header.equals("note");
+  }
+
+  private boolean isPalletHeader(String header) {
+    String normalized = normalizeHeader(header);
+    return normalized.contains("\u6258\u76d8")
+        || normalized.contains("\u6808\u677f")
+        || normalized.contains("\u514d\u718f\u84b8")
+        || normalized.contains("pallet");
+  }
+
+  private boolean isPackingListMapping(Map<String, String> mapping) {
+    return "true".equals(mapping.get("__packingList"));
+  }
+
+  private Integer inferPackageQuantity(String sourceQuantity, String packingQuantity) {
+    Double total = numberFromCell(sourceQuantity);
+    Double perPackage = numberFromCell(packingQuantity);
+    if (total == null || perPackage == null || total <= 0 || perPackage <= 0) return null;
+    return Math.max(1, (int) Math.ceil(total / perPackage));
+  }
+
+  private Map<String, Object> buildPackageInfo(
+      Map<String, String> mapping,
+      Map<String, String> raw,
+      Integer quantity,
+      Double lengthCm,
+      Double widthCm,
+      Double heightCm,
+      Double weightKg,
+      Double totalWeightKg
+  ) {
+    double innerTotalQuantity = numberValue(numberFromCell(valueFor(raw, mapping.get("__sourceQuantity"))));
+    double innerPiecesPerPackage = numberValue(numberFromCell(valueFor(raw, mapping.get("__packingQuantity"))));
+    String dimensionHeader = normalizeHeader(mapping.getOrDefault("dimensionText", ""));
+    boolean hasPackageSignal = isPackingListMapping(mapping)
+        || dimensionHeader.contains("pallet")
+        || dimensionHeader.contains("skid")
+        || dimensionHeader.contains("\u6258\u76d8")
+        || dimensionHeader.contains("\u6808\u677f");
+    boolean hasInnerInfo = innerTotalQuantity > 0 || innerPiecesPerPackage > 0;
+    if (!hasPackageSignal && !hasInnerInfo) return Map.of();
+
+    int packageQuantity = Math.max(0, quantity == null ? 0 : quantity);
+    double packageGrossWeightKg = round2(weightKg);
+    double packageTotalGrossWeightKg = totalWeightKg != null
+        ? round2(totalWeightKg)
+        : round2(packageGrossWeightKg * packageQuantity);
+
+    Map<String, Object> dimensions = new LinkedHashMap<>();
+    dimensions.put("lengthCm", round2(lengthCm));
+    dimensions.put("widthCm", round2(widthCm));
+    dimensions.put("heightCm", round2(heightCm));
+
+    Map<String, Object> innerCargo = new LinkedHashMap<>();
+    if (innerTotalQuantity > 0) innerCargo.put("totalQuantity", Math.round(innerTotalQuantity));
+    if (innerPiecesPerPackage > 0) innerCargo.put("piecesPerPackage", round2(innerPiecesPerPackage));
+    if (!innerCargo.isEmpty()) innerCargo.put("quantityUnit", "pcs");
+
+    Map<String, Object> info = new LinkedHashMap<>();
+    info.put("algorithmBasis", "package-unit");
+    info.put("packageUnit", packageUnitFromMapping(mapping));
+    info.put("packageQuantity", packageQuantity);
+    info.put("packageDimensionsCm", compactObject(dimensions));
+    info.put("packageGrossWeightKg", packageGrossWeightKg);
+    info.put("packageTotalGrossWeightKg", packageTotalGrossWeightKg);
+    if (!innerCargo.isEmpty()) info.put("innerCargo", innerCargo);
+    return compactObject(info);
+  }
+
+  private String packageUnitFromMapping(Map<String, String> mapping) {
+    String text = normalizeHeader(mapping.getOrDefault("__packageUnit", "") + " " + mapping.getOrDefault("dimensionText", ""));
+    if (text.contains("pallet") || text.contains("skid") || text.contains("\u6258\u76d8") || text.contains("\u6808\u677f")) return "pallet";
+    if (text.contains("crate") || text.contains("wood") || text.contains("\u6728\u7bb1")) return "crate";
+    return "carton";
+  }
+
+  private Map<String, Object> compactObject(Map<String, Object> object) {
+    Map<String, Object> result = new LinkedHashMap<>();
+    for (Map.Entry<String, Object> entry : object.entrySet()) {
+      Object value = entry.getValue();
+      if (value == null) continue;
+      if (value instanceof String text && text.isBlank()) continue;
+      if (value instanceof Number number && !Double.isFinite(number.doubleValue())) continue;
+      if (value instanceof Map<?, ?> map && map.isEmpty()) continue;
+      result.put(entry.getKey(), value);
+    }
+    return result;
+  }
+
+  private boolean shouldSkipDataRow(Map<String, String> raw, Map<String, String> mapping, List<String> cells) {
+    String name = cleanCell(valueFor(raw, mapping.get("name")));
+    if (isSummaryText(name)) return true;
+    if (isPackingListMapping(mapping) && name.isBlank()) return true;
+    boolean hasSummaryCell = cells.stream()
+        .map(this::normalizeHeader)
+        .anyMatch(this::isSummaryText);
+    return hasSummaryCell && name.isBlank();
+  }
+
+  private boolean isSummaryText(String value) {
+    String text = normalizeHeader(value);
+    return text.equals("\u5408\u8ba1")
+        || text.equals("\u5c0f\u8ba1")
+        || text.equals("\u603b\u8ba1")
+        || text.equals("total")
+        || text.equals("subtotal");
+  }
+
   private boolean canFuzzyMatchAlias(String alias) {
     return alias.length() > 2 || Pattern.compile("[\\p{IsHan}]").matcher(alias).find();
   }
@@ -561,6 +880,7 @@ public class CargoImportParseService {
 
   private String weightUnitFromText(String header, String value) {
     String text = (cleanCell(header) + " " + cleanCell(value)).toLowerCase(Locale.ROOT);
+    if (text.contains("kg") || text.contains("kgs") || text.contains("\u516c\u65a4") || text.contains("\u5343\u514b")) return "kg";
     if (text.contains("\u5428") || text.contains("ton") || Pattern.compile("\\bt\\b").matcher(text).find()) return "t";
     if ((text.contains("\u514b") || Pattern.compile("\\bg\\b").matcher(text).find())
         && !text.contains("kg") && !text.contains("\u516c\u65a4") && !text.contains("\u5343\u514b")) {
@@ -711,6 +1031,10 @@ public class CargoImportParseService {
   private record FieldDef(String key, boolean required) {}
 
   private record TypeAlias(String type, List<String> words) {}
+
+  private interface HeaderPredicate {
+    boolean test(String normalizedHeader);
+  }
 
   private record ParseBundle(String fileName, List<Map<String, Object>> sheets, List<ParsedRow> rows) {}
 
