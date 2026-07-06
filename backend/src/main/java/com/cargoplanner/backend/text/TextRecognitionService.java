@@ -338,6 +338,10 @@ public class TextRecognitionService {
       ParsedCargo parsed = normalizeCargo(rawRow, rowNumber, cleanCell(rawRow.get("sourceText")));
       if (parsed.errors().isEmpty()) {
         validRows.add(parsed.cargo());
+        List<String> reviewWarnings = reviewWarnings(parsed.cargo(), parsed.text());
+        if (!reviewWarnings.isEmpty()) {
+          issues.add(buildIssue(rowNumber, parsed.text(), reviewWarnings, parsed.cargo()));
+        }
       } else {
         issues.add(buildIssue(rowNumber, parsed.text(), parsed.errors(), parsed.cargo()));
       }
@@ -938,6 +942,43 @@ public class TextRecognitionService {
     }
   }
 
+  private List<String> reviewWarnings(Map<String, Object> cargo, String sourceText) {
+    String text = String.join(" ",
+        cleanCell(sourceText),
+        cleanCell(cargo.get("name")),
+        cleanCell(cargo.get("model")),
+        cleanCell(cargo.get("remark")),
+        cleanCell(cargo.get("type")),
+        cleanCell(cargo.get("packageInfo"))
+    ).toLowerCase(Locale.ROOT);
+    List<String> warnings = new ArrayList<>();
+    if (containsAny(text, "空托盘", "空托", "空木托", "empty pallet", "empty skid")) {
+      warnings.add("复核：疑似空托盘/单独托盘，请确认是否需要作为独立装柜货物；若只是托盘皮重说明，应改入备注或删除该项。");
+    }
+    if (containsAny(text, "拼装", "拼托", "混装", "合拼", "共托", "mixed pallet", "combined pallet", "mixed skid", "combined skid")) {
+      warnings.add("复核：疑似拼装/混装托盘，请确认尺寸为最终托盘尺寸，单重已包含托盘/木架和托盘内货物总重。");
+    }
+    if (containsAny(text, "可能", "不确定", "未确认", "疑似", "人工确认", "重复", "复核", "uncertain", "maybe", "possible", "duplicate")) {
+      warnings.add("复核：识别内容带有可能、不确定、重复或人工确认信号，请对照原文核对后再导入。");
+    }
+    if ("pallet".equals(cleanCell(cargo.get("type")))
+        && containsAny(text, "单独", "独立", "单个", "separate", "standalone", "alone")
+        && containsAny(text, "托盘", "木托", "栈板", "pallet", "skid")) {
+      warnings.add("复核：疑似单独托盘，请确认不是承托其他货物的空托盘，也不是重复计算的托盘行。");
+    }
+    if ("pallet".equals(cleanCell(cargo.get("type"))) && numberValue(cargo.get("weightKg")) <= 0) {
+      warnings.add("复核：托盘/木箱单重为空或为 0，装箱计算会低估重量，请补全单重。");
+    }
+    return warnings.stream().distinct().toList();
+  }
+
+  private boolean containsAny(String text, String... words) {
+    for (String word : words) {
+      if (text.contains(word)) return true;
+    }
+    return false;
+  }
+
   private Map<String, Object> cargoMap(
       String name,
       String model,
@@ -1117,6 +1158,7 @@ public class TextRecognitionService {
         - Chinese packing sheets with right-side headers such as 免熏蒸木托盘体积, 免熏蒸木托盘重量KG, 数量, 总体积m3, 重量KG, 托盘拼装 are final pallet-unit lists. Extract those pallets, not the left-side cartons.
         - For final pallet or wooden-package rows, weightKg must be the gross weight of one final handled unit. When the sheet gives pallet/wooden-package tare weight plus product gross weights, calculate: weightKg = (palletTareWeightKg * palletQuantity + containedCargoTotalGrossWeightKg) / palletQuantity. If the sheet gives a final gross total that clearly already includes pallet plus cargo, use finalGrossTotal / palletQuantity instead and mention it. Never use the bare pallet tare as weightKg when contained cargo weights are available.
         - When a right-side pallet cell spans or visually aligns with multiple left-side product rows, associate those product rows with that pallet. Example: a 116×116×168 cm pallet aligned with 明装筒灯 1000只/20箱 and 线条灯 200条/13箱 should become one pallet cargo row; its weight is pallet tare plus the sum of those two product total gross weights.
+        - Put review-only warnings in "issues" even when the row is also returned in "rows". This includes empty/standalone pallets, mixed or assembled pallets, unclear pallet-to-product alignment, possible duplicated pallet weight, and any mapping that needs user confirmation. Prefix those messages with "复核：" and keep the usable cargo row in "rows".
         - English examples like "2 skids - each 31.200 kgs / 1080 x 200 x 340 cm" mean quantity=2, weightKg=31200, dimensions in cm.
         - Important: in English shipment weights, a dot followed by exactly three digits before kg/kgs is a thousands separator, not a decimal point. Output 29.200 kgs as 29200 kg, never 29.2 kg.
         - For PL / packing-list tables with columns like Size, T.CTNS, PCS/CTN, Order Qty, N.W, G.W, CARTON SIZE(CM), PALLET SIZE(M), T.CBM:

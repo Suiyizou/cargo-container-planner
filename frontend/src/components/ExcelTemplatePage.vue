@@ -135,7 +135,7 @@
           </div>
           <div>
             <span>{{ ui('excel.issueItems') }}</span>
-            <strong>{{ recognitionIssues.length }}</strong>
+            <strong>{{ recognitionReviewFindings.length }}</strong>
           </div>
           <div>
             <span>{{ ui('excel.aggregatedCargo') }}</span>
@@ -411,6 +411,118 @@
     </div>
 
     <el-dialog
+      v-if="recognitionReviewDialogOpen"
+      :model-value="true"
+      class="planner-dialog recognition-review-dialog"
+      width="920px"
+      align-center
+      destroy-on-close
+      @close="closeRecognitionReviewDialog"
+    >
+      <template #header>
+        <div class="dialog-title">
+          <p>{{ ui('excel.recognitionReviewEyebrow') }}</p>
+          <h2>{{ ui('excel.recognitionReviewTitle') }}</h2>
+        </div>
+      </template>
+
+      <div class="recognition-review-body">
+        <p class="recognition-review-notice">
+          {{ ui('excel.recognitionReviewNotice') }}
+        </p>
+
+        <div class="excel-summary-grid recognition-review-metrics">
+          <div>
+            <span>{{ ui('excel.validItems') }}</span>
+            <strong>{{ recognitionRows.length }}</strong>
+          </div>
+          <div>
+            <span>{{ ui('excel.reviewNormalItems') }}</span>
+            <strong>{{ recognitionNormalRows.length }}</strong>
+          </div>
+          <div>
+            <span>{{ ui('excel.reviewNeedsConfirmItems') }}</span>
+            <strong>{{ recognitionReviewFindings.length }}</strong>
+          </div>
+          <div>
+            <span>{{ ui('excel.importPieces') }}</span>
+            <strong>{{ recognitionQuantity }}</strong>
+          </div>
+        </div>
+
+        <el-collapse v-model="recognitionReviewActiveNames" class="recognition-review-collapse">
+          <el-collapse-item name="needsReview">
+            <template #title>
+              <span class="recognition-review-title-line">
+                {{ ui('excel.reviewNeedsConfirm') }}
+                <b>{{ recognitionReviewFindings.length }}</b>
+              </span>
+            </template>
+
+            <div v-if="recognitionReviewFindings.length" class="recognition-review-issue-list">
+              <article v-for="finding in recognitionReviewFindings" :key="finding.id" class="recognition-review-issue">
+                <header>
+                  <div>
+                    <strong>{{ finding.title }}</strong>
+                    <span v-if="finding.source">{{ finding.source }}</span>
+                  </div>
+                  <el-button v-if="finding.index >= 0" link type="primary" @click="editRecognitionReviewCargo(finding)">
+                    {{ ui('common.edit') }}
+                  </el-button>
+                </header>
+                <ul>
+                  <li v-for="message in finding.messages" :key="message">{{ message }}</li>
+                </ul>
+              </article>
+            </div>
+            <p v-else class="recognition-review-empty">{{ ui('excel.reviewNoIssues') }}</p>
+          </el-collapse-item>
+
+          <el-collapse-item name="normal">
+            <template #title>
+              <span class="recognition-review-title-line">
+                {{ ui('excel.reviewNormal') }}
+                <b>{{ recognitionNormalRows.length }}</b>
+              </span>
+            </template>
+
+            <div v-if="recognitionNormalRows.length" class="template-table-wrap recognition-review-table-wrap">
+              <table class="template-table recognition-review-table">
+                <thead>
+                  <tr>
+                    <th>{{ ui('common.cargo') }}</th>
+                    <th>{{ ui('common.model') }}</th>
+                    <th>{{ ui('common.dimensionsCm') }}</th>
+                    <th>{{ ui('common.quantity') }}</th>
+                    <th>{{ ui('common.unitWeightKg') }}</th>
+                    <th>{{ ui('common.type') }}</th>
+                    <th>{{ ui('common.remark') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in recognitionNormalRows" :key="cargoKey(item.cargo, item.index)">
+                    <td>{{ item.cargo.name }}</td>
+                    <td>{{ item.cargo.model || "-" }}</td>
+                    <td>{{ item.cargo.lengthCm }} × {{ item.cargo.widthCm }} × {{ item.cargo.heightCm }}</td>
+                    <td>{{ item.cargo.quantity }}</td>
+                    <td>{{ item.cargo.weightKg }}</td>
+                    <td>{{ typeText(item.cargo.type) }}</td>
+                    <td>{{ item.cargo.remark || "-" }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p v-else class="recognition-review-empty">{{ ui('excel.reviewAllNeedConfirm') }}</p>
+          </el-collapse-item>
+        </el-collapse>
+      </div>
+
+      <template #footer>
+        <el-button type="primary" @click="closeRecognitionReviewDialog">{{ ui('common.acknowledged') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
       v-if="suggestionRow"
       :model-value="true"
       class="planner-dialog"
@@ -604,6 +716,8 @@ const manualImportMessageType = ref("info");
 const recognitionAgentTask = ref(null);
 const recognitionEditIndex = ref(-1);
 const recognitionEditErrors = ref([]);
+const recognitionReviewDialogOpen = ref(false);
+const recognitionReviewActiveNames = ref(["needsReview", "normal"]);
 const manualCorrections = ref([]);
 const suggestionRow = ref(null);
 const suggestionErrors = ref([]);
@@ -676,6 +790,59 @@ const recognitionQuantity = computed(() =>
 const recognitionTotalRows = computed(() => recognitionAgentTask.value?.rowCount ?? 0);
 const recognitionValidCount = computed(() => recognitionAgentTask.value?.validCount ?? 0);
 const recognitionHasResult = computed(() => Boolean(recognitionAgentTask.value));
+const recognitionRowsWithIndex = computed(() => recognitionRows.value.map((cargo, index) => ({ cargo, index })));
+const recognitionReviewFindings = computed(() => {
+  const findings = [];
+  const issueCargoKeys = new Set();
+
+  recognitionIssues.value.forEach((issue, index) => {
+    const cargo = issue?.suggestion?.cargo || null;
+    const cargoIndex = cargo ? findRecognitionCargoIndex(cargo) : -1;
+    if (cargoIndex >= 0) issueCargoKeys.add(cargoReviewKey(recognitionRows.value[cargoIndex]));
+    findings.push({
+      id: `issue-${issue.rowNumber ?? index}-${index}`,
+      title: cargoIndex >= 0
+        ? reviewCargoTitle(recognitionRows.value[cargoIndex], cargoIndex)
+        : (cargo?.name ? suggestionCargoLabel(cargo) : ui("excel.reviewUnknownItem")),
+      source: issue.text || issue.rawText || "",
+      messages: issueMessages(issue),
+      cargo: cargoIndex >= 0 ? recognitionRows.value[cargoIndex] : cargo,
+      index: cargoIndex
+    });
+  });
+
+  recognitionRows.value.forEach((cargo, index) => {
+    const reasons = cargoReviewReasons(cargo);
+    const key = cargoReviewKey(cargo);
+    if (!reasons.length || issueCargoKeys.has(key)) return;
+    findings.push({
+      id: `cargo-review-${index}`,
+      title: reviewCargoTitle(cargo, index),
+      source: cargo.remark || "",
+      messages: reasons,
+      cargo,
+      index
+    });
+  });
+
+  return findings;
+});
+const recognitionReviewIndexes = computed(() => new Set(
+  recognitionReviewFindings.value
+    .map((finding) => finding.index)
+    .filter((index) => index >= 0)
+));
+const recognitionNormalRows = computed(() =>
+  recognitionRowsWithIndex.value.filter((item) => !recognitionReviewIndexes.value.has(item.index))
+);
+const recognitionSkippedIssueCount = computed(() =>
+  recognitionIssues.value.filter((issue) => {
+    const text = issueMessages(issue).join(" ").toLowerCase();
+    if (text.includes("\u590d\u6838") || text.includes("review:")) return false;
+    const cargo = issue?.suggestion?.cargo || null;
+    return !cargo || findRecognitionCargoIndex(cargo) < 0;
+  }).length
+);
 const suggestionSummary = computed(() => {
   if (!suggestionRow.value) return "";
   const label = suggestionForm.model ? `${suggestionForm.name || "未命名货物"} ${suggestionForm.model}` : suggestionForm.name || "未命名货物";
@@ -704,6 +871,13 @@ const sampleRows = [
   { id: 2, name: "纸箱 B", model: "", lengthCm: 60, widthCm: 40, heightCm: 35, quantity: 30, weightKg: 12, type: "normal", color: "#3b82f6", remark: "普通可堆叠" },
   { id: 3, name: "易碎品 C", model: "", lengthCm: 55, widthCm: 45, heightCm: 30, quantity: 12, weightKg: 18, type: "nonstack", color: "#8b5cf6", remark: "不可重压" }
 ];
+const reviewKeywords = {
+  emptyPallet: ["\u7a7a\u6258\u76d8", "\u7a7a\u6258", "\u7a7a\u6728\u6258", "empty pallet", "empty skid"],
+  mixedPallet: ["\u62fc\u88c5", "\u62fc\u6258", "\u6df7\u88c5", "\u5408\u62fc", "\u5171\u6258", "mixed pallet", "combined pallet", "mixed skid", "combined skid"],
+  uncertain: ["\u53ef\u80fd", "\u4e0d\u786e\u5b9a", "\u672a\u786e\u8ba4", "\u7591\u4f3c", "\u4eba\u5de5\u786e\u8ba4", "\u91cd\u590d", "\u590d\u6838", "uncertain", "maybe", "possible", "duplicate"],
+  standalone: ["\u5355\u72ec", "\u72ec\u7acb", "\u5355\u4e2a", "separate", "standalone", "alone"],
+  pallet: ["\u6258\u76d8", "\u6728\u6258", "\u6808\u677f", "pallet", "skid"]
+};
 
 let previewSeq = 0;
 let workbookVersion = 0;
@@ -917,6 +1091,7 @@ function resetRecognitionResult() {
   recognitionPreview.value = null;
   recognitionAgentTask.value = null;
   recognitionMessage.value = "";
+  closeRecognitionReviewDialog();
   closeRecognitionEdit();
 }
 
@@ -939,10 +1114,20 @@ async function submitTextRecognitionTask(options = {}) {
     recognitionMessage.value =
       recognitionAgentTask.value.status === "FAILED"
         ? `智能识别失败：${recognitionAgentTask.value.errorMessage || "请检查后端任务日志"}`
-        : `智能识别完成：${recognitionRows.value.length} 类货物，${recognitionQuantity.value} 件；${recognitionIssues.value.length} 条需要人工确认。`;
+        : ui("excel.recognitionCompleteMessage", {
+            types: recognitionRows.value.length,
+            pieces: recognitionQuantity.value,
+            review: recognitionReviewFindings.value.length
+          });
+    if (recognitionAgentTask.value.status === "FAILED") {
+      closeRecognitionReviewDialog();
+    } else {
+      openRecognitionReviewDialog();
+    }
   } catch (error) {
     recognitionMessageType.value = "error";
     recognitionMessage.value = `智能识别接口不可用：${error.message}`;
+    closeRecognitionReviewDialog();
   } finally {
     recognitionAgentBusy.value = false;
   }
@@ -952,6 +1137,7 @@ function fillRecognitionSample() {
   recognitionText.value = t("smartImport.recognitionSample");
   recognitionPreview.value = null;
   recognitionAgentTask.value = null;
+  closeRecognitionReviewDialog();
   closeRecognitionEdit();
   recognitionMessage.value = t("smartImport.sampleLoadedMessage");
   recognitionMessageType.value = "ok";
@@ -961,6 +1147,7 @@ function clearRecognition() {
   recognitionText.value = "";
   recognitionPreview.value = null;
   recognitionAgentTask.value = null;
+  closeRecognitionReviewDialog();
   closeRecognitionEdit();
   recognitionMessage.value = "";
 }
@@ -968,7 +1155,98 @@ function clearRecognition() {
 function importRecognitionRows() {
   if (!recognitionRows.value.length) return;
   const cargos = recognitionRows.value.map((cargo, index) => normalizeImportedCargo(cargo, index));
-  emit("import-cargos", { cargos, mode: importMode.value, skippedRows: recognitionIssues.value.length });
+  emit("import-cargos", { cargos, mode: importMode.value, skippedRows: recognitionSkippedIssueCount.value });
+}
+
+function openRecognitionReviewDialog() {
+  recognitionReviewActiveNames.value = recognitionReviewFindings.value.length ? ["needsReview", "normal"] : ["normal"];
+  recognitionReviewDialogOpen.value = true;
+}
+
+function closeRecognitionReviewDialog() {
+  recognitionReviewDialogOpen.value = false;
+}
+
+function editRecognitionReviewCargo(finding) {
+  if (!finding || finding.index < 0 || !finding.cargo) return;
+  closeRecognitionReviewDialog();
+  openRecognitionEdit(finding.cargo, finding.index);
+}
+
+function issueMessages(issue) {
+  const errors = Array.isArray(issue?.errors) ? issue.errors.filter(Boolean) : [];
+  if (errors.length) return errors;
+  const message = String(issue?.message || "").trim();
+  return message ? [message] : [ui("excel.reviewUnknownReason")];
+}
+
+function cargoReviewReasons(cargo) {
+  const text = reviewSearchText(cargo);
+  const reasons = [];
+  if (containsReviewKeyword(text, reviewKeywords.emptyPallet)) {
+    reasons.push(ui("excel.reviewReasonEmptyPallet"));
+  }
+  if (containsReviewKeyword(text, reviewKeywords.mixedPallet)) {
+    reasons.push(ui("excel.reviewReasonMixedPallet"));
+  }
+  if (containsReviewKeyword(text, reviewKeywords.uncertain)) {
+    reasons.push(ui("excel.reviewReasonUncertain"));
+  }
+  if (
+    cargo?.type === "pallet"
+    && containsReviewKeyword(text, reviewKeywords.standalone)
+    && containsReviewKeyword(text, reviewKeywords.pallet)
+  ) {
+    reasons.push(ui("excel.reviewReasonStandalonePallet"));
+  }
+  if (cargo?.type === "pallet" && Number(cargo?.weightKg || 0) <= 0) {
+    reasons.push(ui("excel.reviewReasonPalletWeight"));
+  }
+  return [...new Set(reasons)];
+}
+
+function containsReviewKeyword(text, keywords) {
+  return keywords.some((keyword) => text.includes(keyword));
+}
+
+function reviewSearchText(cargo) {
+  let packageText = "";
+  try {
+    packageText = cargo?.packageInfo ? JSON.stringify(cargo.packageInfo) : "";
+  } catch {
+    packageText = "";
+  }
+  return [
+    cargo?.name,
+    cargo?.model,
+    cargo?.remark,
+    cargo?.type,
+    packageText
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function reviewCargoTitle(cargo, index) {
+  const label = suggestionCargoLabel(cargo) || ui("excel.reviewUnknownItem");
+  return `${index + 1}. ${label} · ${cargo.lengthCm || "-"} × ${cargo.widthCm || "-"} × ${cargo.heightCm || "-"} cm`;
+}
+
+function findRecognitionCargoIndex(cargo) {
+  const key = cargoReviewKey(cargo);
+  return recognitionRows.value.findIndex((item) => cargoReviewKey(item) === key);
+}
+
+function cargoReviewKey(cargo) {
+  if (!cargo) return "";
+  return [
+    cargo.name || "",
+    cargo.model || "",
+    Number(cargo.lengthCm || 0),
+    Number(cargo.widthCm || 0),
+    Number(cargo.heightCm || 0),
+    Number(cargo.quantity || 0),
+    Number(cargo.weightKg || 0),
+    cargo.type || ""
+  ].join("|");
 }
 
 async function downloadRecognitionAgentResult() {

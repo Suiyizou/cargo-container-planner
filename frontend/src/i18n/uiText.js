@@ -26,6 +26,7 @@ const uiText = {
   "common.downloadRecognitionExcel": { zh: "下载识别结果 Excel", en: "Download Recognition Excel" },
   "common.useSample": { zh: "套用示例", en: "Use Sample" },
   "common.clear": { zh: "清空", en: "Clear" },
+  "common.acknowledged": { zh: "已知晓", en: "Got It" },
   "common.more": { zh: "还有", en: "More" },
   "common.has": { zh: "有", en: "Has" },
   "common.notSelected": { zh: "尚未选择", en: "Not Selected" },
@@ -249,6 +250,10 @@ const uiText = {
   },
   "excel.needsAction": { zh: "需要处理", en: "Needs Action" },
   "excel.recognitionTip": { zh: "识别提示", en: "Recognition Tip" },
+  "excel.recognitionCompleteMessage": {
+    zh: "智能识别完成：{types} 类货物，{pieces} 件；{review} 条需要人工确认。",
+    en: "Smart recognition complete: {types} cargo types, {pieces} pcs; {review} items need manual confirmation."
+  },
   "excel.textItems": { zh: "文本条目", en: "Text Items" },
   "excel.validItems": { zh: "有效条目", en: "Valid Items" },
   "excel.issueItems": { zh: "异常条目", en: "Issue Items" },
@@ -313,6 +318,40 @@ const uiText = {
     en: "These edits apply to the pre-import recognition result and do not call the Agent again."
   },
   "excel.editUseCase": { zh: "适合修正重量千分位、型号、尺寸或货物类型。", en: "Useful for fixing weight separators, models, dimensions, or cargo types." },
+  "excel.recognitionReviewEyebrow": { zh: "识别复核", en: "Recognition Review" },
+  "excel.recognitionReviewTitle": { zh: "请确认智能识别结果", en: "Review Smart Recognition Results" },
+  "excel.recognitionReviewNotice": {
+    zh: "Agent 识别不能保证每次完全正确。系统已把正常识别项和需人工确认项列出；如发现尺寸、数量、重量或托盘关系不对，请点击识别结果中的“编辑”自行修正后再导入。",
+    en: "Agent recognition is not guaranteed to be perfect. Normal items and items needing manual confirmation are listed here; if dimensions, quantity, weight, or pallet relationships are wrong, use Edit in the recognition result before importing."
+  },
+  "excel.reviewNormalItems": { zh: "正常识别项", en: "Normal Items" },
+  "excel.reviewNeedsConfirmItems": { zh: "需确认项", en: "Items to Confirm" },
+  "excel.reviewNeedsConfirm": { zh: "需人工确认", en: "Needs Manual Confirmation" },
+  "excel.reviewNormal": { zh: "正常识别结果", en: "Normal Recognition Results" },
+  "excel.reviewNoIssues": { zh: "暂无需确认项，可继续检查正常识别结果后导入。", en: "No items need confirmation; review the normal results before importing." },
+  "excel.reviewAllNeedConfirm": { zh: "本次识别结果均需要人工确认。", en: "All recognized items need manual confirmation." },
+  "excel.reviewUnknownItem": { zh: "未命名识别项", en: "Unnamed Recognized Item" },
+  "excel.reviewUnknownReason": { zh: "系统未能给出明确原因，请对照原文复核后再导入。", en: "No clear reason was provided; compare with the source text before importing." },
+  "excel.reviewReasonEmptyPallet": {
+    zh: "疑似空托盘/单独托盘：请确认它是否真的要作为独立装柜货物；如果只是托盘皮重说明，应改进备注或删除该项。",
+    en: "Possible empty or standalone pallet: confirm whether it should be imported as its own handled unit; if it only describes tare weight, move it to notes or remove it."
+  },
+  "excel.reviewReasonMixedPallet": {
+    zh: "疑似拼装/混装托盘：请确认尺寸是最终托盘尺寸，单重已包含托盘/木架和托盘内货物总重。",
+    en: "Possible mixed/combined pallet: confirm dimensions are the final pallet size and unit weight includes pallet/crate tare plus contained cargo weight."
+  },
+  "excel.reviewReasonUncertain": {
+    zh: "识别内容带有可能、不确定、重复或人工确认信号，请重点核对原文和导入字段。",
+    en: "The recognition contains possible, uncertain, duplicate, or manual-review signals; verify the source text and imported fields."
+  },
+  "excel.reviewReasonStandalonePallet": {
+    zh: "疑似单独托盘：请确认它不是用于承托其他货物的空托盘，也不是重复计算的托盘行。",
+    en: "Possible standalone pallet: confirm it is not an empty support pallet for other cargo and not a duplicated pallet row."
+  },
+  "excel.reviewReasonPalletWeight": {
+    zh: "托盘/木箱单重为空或为 0，装箱计算会低估重量，请补全单重。",
+    en: "Pallet/crate unit weight is empty or zero; packing will underestimate weight, so fill in the unit weight."
+  },
 
   "scene.lengthCm": { zh: "长 {value} cm", en: "Length {value} cm" },
   "scene.widthCm": { zh: "宽 {value} cm", en: "Width {value} cm" },
