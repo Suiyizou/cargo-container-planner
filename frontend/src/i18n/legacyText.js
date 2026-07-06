@@ -23,6 +23,8 @@ const exactEn = {
   "手动录入尺寸": "Manual Dimensions",
   "自定义箱型，请按实际设备复核。": "Custom container; verify against actual equipment.",
   "用户自定义尺寸": "User-defined Dimensions",
+  "用户编辑参考价": "User-edited Reference Price",
+  "用户自定义参考价；实际订舱前请按实时询价复核。": "User-defined reference price; verify against live quotations before booking.",
   "常用": "Common",
   "少量使用": "Limited Use",
   "特殊设备": "Special Equipment",

@@ -176,13 +176,26 @@ const uiText = {
   "container.referenceTitle": { zh: "箱型尺寸资料库", en: "Container Size Reference" },
   "container.backToConfig": { zh: "返回配置页", en: "Back to Setup" },
   "container.sourceAlert": {
-    zh: "尺寸资料来自公开船司/箱东页面，只作为方案估算基准；实际装柜请以放箱柜号、场站实测、订舱设备和绑扎方案为准。普通货优先选择普柜/高柜，冷藏和平板作为特殊设备候选。",
-    en: "Dimensions come from public carrier/container-owner references and are only a planning baseline; actual loading should follow the released unit number, yard measurements, booked equipment, and lashing plan. General and high-cube containers are preferred for normal cargo; reefer and flat rack are special-equipment candidates."
+    zh: "尺寸资料来自公开船司/箱东页面；参考价格来自公开运价指数并按箱型做估算，只作为方案比较基准，不等于实际订舱报价。实际装柜请以放箱柜号、场站实测、订舱设备、实时询价和绑扎方案为准。",
+    en: "Dimensions come from public carrier/container-owner references; reference prices come from public freight indexes and equipment estimates. They are for plan comparison only, not live booking quotes. Actual loading should follow the released unit number, yard measurements, booked equipment, current quotations, and lashing plan."
   },
   "container.flatRackHeightIgnored": { zh: "平板不计高度", en: "Flat rack height ignored" },
   "container.calcSize": { zh: "计算尺寸", en: "Calculation Size" },
   "container.maxPayload": { zh: "最大载重", en: "Max Payload" },
   "container.referencePrice": { zh: "参考价格", en: "Reference Price" },
+  "container.referencePriceSourceFallback": { zh: "参考运价来源", en: "Reference Freight Source" },
+  "container.restoreDefaultPrice": { zh: "恢复默认价格", en: "Restore Default Price" },
+  "container.restorePriceShort": { zh: "恢复价格", en: "Restore Price" },
+  "container.defaultPriceHint": { zh: "默认参考价：USD {value}", en: "Default reference price: USD {value}" },
+  "container.userEditedPrice": { zh: "用户编辑参考价", en: "User-edited reference price" },
+  "container.userEditedPriceBasis": {
+    zh: "用户自定义参考价；实际订舱前请按实时询价复核。",
+    en: "User-defined reference price; verify against live quotations before booking."
+  },
+  "container.parametersUpdated": { zh: "箱型参数已更新。", en: "Container parameters updated." },
+  "container.customAdded": { zh: "已加入自定义箱型。", en: "Custom container added." },
+  "container.restoredDefaults": { zh: "{name} 已恢复默认尺寸和价格。", en: "{name} restored to default dimensions and price." },
+  "container.restoredDefaultPrice": { zh: "{name} 已恢复默认参考价格。", en: "{name} restored to the default reference price." },
   "container.dimensionBasis": { zh: "尺寸依据", en: "Dimension Basis" },
   "container.manualDimensions": { zh: "手动录入尺寸", en: "Manual Dimensions" },
   "container.customNote": { zh: "自定义箱型，请按实际设备复核。", en: "Custom container; verify against actual equipment." },
@@ -194,16 +207,30 @@ const uiText = {
 
   "excel.title": { zh: "智能导入", en: "Smart Import" },
   "excel.manualImport": { zh: "手动导入", en: "Manual Import" },
-  "excel.manualSubtitle": { zh: "本地识别、校验和建议修改", en: "Local parsing, validation, and suggested edits" },
+  "excel.manualSubtitle": { zh: "Excel 转文本后走智能识别", en: "Excel-to-text agent recognition" },
   "excel.smartRecognition": { zh: "智能识别", en: "Smart Recognition" },
   "excel.recognitionSubtitle": { zh: "粘贴货物描述，提取标准规格", en: "Paste cargo descriptions and extract standard dimensions" },
   "excel.fieldTemplate": { zh: "字段样板", en: "Field Template" },
   "excel.fieldSubtitle": { zh: "标准字段、规则和示例", en: "Standard fields, rules, and examples" },
   "excel.manualPath": { zh: "路径一：手动导入 Excel / CSV", en: "Path 1: Manual Excel / CSV Import" },
   "excel.manualPathText": {
-    zh: "浏览器直接识别表头、单位和规则，导入前先预览并标记异常行。",
-    en: "The browser reads headers, units, and rules directly, then previews and flags issue rows before import."
+    zh: "先把工作簿转换为带行列坐标的格式化文本，再交给智能识别 agent 判断最终装柜单元。",
+    en: "The workbook is converted into coordinate-preserving text first, then sent to the agent to identify final handled units."
   },
+  "excel.agentPreparingFromExcel": {
+    zh: "正在读取 Excel，并转换为带单元格坐标的格式化文本。",
+    en: "Reading the workbook and converting it into coordinate-preserving text."
+  },
+  "excel.agentSubmittedFromExcel": {
+    zh: "已读取 {count} 个工作表，正在交给智能识别 agent。",
+    en: "Read {count} sheet(s); sending the formatted text to the recognition agent."
+  },
+  "excel.excelAgentFailed": {
+    zh: "Excel 转智能识别失败，请检查文件格式或后端 agent 配置。",
+    en: "Excel-to-agent recognition failed. Check the file format or backend agent configuration."
+  },
+  "excel.excelFormattedSource": { zh: "Excel 格式化文本", en: "Formatted Excel text" },
+  "excel.pastedTextSource": { zh: "智能识别粘贴文本", en: "Pasted smart-recognition text" },
   "excel.currentFile": { zh: "当前文件", en: "Current File" },
   "excel.validRows": { zh: "有效行", en: "Valid Rows" },
   "excel.issueRows": { zh: "异常行", en: "Issue Rows" },

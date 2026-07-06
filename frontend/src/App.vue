@@ -339,9 +339,15 @@
                 <el-table-column label="尺寸 cm" min-width="170">
                   <template #default="{ row }">{{ containerDimensionText(row) }}</template>
                 </el-table-column>
-                <el-table-column label="操作" width="116" fixed="right">
+                <el-table-column :label="ui('container.referencePrice')" width="120">
+                  <template #default="{ row }">
+                    <span class="source-basis" :class="{ edited: row.priceEdited }">{{ containerPriceText(row) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column :label="ui('common.actions')" width="160" fixed="right">
                   <template #default="{ row }">
                     <el-button link type="primary" @click="openContainerModal(row)">编辑</el-button>
+                    <el-button link :disabled="!canRestoreContainerPrice(row)" @click="restoreContainerPrice(row)">{{ ui('container.restorePriceShort') }}</el-button>
                     <el-button link :disabled="!isDefaultContainer(row.id)" @click="restoreContainerDefaults(row)">恢复</el-button>
                   </template>
                 </el-table-column>
@@ -796,7 +802,7 @@ import { exportPackingReportsZip, exportPackingReport } from "./services/exportR
 import { assignCargoModels } from "./services/excelImport";
 import { buildPreviewInWorker, readWorkbookInWorker } from "./services/excelImportClient";
 import { calculatePacking, estimatePackingWorkload } from "./services/packingClient";
-import { cloneDefaultContainers, isDefaultContainerId, mergeDefaultContainers, restoreDefaultContainer } from "./services/localData";
+import { cloneDefaultContainers, defaultContainerForId, isDefaultContainerId, mergeDefaultContainers, restoreDefaultContainer, restoreDefaultContainerPrice } from "./services/localData";
 import { fetchAdminMe, logoutAdmin } from "./services/adminApi";
 import { clearSession, isSessionExpired, storedExpiresAt, storedToken, storedUser } from "./services/authSession";
 import { currentLocale, elementPlusLocale, t } from "./i18n";
@@ -973,7 +979,7 @@ const resultSummary = computed(() => {
     ...counts,
     boxesText: boxes > 0 ? `${best?.estimatedBoxes ? "约 " : ""}${boxes} 箱` : "-",
     containerName: best?.mixedPlan?.summary || best?.container?.name || "暂无推荐",
-    freightText: best ? formatCurrency(evaluationFreightValue(best)) : "-",
+    freightText: best ? formatCurrency(evaluationFreightValue(best), evaluationFreightCurrency(best)) : "-",
     recommendationText: best
       ? `${best.mixedPlan?.summary || best.container.name} / ${evaluationFitText(best)}`
       : "暂无计算结果"
@@ -1972,14 +1978,41 @@ function openContainerModal(container = null) {
 
 function saveContainer(container) {
   const existingIndex = containers.value.findIndex((item) => item.id === container.id);
+  const defaultContainer = defaultContainerForId(container.id);
+  const isDefault = Boolean(defaultContainer);
+  const dimensionEdited = isDefault && containerDimensionsEdited(container, defaultContainer);
+  const referencePrice = Number(container.referencePrice || 0);
+  const defaultReferencePrice = Number(defaultContainer?.referencePrice || 0);
+  const priceEdited = isDefault && referencePrice > 0 && Math.abs(referencePrice - defaultReferencePrice) >= 0.01;
   const normalized = {
     ...container,
-    dimensionEdited: isDefaultContainerId(container.id)
+    dimensionEdited,
+    priceEdited
   };
-  if (normalized.dimensionEdited) {
+  if (dimensionEdited) {
     normalized.dimensionSource = "用户编辑尺寸";
     normalized.dimensionBasis = "手动编辑尺寸";
     normalized.dimensionNote = "已手动调整默认箱型尺寸，可在配置页一键恢复公开默认值。";
+  } else if (isDefault) {
+    normalized.dimensionSource = defaultContainer.dimensionSource;
+    normalized.dimensionSourceUrl = defaultContainer.dimensionSourceUrl;
+    normalized.dimensionBasis = defaultContainer.dimensionBasis;
+    normalized.dimensionNote = defaultContainer.dimensionNote;
+  }
+  if (priceEdited) {
+    normalized.referenceCurrency = "USD";
+    normalized.referencePriceSource = "\u7528\u6237\u7f16\u8f91\u53c2\u8003\u4ef7";
+    normalized.referencePriceSourceUrl = "";
+    normalized.referencePriceBasis = "\u7528\u6237\u81ea\u5b9a\u4e49\u53c2\u8003\u4ef7\uff1b\u5b9e\u9645\u8ba2\u8231\u524d\u8bf7\u6309\u5b9e\u65f6\u8be2\u4ef7\u590d\u6838\u3002";
+  } else if (isDefault) {
+    normalized.costFactor = defaultContainer.costFactor;
+    normalized.referencePrice = defaultContainer.referencePrice;
+    normalized.referenceCurrency = defaultContainer.referenceCurrency;
+    normalized.referencePriceSource = defaultContainer.referencePriceSource;
+    normalized.referencePriceSourceUrl = defaultContainer.referencePriceSourceUrl;
+    normalized.referencePriceBasis = defaultContainer.referencePriceBasis;
+    normalized.priceTier = defaultContainer.priceTier;
+    normalized.equipmentClass = defaultContainer.equipmentClass;
   }
   if (existingIndex >= 0) {
     containers.value.splice(existingIndex, 1, normalized);
@@ -1989,7 +2022,7 @@ function saveContainer(container) {
   }
   selectedContainerId.value = container.id;
   closeContainerModal();
-  showToast(existingIndex >= 0 ? "箱型尺寸已更新。" : "已加入自定义箱型。");
+  showToast(existingIndex >= 0 ? ui("container.parametersUpdated") : ui("container.customAdded"));
 }
 
 function closeContainerModal() {
@@ -2008,11 +2041,33 @@ function restoreContainerDefaults(container) {
   const restored = restoreDefaultContainer(container);
   if (!restored || !container?.id) return;
   containers.value = containers.value.map((item) => item.id === container.id ? restored : item);
-  showToast(`${restored.name} 已恢复默认尺寸。`);
+  showToast(ui("container.restoredDefaults", { name: restored.name }));
+}
+
+function restoreContainerPrice(container) {
+  const restored = restoreDefaultContainerPrice(container);
+  if (!restored || !container?.id) return;
+  containers.value = containers.value.map((item) => item.id === container.id ? restored : item);
+  showToast(ui("container.restoredDefaultPrice", { name: restored.name || container.name }));
 }
 
 function isDefaultContainer(id) {
   return isDefaultContainerId(id);
+}
+
+function canRestoreContainerPrice(container) {
+  if (!isDefaultContainerId(container?.id)) return false;
+  const defaultContainer = defaultContainerForId(container.id);
+  if (!defaultContainer) return false;
+  return Boolean(container.priceEdited)
+    || Math.abs(Number(container.referencePrice || 0) - Number(defaultContainer.referencePrice || 0)) >= 0.01;
+}
+
+function containerDimensionsEdited(container, defaultContainer) {
+  if (!container || !defaultContainer) return false;
+  return ["lengthCm", "widthCm", "heightCm", "payloadKg"].some((field) =>
+    Math.abs(Number(container[field] || 0) - Number(defaultContainer[field] || 0)) >= 0.01
+  ) || Boolean(container.ignoreHeightLimit) !== Boolean(defaultContainer.ignoreHeightLimit);
 }
 
 function applyBalancePreset(value) {
@@ -2343,6 +2398,15 @@ function containerPayloadText(container: any) {
   return value >= 1000 ? `${formatDimensionNumber(value / 1000)} t` : `${formatDimensionNumber(value)} kg`;
 }
 
+function containerPriceText(container: any) {
+  const value = Number(container?.referencePrice ?? container?.price ?? container?.freightPrice ?? 0);
+  if (!(value > 0)) return "-";
+  const formatted = new Intl.NumberFormat(currentLocale.value === "en-US" ? "en-US" : "zh-CN", {
+    maximumFractionDigits: 0
+  }).format(value);
+  return `${String(container?.referenceCurrency || "USD").toUpperCase()} ${formatted}`;
+}
+
 function containerUsageText(value: string) {
   return {
     common: "常用箱型",
@@ -2374,7 +2438,7 @@ function evaluationCardMetric(evaluation) {
 
 function evaluationFreightText(evaluation) {
   const value = evaluationFreightValue(evaluation);
-  return `${ui("result.referenceFreight")} ${formatCurrency(value)}`;
+  return `${ui("result.referenceFreight")} ${formatCurrency(value, evaluationFreightCurrency(evaluation))}`;
 }
 
 function evaluationFreightValue(evaluation) {
@@ -2400,13 +2464,23 @@ function containerReferencePrice(container) {
   return costFactor > 0 ? costFactor * REFERENCE_PRICE_BASE : REFERENCE_PRICE_BASE;
 }
 
-function formatCurrency(value) {
+function evaluationFreightCurrency(evaluation) {
+  const packedBoxes = Array.isArray(evaluation?.packedBoxes) ? evaluation.packedBoxes : [];
+  const boxCurrency = packedBoxes.map((box) => containerReferenceCurrency(box.container)).find(Boolean);
+  return boxCurrency || containerReferenceCurrency(evaluation?.container);
+}
+
+function containerReferenceCurrency(container) {
+  return String(container?.referenceCurrency || container?.currency || "USD").toUpperCase();
+}
+
+function formatCurrency(value, currency = "USD") {
   const numeric = Number(value || 0);
   if (!Number.isFinite(numeric) || numeric <= 0) return "-";
   const formatted = new Intl.NumberFormat(currentLocale.value === "en-US" ? "en-US" : "zh-CN", {
     maximumFractionDigits: numeric >= 100 ? 0 : 2
   }).format(numeric);
-  return `¥${formatted}`;
+  return `${String(currency || "USD").toUpperCase()} ${formatted}`;
 }
 
 function compareFiniteNumbers(left, right) {

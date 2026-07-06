@@ -121,16 +121,44 @@ export const defaultContainers = [
   }
 ];
 
+const referenceFreightSource = "Freightos FBX01 China/East Asia to North America West Coast";
+const referenceFreightSourceUrl = "https://www.freightos.com/enterprise/terminal/fbx-01-china-to-north-america-west-coast/";
+const referenceFreightBasis = "USD per container, based on Freightos FBX01 40ft spot index; 20ft and special-equipment prices are planning estimates derived by equipment multipliers. Cross-check with Drewry WCI Shanghai-Los Angeles before booking.";
+
 const defaultContainerProfiles = {
-  "20gp": { costFactor: 1, referencePrice: 1000, priceTier: "economy", equipmentClass: "GP" },
-  "20hq": { costFactor: 1.08, referencePrice: 1080, priceTier: "economy", equipmentClass: "HQ" },
-  "40gp": { costFactor: 1.55, referencePrice: 1550, priceTier: "standard", equipmentClass: "GP" },
-  "40hq": { costFactor: 1.68, referencePrice: 1680, priceTier: "standard", equipmentClass: "HQ" },
-  "20rf": { costFactor: 1.65, referencePrice: 1650, priceTier: "standard", equipmentClass: "RF" },
-  "40rf": { costFactor: 2.45, referencePrice: 2450, priceTier: "special", equipmentClass: "RF" },
-  "20fr": { costFactor: 2.15, referencePrice: 2150, priceTier: "high", equipmentClass: "FR" },
-  "40fr": { costFactor: 3.2, referencePrice: 3200, priceTier: "special", equipmentClass: "FR" }
+  "20gp": freightProfile(0.62, 4146, "economy", "GP"),
+  "20hq": freightProfile(0.65, 4347, "economy", "HQ"),
+  "40gp": freightProfile(1, 6687, "standard", "GP"),
+  "40hq": freightProfile(1.03, 6890, "standard", "HQ"),
+  "20rf": freightProfile(0.95, 6353, "high", "RF", "Reefer equipment estimate from dry-container FBX01 baseline."),
+  "40rf": freightProfile(1.45, 9696, "special", "RF", "Reefer equipment estimate from dry-container FBX01 baseline."),
+  "20fr": freightProfile(1.25, 8359, "special", "FR", "Flat-rack/OOG equipment estimate from dry-container FBX01 baseline."),
+  "40fr": freightProfile(1.9, 12706, "special", "FR", "Flat-rack/OOG equipment estimate from dry-container FBX01 baseline.")
 };
+
+const legacyDefaultReferencePrices = {
+  "20gp": 1000,
+  "20hq": 1080,
+  "40gp": 1550,
+  "40hq": 1680,
+  "20rf": 1650,
+  "40rf": 2450,
+  "20fr": 2150,
+  "40fr": 3200
+};
+
+function freightProfile(costFactor, referencePrice, priceTier, equipmentClass, note = "") {
+  return {
+    costFactor,
+    referencePrice,
+    referenceCurrency: "USD",
+    referencePriceSource: referenceFreightSource,
+    referencePriceSourceUrl: referenceFreightSourceUrl,
+    referencePriceBasis: note ? `${referenceFreightBasis} ${note}` : referenceFreightBasis,
+    priceTier,
+    equipmentClass
+  };
+}
 
 const defaultContainerById = new Map(defaultContainers.map((item) => [item.id, item]));
 const removedDefaultContainerIds = new Set(["45hq"]);
@@ -152,11 +180,21 @@ const defaultDimensionFields = [
 function withDefaultProfile(container, options = {}) {
   const defaultContainer = defaultContainerById.get(container?.id);
   const profile = defaultContainerProfiles[container?.id] || {};
+  const legacyPrice = legacyDefaultReferencePrices[container?.id];
+  const containerReferencePrice = Number(container?.referencePrice ?? container?.price ?? container?.freightPrice);
+  const shouldRefreshDefaultPrice = Boolean(defaultContainer)
+    && !container?.priceEdited
+    && (!Number.isFinite(containerReferencePrice) || containerReferencePrice <= 0 || containerReferencePrice === legacyPrice);
+  const shouldUseDefaultPriceMeta = Boolean(defaultContainer) && !container?.priceEdited;
   const next = {
     ...profile,
     ...container,
     costFactor: container?.costFactor ?? profile.costFactor,
-    referencePrice: container?.referencePrice ?? profile.referencePrice,
+    referencePrice: shouldRefreshDefaultPrice ? profile.referencePrice : container?.referencePrice ?? profile.referencePrice,
+    referenceCurrency: shouldUseDefaultPriceMeta ? profile.referenceCurrency : container?.referenceCurrency ?? profile.referenceCurrency,
+    referencePriceSource: shouldUseDefaultPriceMeta ? profile.referencePriceSource : container?.referencePriceSource ?? profile.referencePriceSource,
+    referencePriceSourceUrl: shouldUseDefaultPriceMeta ? profile.referencePriceSourceUrl : container?.referencePriceSourceUrl ?? profile.referencePriceSourceUrl,
+    referencePriceBasis: shouldUseDefaultPriceMeta ? profile.referencePriceBasis : container?.referencePriceBasis ?? profile.referencePriceBasis,
     priceTier: container?.priceTier ?? profile.priceTier,
     equipmentClass: container?.equipmentClass ?? profile.equipmentClass
   };
@@ -199,4 +237,21 @@ export function defaultContainerForId(id) {
 export function restoreDefaultContainer(container) {
   const restored = defaultContainerForId(container?.id);
   return restored || container;
+}
+
+export function restoreDefaultContainerPrice(container) {
+  const restored = defaultContainerForId(container?.id);
+  if (!restored) return container;
+  return {
+    ...container,
+    costFactor: restored.costFactor,
+    referencePrice: restored.referencePrice,
+    referenceCurrency: restored.referenceCurrency,
+    referencePriceSource: restored.referencePriceSource,
+    referencePriceSourceUrl: restored.referencePriceSourceUrl,
+    referencePriceBasis: restored.referencePriceBasis,
+    priceTier: restored.priceTier,
+    equipmentClass: restored.equipmentClass,
+    priceEdited: false
+  };
 }

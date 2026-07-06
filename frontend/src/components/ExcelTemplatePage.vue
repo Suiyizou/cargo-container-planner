@@ -555,6 +555,7 @@ import { computed, reactive, ref } from "vue";
 import {
   aggregateCargos,
   downloadTemplateWorkbook,
+  formatWorkbookForRecognition,
   importFields,
   validateCargo
 } from "../services/excelImport";
@@ -562,8 +563,7 @@ import { buildPreviewInWorker, readWorkbookInWorker } from "../services/excelImp
 import {
   createTextRecognitionTask,
   downloadTextRecognitionExcel,
-  fetchTextRecognitionTask,
-  parseCargoImportFile
+  fetchTextRecognitionTask
 } from "../services/excelAgentApi";
 import { currentLocale, t } from "../i18n";
 import { translateLegacyText } from "../i18n/legacyText";
@@ -726,12 +726,30 @@ async function loadWorkbookFile(file) {
   preview.value = null;
   activeSheet.value = null;
   manualImportMessageType.value = "info";
-  manualImportMessage.value = "正在上传到后端解析，请稍候。";
+  manualImportMessage.value = ui("excel.agentPreparingFromExcel");
   try {
-    const backendResult = await parseCargoImportFile(file);
-    applyBackendImportResult(backendResult, file);
-  } catch (backendError) {
-    await loadWorkbookFileLocally(file, backendError);
+    workbook.value = await readWorkbookInWorker(file);
+    workbookVersion += 1;
+    lastPreviewSignature = "";
+    pendingPreviewSignature = "";
+    selectedSheetName.value = workbook.value?.sheets?.[0]?.name || "";
+    activeSheet.value = workbook.value?.sheets?.[0] || null;
+    manualCorrections.value = [];
+    const formattedText = formatWorkbookForRecognition(workbook.value, { fileName: file?.name });
+    recognitionText.value = formattedText;
+    excelMode.value = "recognition";
+    manualImportMessageType.value = "success";
+    manualImportMessage.value = ui("excel.agentSubmittedFromExcel", { count: workbook.value?.sheets?.length || 0 });
+    await submitTextRecognitionTask({
+      textOverride: formattedText,
+      sourceName: file?.name || ui("excel.excelFormattedSource")
+    });
+  } catch (error) {
+    workbook.value = null;
+    activeSheet.value = null;
+    preview.value = null;
+    manualImportMessageType.value = "error";
+    manualImportMessage.value = error?.message || ui("excel.excelAgentFailed");
   } finally {
     manualImportBusy.value = false;
   }
@@ -902,15 +920,16 @@ function resetRecognitionResult() {
   closeRecognitionEdit();
 }
 
-async function submitTextRecognitionTask() {
-  if (!recognitionText.value.trim()) return;
+async function submitTextRecognitionTask(options = {}) {
+  const text = String(options.textOverride ?? recognitionText.value).trim();
+  if (!text) return;
   recognitionAgentBusy.value = true;
   recognitionMessage.value = "";
   recognitionPreview.value = null;
   recognitionAgentTask.value = null;
   try {
-    const task = await createTextRecognitionTask(recognitionText.value, {
-      sourceName: "智能识别粘贴文本",
+    const task = await createTextRecognitionTask(text, {
+      sourceName: options.sourceName || ui("excel.pastedTextSource"),
       mode: "agent",
       languageHint: "auto"
     });

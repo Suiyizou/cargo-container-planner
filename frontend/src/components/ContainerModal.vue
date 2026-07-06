@@ -29,8 +29,14 @@
       <el-form-item label="载重 kg" required>
         <el-input-number v-model="model.payloadKg" :min="1" :step="1" :precision="0" controls-position="right" />
       </el-form-item>
-      <el-form-item :label="ui('container.referencePrice')">
-        <el-input-number v-model="model.referencePrice" :min="0" :step="100" :precision="0" controls-position="right" />
+      <el-form-item class="span-2 container-price-editor" :label="`${ui('container.referencePrice')} USD`">
+        <div class="container-price-edit-row">
+          <el-input-number v-model="model.referencePrice" :min="0" :step="100" :precision="0" controls-position="right" />
+          <el-button v-if="defaultContainer" :disabled="priceIsDefault" @click="restoreDefaultPrice">
+            {{ ui('container.restoreDefaultPrice') }}
+          </el-button>
+        </div>
+        <small v-if="defaultContainer">{{ ui('container.defaultPriceHint', { value: defaultPriceText }) }}</small>
       </el-form-item>
       <el-form-item label="使用属性">
         <el-select v-model="model.usagePriority" placeholder="选择使用属性">
@@ -54,6 +60,7 @@
 import { computed, reactive } from "vue";
 import { currentLocale } from "../i18n";
 import { translateUiText } from "../i18n/uiText";
+import { defaultContainerForId } from "../services/localData";
 import { uid } from "../utils/format";
 
 const emit = defineEmits(["close", "save"]);
@@ -61,6 +68,19 @@ const props = defineProps({
   container: { type: Object, default: null }
 });
 const isEdit = computed(() => Boolean(props.container?.id));
+const defaultContainer = computed(() => defaultContainerForId(model.id));
+const priceIsDefault = computed(() => {
+  const current = Number(model.referencePrice || 0);
+  const fallback = Number(defaultContainer.value?.referencePrice || 0);
+  return fallback > 0 && Math.abs(current - fallback) < 0.01;
+});
+const defaultPriceText = computed(() => {
+  const value = Number(defaultContainer.value?.referencePrice || 0);
+  if (!(value > 0)) return "-";
+  return new Intl.NumberFormat(currentLocale.value === "en-US" ? "en-US" : "zh-CN", {
+    maximumFractionDigits: 0
+  }).format(value);
+});
 const model = reactive({
   id: props.container?.id || "",
   name: props.container?.name || "",
@@ -73,6 +93,11 @@ const model = reactive({
   ignoreHeightLimit: Boolean(props.container?.ignoreHeightLimit),
   costFactor: props.container?.costFactor,
   referencePrice: props.container?.referencePrice ?? null,
+  referenceCurrency: props.container?.referenceCurrency || "USD",
+  referencePriceSource: props.container?.referencePriceSource || "",
+  referencePriceSourceUrl: props.container?.referencePriceSourceUrl || "",
+  referencePriceBasis: props.container?.referencePriceBasis || "",
+  priceEdited: Boolean(props.container?.priceEdited),
   priceTier: props.container?.priceTier,
   equipmentClass: props.container?.equipmentClass,
   dimensionSource: props.container?.dimensionSource || "用户自定义",
@@ -81,13 +106,30 @@ const model = reactive({
   dimensionNote: props.container?.dimensionNote || "用户自定义箱型，请按实际设备复核。"
 });
 
+function restoreDefaultPrice() {
+  if (!defaultContainer.value) return;
+  model.referencePrice = defaultContainer.value.referencePrice;
+  model.referenceCurrency = defaultContainer.value.referenceCurrency || "USD";
+  model.referencePriceSource = defaultContainer.value.referencePriceSource;
+  model.referencePriceSourceUrl = defaultContainer.value.referencePriceSourceUrl;
+  model.referencePriceBasis = defaultContainer.value.referencePriceBasis;
+  model.priceTier = defaultContainer.value.priceTier;
+  model.costFactor = defaultContainer.value.costFactor;
+  model.equipmentClass = defaultContainer.value.equipmentClass;
+  model.priceEdited = false;
+}
+
 function submit() {
   if (!String(model.name || "").trim()) return;
   const referencePrice = Number(model.referencePrice || 0);
+  const defaultPrice = Number(defaultContainer.value?.referencePrice || 0);
+  const priceEdited = Boolean(defaultContainer.value) && Number.isFinite(referencePrice) && referencePrice > 0 && Math.abs(referencePrice - defaultPrice) >= 0.01;
   emit("save", {
     ...model,
     id: model.id || uid("container"),
-    referencePrice: Number.isFinite(referencePrice) && referencePrice > 0 ? referencePrice : undefined
+    referencePrice: Number.isFinite(referencePrice) && referencePrice > 0 ? referencePrice : undefined,
+    referenceCurrency: "USD",
+    priceEdited
   });
 }
 

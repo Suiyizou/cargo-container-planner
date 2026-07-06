@@ -66,8 +66,8 @@ export const messages = {
       supportRatio: "可承重支撑比例",
       nonStackSupportRatio: "不可重压支撑比例",
       supportRatioTrace: "可承重 / 不可重压支撑阈值",
-      supportConstraintNote: "如果货物不在箱底，下方必须由可承重货物的顶面覆盖达到当前配置的支撑比例；不可重压货物不会作为上层支撑。",
-      supportFormula: "上层支撑条件 = 下方可承重重叠面积 ÷ 当前底面积 ≥ 当前配置支撑比例"
+      supportConstraintNote: "如果货物不在箱底，下方必须由可承重货物的顶面覆盖达到当前配置的支撑比例，并通过中心/四角采样与四象限分布校验；不可重压货物不会作为上层支撑。",
+      supportFormula: "上层支撑条件 = 面积覆盖率达标 + 关键落脚点有支撑 + 四象限不能集中悬空"
     },
     algorithmGuide: {
       eyebrow: "装箱策略图解",
@@ -302,8 +302,8 @@ export const messages = {
       supportRatio: "Stackable Support Ratio",
       nonStackSupportRatio: "Non-stack Support Ratio",
       supportRatioTrace: "Stackable / Non-stack Support Thresholds",
-      supportConstraintNote: "If cargo is not on the container floor, the lower stackable top surface must cover the configured support ratio; non-stack cargo cannot support upper cargo.",
-      supportFormula: "Support condition = lower stackable overlap area / current footprint >= configured support ratio"
+      supportConstraintNote: "If cargo is not on the container floor, lower stackable surfaces must meet the configured support ratio and pass center/corner sampling plus quadrant distribution checks; non-stack cargo cannot support upper cargo.",
+      supportFormula: "Support condition = area coverage passes + key landing points are supported + support is distributed across quadrants"
     },
     algorithmGuide: {
       eyebrow: "Packing Strategy Map",

@@ -46,7 +46,21 @@
           <dl class="container-reference-specs">
             <div><dt>{{ ui('container.calcSize') }}</dt><dd>{{ dimensionText(container) }} cm</dd></div>
             <div><dt>{{ ui('container.maxPayload') }}</dt><dd>{{ payloadText(container) }}</dd></div>
-            <div class="container-reference-price"><dt>{{ ui('container.referencePrice') }}</dt><dd>{{ priceText(container) }}</dd></div>
+            <div class="container-reference-price">
+              <dt>{{ ui('container.referencePrice') }}</dt>
+              <dd>{{ priceText(container) }}</dd>
+              <el-link
+                v-if="container.referencePriceSourceUrl"
+                class="container-reference-price-source"
+                type="primary"
+                :href="container.referencePriceSourceUrl"
+                target="_blank"
+                :underline="false"
+              >
+                {{ priceSourceText(container) }}
+              </el-link>
+              <small v-if="container.referencePriceBasis">{{ sourceText(container.referencePriceBasis, '') }}</small>
+            </div>
             <div><dt>{{ ui('container.dimensionBasis') }}</dt><dd>{{ sourceText(container.dimensionBasis, ui('container.manualDimensions')) }}</dd></div>
           </dl>
 
@@ -118,7 +132,7 @@ function payloadText(container: any) {
 function priceText(container: any) {
   const value = referencePriceValue(container);
   if (!value) return "-";
-  return `¥${formatMoney(value)}`;
+  return `${referenceCurrency(container)} ${formatMoney(value)}`;
 }
 
 function referencePriceValue(container: any) {
@@ -126,6 +140,14 @@ function referencePriceValue(container: any) {
   if (Number.isFinite(explicit) && explicit > 0) return explicit;
   const costFactor = Number(container?.costFactor || 0);
   return costFactor > 0 ? costFactor * 1000 : 0;
+}
+
+function referenceCurrency(container: any) {
+  return String(container?.referenceCurrency || container?.currency || "USD").toUpperCase();
+}
+
+function priceSourceText(container: any) {
+  return sourceText(container.referencePriceSource, ui('container.referencePriceSourceFallback'));
 }
 
 function formatNumber(value: unknown) {

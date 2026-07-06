@@ -3116,10 +3116,7 @@ function orientationForDims(unit, lengthCm, widthCm, heightCm) {
 }
 
 function lowerGapSwapSupportRatio(container, unit) {
-  if (!isEdgeRepackCargo(unit)) return supportRatioForUnit(container, unit);
-  const ratio = supportRuleSettings(container).supportRatio;
-  const overhangBasedSupport = 1 - clampNumber(ratio, 0, 1, DEFAULT_SUPPORT_RATIO);
-  return clampNumber(Math.min(ratio, overhangBasedSupport), 0.1, 1, DEFAULT_SUPPORT_RATIO);
+  return supportRatioForUnit(container, unit);
 }
 
 function validatePlacement(container, placed, unit, placement, supportRatio = DEFAULT_SUPPORT_RATIO) {
@@ -3320,7 +3317,9 @@ function hasSupport(placement, placed, supportRatio = DEFAULT_SUPPORT_RATIO) {
     .map((box) => overlapRect(target, { x: box.x, y: box.y, lengthCm: box.lengthCm, widthCm: box.widthCm }))
     .filter(Boolean);
   if (!supports.length) return false;
-  return unionArea(supports) + EPS >= placement.lengthCm * placement.widthCm * requiredRatio;
+  const footprint = placement.lengthCm * placement.widthCm;
+  if (unionArea(supports) + EPS < footprint * requiredRatio) return false;
+  return hasDistributedSupport(target, supports, requiredRatio);
 }
 
 function supportCoverageRatio(placement, placed) {
@@ -3333,6 +3332,60 @@ function supportCoverageRatio(placement, placed) {
   const footprint = placement.lengthCm * placement.widthCm;
   if (!supports.length || footprint <= EPS) return 0;
   return clampNumber(unionArea(supports) / footprint, 0, 1, 0);
+}
+
+function hasDistributedSupport(target, supports, requiredRatio) {
+  if (!supportSamplePoints(target).every((point) => supports.some((support) => pointInRect(point, support)))) {
+    return false;
+  }
+  const minQuadrantRatio = clampNumber(requiredRatio - 0.35, 0.25, 0.7, 0.4);
+  return supportQuadrants(target).every((quadrant) => {
+    const overlaps = supports.map((support) => overlapRect(quadrant, support)).filter(Boolean);
+    if (!overlaps.length) return false;
+    const area = quadrant.lengthCm * quadrant.widthCm;
+    return unionArea(overlaps) + EPS >= area * minQuadrantRatio;
+  });
+}
+
+function supportSamplePoints(target) {
+  const insetX = supportInset(target.lengthCm);
+  const insetY = supportInset(target.widthCm);
+  const x1 = target.x + insetX;
+  const x2 = target.x + target.lengthCm - insetX;
+  const y1 = target.y + insetY;
+  const y2 = target.y + target.widthCm - insetY;
+  const cx = target.x + target.lengthCm / 2;
+  const cy = target.y + target.widthCm / 2;
+  return [
+    { x: x1, y: y1 },
+    { x: x2, y: y1 },
+    { x: x1, y: y2 },
+    { x: x2, y: y2 },
+    { x: cx, y: cy }
+  ];
+}
+
+function supportInset(size) {
+  const numeric = Math.max(0, Number(size || 0));
+  return Math.min(numeric / 2, 15, Math.max(3, numeric * 0.12));
+}
+
+function supportQuadrants(target) {
+  const halfLength = target.lengthCm / 2;
+  const halfWidth = target.widthCm / 2;
+  return [
+    { x: target.x, y: target.y, lengthCm: halfLength, widthCm: halfWidth },
+    { x: target.x + halfLength, y: target.y, lengthCm: halfLength, widthCm: halfWidth },
+    { x: target.x, y: target.y + halfWidth, lengthCm: halfLength, widthCm: halfWidth },
+    { x: target.x + halfLength, y: target.y + halfWidth, lengthCm: halfLength, widthCm: halfWidth }
+  ];
+}
+
+function pointInRect(point, rect) {
+  return point.x >= rect.x - EPS
+    && point.x <= rect.x + rect.lengthCm + EPS
+    && point.y >= rect.y - EPS
+    && point.y <= rect.y + rect.widthCm + EPS;
 }
 
 function hasAnyBoxAbove(unit, placed) {
@@ -4231,7 +4284,7 @@ function estimatedFreightCost(evaluation) {
 function formatFreightCost(value) {
   const numeric = Number(value || 0);
   if (!Number.isFinite(numeric) || numeric <= 0) return "-";
-  return `¥${round(numeric)}`;
+  return `USD ${round(numeric)}`;
 }
 
 function equipmentMeta(container = {}) {
@@ -4338,8 +4391,8 @@ function buildTrace(container, units, total, multi, metrics) {
       "单件原始体积(m3) = 长 x 宽 x 高 / 1,000,000",
       "计入间隙长/宽(cm) = 原始长/宽 + 全局货物间隙 + 类型额外间隙",
       "计入高度(cm) = 原始高度 + 类型额外高度余量",
-      `Stackable support rule = lower stackable overlap area / current footprint >= ${round(supportRules.supportRatio * 100)}%`,
-      `Non-stack support rule = lower stackable overlap area / current footprint >= ${round(effectiveNonStackSupport * 100)}%`,
+      `Stackable support rule = lower stackable overlap area / current footprint >= ${round(supportRules.supportRatio * 100)}%, plus center/corner sample points and quadrant distribution`,
+      `Non-stack support rule = lower stackable overlap area / current footprint >= ${round(effectiveNonStackSupport * 100)}%, plus center/corner sample points and quadrant distribution`,
       "不可重压货物可以放在可承重货物上方，但不能作为上层货物的支撑面"
     ],
     current: {

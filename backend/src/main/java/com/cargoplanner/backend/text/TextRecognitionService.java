@@ -286,9 +286,12 @@ public class TextRecognitionService {
   }
 
   private RecognitionResult recognize(String text, String languageHint) {
-    RecognitionResult packingListResult = recognizePackingListTable(text);
-    if (packingListResult != null) {
-      return packingListResult;
+    boolean formattedExcelAgentInput = isFormattedExcelAgentInput(text);
+    if (!formattedExcelAgentInput) {
+      RecognitionResult packingListResult = recognizePackingListTable(text);
+      if (packingListResult != null) {
+        return packingListResult;
+      }
     }
 
     LlmRuntimeSettings settings = llmSettingsService.runtimeSettings();
@@ -297,15 +300,28 @@ public class TextRecognitionService {
         try {
           return recognizeWithOpenAiCompatible(settings, text, languageHint);
         } catch (Exception error) {
+          if (formattedExcelAgentInput) {
+            throw new IllegalStateException("Excel 格式化识别必须走 Agent，当前调用失败：" + trim(error.getMessage(), 180), error);
+          }
           RecognitionResult fallback = recognizeWithRules(text);
           return fallback.withNotes("LLM 识别失败，已自动切换到规则兜底：" + trim(error.getMessage(), 160));
         }
       }
+      if (formattedExcelAgentInput) {
+        throw new IllegalStateException("Excel 格式化识别必须走 Agent，请先在后台配置 LLM API Key。");
+      }
       RecognitionResult fallback = recognizeWithRules(text);
       return fallback.withNotes("LLM 默认启用，但管理员尚未配置 API Key，已使用规则兜底。");
     }
+    if (formattedExcelAgentInput) {
+      throw new IllegalStateException("Excel 格式化识别必须走 Agent，请先在后台启用 LLM 识别。");
+    }
     RecognitionResult fallback = recognizeWithRules(text);
     return fallback.withNotes("管理员已关闭 LLM 识别，当前使用规则兜底。");
+  }
+
+  private boolean isFormattedExcelAgentInput(String text) {
+    return String.valueOf(text == null ? "" : text).contains("EXCEL_FORMATTED_TABLE_FOR_AGENT");
   }
 
   private RecognitionResult recognizeWithOpenAiCompatible(LlmRuntimeSettings settings, String text, String languageHint) throws JsonProcessingException {
@@ -869,8 +885,57 @@ public class TextRecognitionService {
     if (row.get("packageInfo") instanceof Map<?, ?> packageInfo) {
       cargo.put("packageInfo", new LinkedHashMap<>(packageInfo));
     }
+    applyPackageWeightFormula(cargo);
     List<String> errors = validateCargo(cargo);
     return new ParsedCargo(true, sourceText.isBlank() ? "AI row " + rowNumber : sourceText, cargo, errors);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void applyPackageWeightFormula(Map<String, Object> cargo) {
+    Object packageInfoValue = cargo.get("packageInfo");
+    if (!(packageInfoValue instanceof Map<?, ?> packageInfoRaw)) return;
+    Map<String, Object> packageInfo = new LinkedHashMap<>((Map<String, Object>) packageInfoRaw);
+    Map<String, Object> innerCargo = packageInfo.get("innerCargo") instanceof Map<?, ?> innerRaw
+        ? new LinkedHashMap<>((Map<String, Object>) innerRaw)
+        : new LinkedHashMap<>();
+    int quantity = intValue(cargo.get("quantity"), 0);
+    if (quantity <= 0) return;
+
+    double palletTarePerUnit = numberValue(firstNonBlank(
+        packageInfo.get("palletTareWeightKg"),
+        packageInfo.get("packageTareWeightKg"),
+        packageInfo.get("woodenPackageWeightKg"),
+        packageInfo.get("tareWeightKg")
+    ));
+    double palletTareTotal = numberValue(firstNonBlank(
+        packageInfo.get("palletTotalTareWeightKg"),
+        packageInfo.get("packageTotalTareWeightKg"),
+        packageInfo.get("woodenPackageTotalWeightKg"),
+        packageInfo.get("tareTotalWeightKg")
+    ));
+    double cargoTotalWeight = numberValue(firstNonBlank(
+        packageInfo.get("cargoTotalWeightKg"),
+        packageInfo.get("containedCargoTotalGrossWeightKg"),
+        innerCargo.get("totalGrossWeightKg"),
+        innerCargo.get("cargoTotalWeightKg"),
+        innerCargo.get("totalWeightKg")
+    ));
+
+    if (cargoTotalWeight <= 0 || (palletTarePerUnit <= 0 && palletTareTotal <= 0)) return;
+    double tareTotal = palletTareTotal > 0 ? palletTareTotal : palletTarePerUnit * quantity;
+    double packageTotalGrossWeight = tareTotal + cargoTotalWeight;
+    double packageGrossWeight = packageTotalGrossWeight / quantity;
+    cargo.put("weightKg", round2(packageGrossWeight));
+    packageInfo.put("packageGrossWeightKg", round2(packageGrossWeight));
+    packageInfo.put("packageTotalGrossWeightKg", round2(packageTotalGrossWeight));
+    packageInfo.putIfAbsent("weightFormula", "pallet tare total + contained cargo gross total, divided by pallet quantity");
+    cargo.put("packageInfo", compactObject(packageInfo));
+
+    String remark = cleanCell(cargo.get("remark"));
+    String note = "托盘单重已按托盘/木架重量+货物总毛重折算";
+    if (!remark.contains(note)) {
+      cargo.put("remark", remark.isBlank() ? note : remark + "；" + note);
+    }
   }
 
   private Map<String, Object> cargoMap(
@@ -1030,7 +1095,10 @@ public class TextRecognitionService {
                 "packageDimensionsCm": {"lengthCm": 0, "widthCm": 0, "heightCm": 0},
                 "packageGrossWeightKg": 0,
                 "packageTotalGrossWeightKg": 0,
-                "innerCargo": {"totalQuantity": 0, "piecesPerPackage": 0, "quantityUnit": "pcs"}
+                "palletTareWeightKg": 0,
+                "cargoTotalWeightKg": 0,
+                "weightFormula": "pallet tare total + contained cargo gross total, divided by pallet quantity",
+                "innerCargo": {"totalQuantity": 0, "piecesPerPackage": 0, "totalGrossWeightKg": 0, "quantityUnit": "pcs"}
               }
             }
           ],
@@ -1044,6 +1112,11 @@ public class TextRecognitionService {
         - All weights must be kilograms per single item.
         - The algorithm fields lengthCm,widthCm,heightCm,quantity,weightKg must always describe the final handled package unit: pallet, carton, crate, wooden case, or box. Never put loose-piece dimensions into these fields when the goods are shipped inside cartons/pallets.
         - If loose-piece/order details exist, store them only in packageInfo.innerCargo and/or remark. packageInfo is optional but recommended for packing-list rows.
+        - For input beginning with EXCEL_FORMATTED_TABLE_FOR_AGENT, use the Excel coordinates, merged ranges, and neighboring rows/columns to understand the table layout. Do not blindly parse the first recognizable table.
+        - If a sheet has product/carton details on the left and pallet/final-package columns on the right, output the right-side final pallet/package rows as the algorithm cargo. The left-side product/carton rows become inner contents only.
+        - Chinese packing sheets with right-side headers such as 免熏蒸木托盘体积, 免熏蒸木托盘重量KG, 数量, 总体积m3, 重量KG, 托盘拼装 are final pallet-unit lists. Extract those pallets, not the left-side cartons.
+        - For final pallet or wooden-package rows, weightKg must be the gross weight of one final handled unit. When the sheet gives pallet/wooden-package tare weight plus product gross weights, calculate: weightKg = (palletTareWeightKg * palletQuantity + containedCargoTotalGrossWeightKg) / palletQuantity. If the sheet gives a final gross total that clearly already includes pallet plus cargo, use finalGrossTotal / palletQuantity instead and mention it. Never use the bare pallet tare as weightKg when contained cargo weights are available.
+        - When a right-side pallet cell spans or visually aligns with multiple left-side product rows, associate those product rows with that pallet. Example: a 116×116×168 cm pallet aligned with 明装筒灯 1000只/20箱 and 线条灯 200条/13箱 should become one pallet cargo row; its weight is pallet tare plus the sum of those two product total gross weights.
         - English examples like "2 skids - each 31.200 kgs / 1080 x 200 x 340 cm" mean quantity=2, weightKg=31200, dimensions in cm.
         - Important: in English shipment weights, a dot followed by exactly three digits before kg/kgs is a thousands separator, not a decimal point. Output 29.200 kgs as 29200 kg, never 29.2 kg.
         - For PL / packing-list tables with columns like Size, T.CTNS, PCS/CTN, Order Qty, N.W, G.W, CARTON SIZE(CM), PALLET SIZE(M), T.CBM:

@@ -53,21 +53,66 @@ export async function readWorkbook(file) {
   const arrayBuffer = await file.arrayBuffer();
   const workbook = XLSX.read(arrayBuffer, { type: "array", cellDates: false });
   const sheets = workbook.SheetNames.map((name) => {
-    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[name], {
+    const worksheet = workbook.Sheets[name];
+    const rawRows = XLSX.utils.sheet_to_json(worksheet, {
       header: 1,
       defval: "",
-      blankrows: false
+      blankrows: true
     });
-    const { headerRowIndex, headers, bodyRows } = extractTable(rows);
+    const { headerRowIndex, headers, bodyRows } = extractTable(rawRows);
     return {
       name,
       headerRowIndex,
       headers,
       rows: bodyRows,
-      mapping: guessMapping(headers)
+      mapping: guessMapping(headers),
+      rawRows: rawRows.map((row) => row.map(cleanCell)),
+      merges: formatMergeRanges(worksheet?.["!merges"] || [])
     };
   });
   return { fileName: file.name, sheets };
+}
+
+export function formatWorkbookForRecognition(workbook, options = {}) {
+  const maxRows = Math.max(20, Number(options.maxRows || 240));
+  const maxColumns = Math.max(12, Number(options.maxColumns || 80));
+  const lines = [
+    "EXCEL_FORMATTED_TABLE_FOR_AGENT",
+    `FILE: ${cleanCell(workbook?.fileName || options.fileName || "")}`,
+    "TASK: Extract final handled shipping units for container packing. Prefer final pallet/carton/crate package units over loose product rows.",
+    "WEIGHT_RULE: If a final pallet/wooden package has pallet tare/wood-package weight and contains product rows, calculate unit weight as (pallet tare total + contained product gross total) / pallet quantity. If a final gross-weight column clearly already includes pallet plus cargo, do not double count; explain the basis in remark/packageInfo.",
+    "STRUCTURE_RULE: In sheets with left product/carton details and right pallet/final-package columns, output the right-side final pallet/package rows as algorithm cargo. Store left-side loose/carton details only in packageInfo.innerCargo or remark."
+  ];
+
+  (workbook?.sheets || []).forEach((sheet, sheetIndex) => {
+    lines.push("");
+    lines.push(`SHEET ${sheetIndex + 1}: ${cleanCell(sheet.name) || "Sheet" + (sheetIndex + 1)}`);
+    lines.push(`DETECTED_HEADER_ROW: ${Number(sheet.headerRowIndex || 0) + 1}`);
+    if (Array.isArray(sheet.merges) && sheet.merges.length) {
+      lines.push(`MERGED_RANGES: ${sheet.merges.join(", ")}`);
+    }
+    lines.push("ROWS_WITH_EXCEL_COORDINATES:");
+    const rows = Array.isArray(sheet.rawRows) && sheet.rawRows.length
+      ? sheet.rawRows
+      : [[...(sheet.headers || [])], ...(sheet.rows || [])];
+    let emitted = 0;
+    rows.forEach((row, rowIndex) => {
+      if (emitted >= maxRows) return;
+      const cells = (row || [])
+        .slice(0, maxColumns)
+        .map((value, columnIndex) => ({ value: cleanCell(value), columnIndex }))
+        .filter((cell) => cell.value !== "");
+      if (!cells.length) return;
+      emitted += 1;
+      lines.push(`R${rowIndex + 1}: ${cells.map((cell) => `${columnName(cell.columnIndex)}=${quoteForRecognition(cell.value)}`).join(" | ")}`);
+    });
+    const nonEmptyRows = rows.filter((row) => (row || []).some((cell) => cleanCell(cell) !== "")).length;
+    if (nonEmptyRows > emitted) {
+      lines.push(`TRUNCATED: emitted ${emitted} non-empty rows of ${nonEmptyRows}.`);
+    }
+  });
+
+  return lines.join("\n");
 }
 
 export function buildPreview(sheet, mapping, options = {}) {
@@ -755,6 +800,31 @@ function rowObject(headers, cells) {
 
 function valueFor(raw, header) {
   return header ? raw[header] : "";
+}
+
+function formatMergeRanges(merges) {
+  return merges
+    .map((range) => {
+      const start = `${columnName(range.s.c)}${range.s.r + 1}`;
+      const end = `${columnName(range.e.c)}${range.e.r + 1}`;
+      return start === end ? start : `${start}:${end}`;
+    })
+    .filter(Boolean);
+}
+
+function columnName(index) {
+  let value = Number(index || 0) + 1;
+  let name = "";
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    name = String.fromCharCode(65 + remainder) + name;
+    value = Math.floor((value - 1) / 26);
+  }
+  return name || "A";
+}
+
+function quoteForRecognition(value) {
+  return JSON.stringify(cleanCell(value));
 }
 
 function cleanCell(value) {

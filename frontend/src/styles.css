@@ -1818,6 +1818,29 @@ select {
   line-height: 1.35;
 }
 
+.source-basis.edited {
+  color: #dc2626;
+  font-weight: 800;
+}
+
+.container-price-edit-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.container-price-edit-row .el-input-number {
+  flex: 1;
+}
+
+.container-price-editor small {
+  display: block;
+  margin-top: 6px;
+  color: #64748b;
+  line-height: 1.35;
+}
+
 .container-reference-page {
   display: grid;
   gap: 16px;
@@ -1963,6 +1986,27 @@ select {
 
 .container-reference-specs .container-reference-price dd {
   color: #dc2626;
+  font-size: 20px;
+  letter-spacing: 0;
+  line-height: 1.2;
+}
+
+.container-reference-price {
+  display: grid;
+  gap: 4px;
+}
+
+.container-reference-price-source {
+  justify-self: start;
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.container-reference-price small {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 500;
 }
 
 .container-reference-note {
