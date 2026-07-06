@@ -67,7 +67,7 @@
           </div>
           <div>
             <span>{{ ui('excel.validRows') }}</span>
-            <strong>{{ (preview?.validRows.length || 0) + manualCorrections.length }}</strong>
+            <strong>{{ manualValidRowCount }}</strong>
           </div>
           <div>
             <span>{{ ui('excel.issueRows') }}</span>
@@ -221,7 +221,7 @@
       </div>
     </div>
 
-    <div v-if="excelMode === 'manual' && workbook" class="template-grid">
+    <div v-if="excelMode === 'manual' && workbook && !backendImportActive" class="template-grid">
       <article class="algorithm-note">
         <strong>{{ ui('excel.workbookAndUnits') }}</strong>
         <div class="excel-control-grid">
@@ -562,7 +562,8 @@ import { buildPreviewInWorker, readWorkbookInWorker } from "../services/excelImp
 import {
   createTextRecognitionTask,
   downloadTextRecognitionExcel,
-  fetchTextRecognitionTask
+  fetchTextRecognitionTask,
+  parseCargoImportFile
 } from "../services/excelAgentApi";
 import { currentLocale, t } from "../i18n";
 import { translateLegacyText } from "../i18n/legacyText";
@@ -632,25 +633,30 @@ const importMode = ref("replace");
 const visibleMappingFields = computed(() =>
   importFields.filter((field) => field.key !== "totalWeightKg" || mapping.totalWeightKg || activeSheet.value?.headers.length)
 );
+const backendImportActive = computed(() => workbook.value?.source === "backend");
 const correctedRowNumbers = computed(() => new Set(manualCorrections.value.map((cargo) => cargo.sourceRowNumber)));
 const unresolvedInvalidRows = computed(() =>
   preview.value ? preview.value.invalidRows.filter((row) => !correctedRowNumbers.value.has(row.rowNumber)) : []
 );
 const approvedAggregated = computed(() => {
   if (!preview.value) return [];
+  const baseCargos = Array.isArray(preview.value.aggregated) && preview.value.aggregated.length
+    ? preview.value.aggregated
+    : preview.value.validRows.map((row) => row.cargo);
   return aggregateCargos([
-    ...preview.value.validRows.map((row) => row.cargo),
+    ...baseCargos,
     ...manualCorrections.value
   ]);
 });
 const approvedQuantity = computed(() =>
   approvedAggregated.value.reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0)
 );
+const manualValidRowCount = computed(() => previewValidRowCount(preview.value) + manualCorrections.value.length);
 const importStatusMessage = computed(() => {
   if (!preview.value) return manualImportMessage.value;
   return preview.value.invalidRows.length
-    ? `已完成预览：${preview.value.validRows.length} 行有效，${preview.value.invalidRows.length} 行需要确认。`
-    : `已完成预览：${preview.value.validRows.length} 行全部通过校验。`;
+    ? `已完成预览：${previewValidRowCount(preview.value)} 行有效，${preview.value.invalidRows.length} 行需要确认。`
+    : `已完成预览：${previewValidRowCount(preview.value)} 行全部通过校验。`;
 });
 const importStatusType = computed(() => {
   if (!preview.value) return manualImportMessageType.value;
@@ -714,7 +720,22 @@ async function loadWorkbookFile(file) {
   preview.value = null;
   activeSheet.value = null;
   manualImportMessageType.value = "info";
-  manualImportMessage.value = "正在解析文件，请稍候。大文件会在后台线程处理，页面不会被阻塞。";
+  manualImportMessage.value = "正在上传到后端解析，请稍候。";
+  try {
+    const backendResult = await parseCargoImportFile(file);
+    applyBackendImportResult(backendResult, file);
+  } catch (backendError) {
+    await loadWorkbookFileLocally(file, backendError);
+  } finally {
+    manualImportBusy.value = false;
+  }
+}
+
+async function loadWorkbookFileLocally(file, backendError) {
+  manualImportMessageType.value = backendError ? "warning" : "info";
+  manualImportMessage.value = backendError
+    ? `后端解析不可用，已切换浏览器本地解析：${backendError.message}`
+    : "正在解析文件，请稍候。大文件会在后台线程处理，页面不会被阻塞。";
   try {
     workbook.value = await readWorkbookInWorker(file);
     workbookVersion += 1;
@@ -722,7 +743,6 @@ async function loadWorkbookFile(file) {
     pendingPreviewSignature = "";
     selectedSheetName.value = workbook.value.sheets[0]?.name || "";
     manualCorrections.value = [];
-    manualImportBusy.value = false;
     manualImportMessageType.value = "info";
     manualImportMessage.value = `已读取 ${workbook.value.sheets.length} 个工作表，正在生成预览。`;
     void selectSheet();
@@ -732,9 +752,26 @@ async function loadWorkbookFile(file) {
     preview.value = null;
     manualImportMessageType.value = "error";
     manualImportMessage.value = error?.message || "文件解析失败，请检查 Excel/CSV 格式。";
-  } finally {
-    manualImportBusy.value = false;
   }
+}
+
+function applyBackendImportResult(result, file) {
+  workbookVersion += 1;
+  lastPreviewSignature = "";
+  pendingPreviewSignature = "";
+  workbook.value = result?.workbook || {
+    source: "backend",
+    fileName: file?.name || result?.fileName || "",
+    sheets: []
+  };
+  workbook.value.source = "backend";
+  selectedSheetName.value = workbook.value.sheets?.[0]?.name || "";
+  activeSheet.value = result?.activeSheet || workbook.value.sheets?.[0] || null;
+  Object.keys(mapping).forEach((key) => delete mapping[key]);
+  Object.assign(mapping, activeSheet.value?.mapping || {});
+  preview.value = normalizeBackendPreview(result?.preview);
+  manualCorrections.value = [];
+  applyPreviewMessage(preview.value);
 }
 
 function switchExcelMode(mode) {
@@ -745,10 +782,18 @@ async function selectSheet() {
   activeSheet.value = workbook.value?.sheets.find((sheet) => sheet.name === selectedSheetName.value) || null;
   Object.keys(mapping).forEach((key) => delete mapping[key]);
   Object.assign(mapping, activeSheet.value?.mapping || {});
+  if (backendImportActive.value) {
+    if (preview.value) applyPreviewMessage(preview.value);
+    return;
+  }
   await refreshPreview();
 }
 
 async function refreshPreview() {
+  if (backendImportActive.value) {
+    if (preview.value) applyPreviewMessage(preview.value);
+    return;
+  }
   const sheet = cloneSheetForWorker(activeSheet.value);
   if (!sheet) {
     preview.value = null;
@@ -806,8 +851,8 @@ function previewSignature(sheet, workerMapping, workerOptions) {
 function applyPreviewMessage(nextPreview) {
   manualImportMessageType.value = nextPreview.invalidRows.length ? "warning" : "success";
   manualImportMessage.value = nextPreview.invalidRows.length
-    ? `已完成预览：${nextPreview.validRows.length} 行有效，${nextPreview.invalidRows.length} 行需要确认。`
-    : `已完成预览：${nextPreview.validRows.length} 行全部通过校验。`;
+    ? `已完成预览：${previewValidRowCount(nextPreview)} 行有效，${nextPreview.invalidRows.length} 行需要确认。`
+    : `已完成预览：${previewValidRowCount(nextPreview)} 行全部通过校验。`;
 }
 
 function cloneSheetForWorker(sheet) {
@@ -819,6 +864,29 @@ function cloneSheetForWorker(sheet) {
     rows: (sheet.rows || []).map((row) => [...row]),
     mapping: { ...(sheet.mapping || {}) }
   };
+}
+
+function normalizeBackendPreview(nextPreview) {
+  const normalized = nextPreview || {};
+  const validRows = Array.isArray(normalized.validRows) ? normalized.validRows : [];
+  const invalidRows = Array.isArray(normalized.invalidRows) ? normalized.invalidRows : [];
+  const aggregated = Array.isArray(normalized.aggregated) ? normalized.aggregated : [];
+  return {
+    totalRows: Number(normalized.totalRows || validRows.length + invalidRows.length),
+    validRowCount: Number(normalized.validRowCount ?? validRows.length),
+    invalidRowCount: Number(normalized.invalidRowCount ?? invalidRows.length),
+    validRows,
+    invalidRows,
+    aggregated,
+    importedQuantity: Number(normalized.importedQuantity || aggregated.reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0)),
+    skippedRows: Number(normalized.skippedRows ?? invalidRows.length),
+    validRowsSampled: Boolean(normalized.validRowsSampled)
+  };
+}
+
+function previewValidRowCount(nextPreview) {
+  if (!nextPreview) return 0;
+  return Number(nextPreview.validRowCount ?? nextPreview.validRows?.length ?? 0);
 }
 
 function resetRecognitionResult() {

@@ -18,6 +18,10 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:cargo_planner}
     password: ${SPRING_DATASOURCE_PASSWORD:cargo_planner_pwd}
     driver-class-name: com.mysql.cj.jdbc.Driver
+  servlet:
+    multipart:
+      max-file-size: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:80MB}
+      max-request-size: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:85MB}
 
 management:
   endpoints:
@@ -27,3 +31,4 @@ management:
 
 app:
   device-limit-per-user: ${APP_DEVICE_LIMIT_PER_USER:5}
+  upload-dir: ${APP_UPLOAD_DIR:uploads/imports}

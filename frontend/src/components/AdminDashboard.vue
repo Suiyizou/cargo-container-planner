@@ -370,6 +370,85 @@
         </article>
       </section>
 
+      <section v-else-if="activeAdminPage === 'uploads'" class="admin-page-pane">
+        <div class="admin-metrics compact">
+          <div>
+            <span>上传文件数</span>
+            <strong>{{ uploadStorageSummary?.fileCount ?? 0 }}</strong>
+            <small>智能导入原始文件</small>
+          </div>
+          <div>
+            <span>占用空间</span>
+            <strong>{{ uploadStorageSummary?.totalSizeMb ?? 0 }} MB</strong>
+            <small>{{ uploadStorageSummary?.uploadDir || "-" }}</small>
+          </div>
+          <div>
+            <span>解析成功</span>
+            <strong>{{ uploadStorageSummary?.byStatus?.SUCCEEDED ?? 0 }}</strong>
+            <small>可定期清理</small>
+          </div>
+          <div>
+            <span>解析失败</span>
+            <strong>{{ uploadStorageSummary?.byStatus?.FAILED ?? 0 }}</strong>
+            <small>可用于排查格式</small>
+          </div>
+        </div>
+
+        <article class="admin-panel">
+          <div class="admin-panel-head">
+            <div>
+              <p>Upload Storage</p>
+              <h2>上传文件列表</h2>
+            </div>
+            <div class="admin-inline-actions">
+              <span>已选 {{ selectedUploadedFileCount }} 个</span>
+              <button type="button" @click="loadDashboard">刷新</button>
+              <button class="danger ghost" type="button" :disabled="!selectedUploadedFileCount" @click="handleDeleteUploadedFiles">
+                批量删除
+              </button>
+            </div>
+          </div>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>选择</th>
+                  <th>文件</th>
+                  <th>大小</th>
+                  <th>解析状态</th>
+                  <th>行数</th>
+                  <th>上传人</th>
+                  <th>上传时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="file in uploadedFiles" :key="file.id">
+                  <td>
+                    <input v-model="selectedUploadIds" type="checkbox" :value="file.id" />
+                  </td>
+                  <td>
+                    <b>{{ file.originalFileName }}</b>
+                    <small>{{ file.relativePath }}</small>
+                  </td>
+                  <td>{{ fileSizeText(file.sizeBytes) }}</td>
+                  <td>
+                    <span class="admin-status" :class="{ off: file.parseStatus === 'FAILED' }">
+                      {{ uploadStatusText(file.parseStatus) }}
+                    </span>
+                  </td>
+                  <td>{{ file.validCount || 0 }} / {{ file.rowCount || 0 }}</td>
+                  <td>{{ file.uploadedByUsername || "-" }}</td>
+                  <td>{{ formatDate(file.uploadedAt) }}</td>
+                </tr>
+                <tr v-if="!uploadedFiles.length">
+                  <td colspan="7">暂无上传文件</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
       <section v-else class="admin-page-pane">
         <div class="admin-dashboard-grid">
           <article class="admin-panel">
@@ -480,10 +559,12 @@ import {
   fetchEmployees,
   fetchLlmSettings,
   fetchMonitoring,
+  fetchUploadedFiles,
   kickDevice,
   loginAdmin,
   resetEmployeePassword,
   storedAdminToken,
+  deleteUploadedFiles,
   updateEmployee,
   updateLlmSettings
 } from "../services/adminApi";
@@ -500,7 +581,8 @@ const rawAdminPages = [
   { key: "employees", no: "02", label: "员工管理", description: "账号与角色", eyebrow: "Employee Management", title: "员工管理", subtitle: "创建员工账号，调整角色与启用状态。" },
   { key: "devices", no: "03", label: "设备登录", description: "IP 与在线设备", eyebrow: "Device Sessions", title: "设备与登录", subtitle: "查看当前登录设备、IP、会话状态并执行下线。" },
   { key: "system", no: "04", label: "系统管理", description: "策略与服务状态", eyebrow: "System Settings", title: "系统管理", subtitle: "集中放置账号策略、服务状态和后续运维入口。" },
-  { key: "audit", no: "05", label: "审计日志", description: "登录与接口记录", eyebrow: "Audit Log", title: "审计日志", subtitle: "追踪登录事件和接口访问热度。" }
+  { key: "uploads", no: "05", label: "上传文件", description: "容量与批量清理", eyebrow: "Uploaded Files", title: "上传文件管理", subtitle: "监控智能导入上传文件数量、占用空间并批量删除。" },
+  { key: "audit", no: "06", label: "审计日志", description: "登录与接口记录", eyebrow: "Audit Log", title: "审计日志", subtitle: "追踪登录事件和接口访问热度。" }
 ];
 
 const loading = ref(false);
@@ -511,6 +593,9 @@ const employees = ref([]);
 const devices = ref([]);
 const monitoring = ref(null);
 const llmSettings = ref(null);
+const uploadedFiles = ref([]);
+const uploadStorageSummary = ref(null);
+const selectedUploadIds = ref([]);
 const activeAdminPage = ref("overview");
 const loginForm = reactive({ username: "admin", password: "" });
 const employeeDialogOpen = ref(false);
@@ -539,6 +624,7 @@ const normalizedDevices = computed(() => devices.value.map(normalizeDisplayName)
 const onlineDevices = computed(() => normalizedDevices.value.filter((device) => device.online));
 const recentEvents = computed(() => monitoring.value?.recentEvents || []);
 const topEndpoints = computed(() => monitoring.value?.runtime?.topEndpoints || []);
+const selectedUploadedFileCount = computed(() => selectedUploadIds.value.length);
 const llmStatusText = computed(() => {
   if (!llmSettings.value) return tr("未加载");
   if (!llmSettings.value.enabled) return tr("已关闭");
@@ -583,16 +669,22 @@ async function loadDashboard(showSuccess = true) {
   await withLoading(async () => {
     currentUser.value = normalizeDisplayName(await fetchAdminMe());
     emit("user-updated", currentUser.value);
-    const [employeeRows, deviceRows, monitoringData, llmData] = await Promise.all([
+    const [employeeRows, deviceRows, monitoringData, llmData, uploadData] = await Promise.all([
       fetchEmployees(),
       fetchDevices(),
       fetchMonitoring(),
-      fetchLlmSettings()
+      fetchLlmSettings(),
+      fetchUploadedFiles()
     ]);
     employees.value = employeeRows;
     devices.value = deviceRows;
     monitoring.value = monitoringData;
     llmSettings.value = llmData;
+    uploadedFiles.value = uploadData?.files || [];
+    uploadStorageSummary.value = uploadData?.summary || null;
+    selectedUploadIds.value = selectedUploadIds.value.filter((id) =>
+      uploadedFiles.value.some((file) => file.id === id)
+    );
     syncLlmForm(llmData);
     if (showSuccess) showMessage("后台数据已刷新");
   });
@@ -689,6 +781,19 @@ async function handleUpdateLlmSettings() {
   });
 }
 
+async function handleDeleteUploadedFiles() {
+  if (!selectedUploadIds.value.length) return;
+  if (!window.confirm(`确认删除 ${selectedUploadIds.value.length} 个上传文件吗？该操作会释放服务器硬盘空间。`)) return;
+  await withLoading(async () => {
+    const result = await deleteUploadedFiles(selectedUploadIds.value);
+    uploadedFiles.value = [];
+    uploadStorageSummary.value = result?.summary || null;
+    selectedUploadIds.value = [];
+    await loadDashboard(false);
+    showMessage(`已删除 ${result?.deletedCount || 0} 个上传文件，释放 ${fileSizeText(result?.freedBytes || 0)}。`);
+  });
+}
+
 function syncLlmForm(settings) {
   llmForm.enabled = settings?.enabled ?? true;
   llmForm.baseUrl = settings?.baseUrl || "https://api.deepseek.com";
@@ -777,6 +882,22 @@ function eventClass(type) {
     RESET_PASSWORD: "warn",
     DELETE_DEVICE: "danger"
   }[type] || "neutral";
+}
+
+function uploadStatusText(status) {
+  return {
+    PENDING: "待解析",
+    SUCCEEDED: "解析成功",
+    FAILED: "解析失败"
+  }[status] || status || "-";
+}
+
+function fileSizeText(bytes) {
+  const value = Number(bytes || 0);
+  if (value >= 1024 * 1024 * 1024) return `${Math.round(value / 1024 / 1024 / 1024 * 100) / 100} GB`;
+  if (value >= 1024 * 1024) return `${Math.round(value / 1024 / 1024 * 100) / 100} MB`;
+  if (value >= 1024) return `${Math.round(value / 1024 * 100) / 100} KB`;
+  return `${value} B`;
 }
 
 function formatDate(value) {

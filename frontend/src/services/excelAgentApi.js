@@ -12,6 +12,15 @@ export async function createExcelCleaningTask(file) {
   });
 }
 
+export async function parseCargoImportFile(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return request("/cargo-imports/preview", {
+    method: "POST",
+    body: formData
+  });
+}
+
 export function fetchExcelCleaningTasks() {
   return request("/excel-cleaning/tasks");
 }
