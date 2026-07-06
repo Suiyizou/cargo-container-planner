@@ -50,10 +50,11 @@
         </div>
 
         <el-alert
-          v-if="manualImportMessage"
+          v-if="importStatusMessage"
+          :key="importStatusMessage"
           class="excel-import-status"
-          :type="manualImportMessageType"
-          :title="manualImportMessage"
+          :type="importStatusType"
+          :title="importStatusMessage"
           show-icon
           :closable="false"
         />
@@ -645,6 +646,16 @@ const approvedAggregated = computed(() => {
 const approvedQuantity = computed(() =>
   approvedAggregated.value.reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0)
 );
+const importStatusMessage = computed(() => {
+  if (!preview.value) return manualImportMessage.value;
+  return preview.value.invalidRows.length
+    ? `已完成预览：${preview.value.validRows.length} 行有效，${preview.value.invalidRows.length} 行需要确认。`
+    : `已完成预览：${preview.value.validRows.length} 行全部通过校验。`;
+});
+const importStatusType = computed(() => {
+  if (!preview.value) return manualImportMessageType.value;
+  return preview.value.invalidRows.length ? "warning" : "success";
+});
 const recognitionRows = computed(() => recognitionAgentTask.value?.cleanedRows || []);
 const recognitionIssues = computed(() => recognitionAgentTask.value?.issues || []);
 const recognitionQuantity = computed(() =>
@@ -683,6 +694,9 @@ const sampleRows = [
 ];
 
 let previewSeq = 0;
+let workbookVersion = 0;
+let lastPreviewSignature = "";
+let pendingPreviewSignature = "";
 
 async function handleWorkbookUpload(uploadFile) {
   if (uploadFile.raw) await loadWorkbookFile(uploadFile.raw);
@@ -697,15 +711,21 @@ async function handleFile(event) {
 
 async function loadWorkbookFile(file) {
   manualImportBusy.value = true;
+  preview.value = null;
+  activeSheet.value = null;
   manualImportMessageType.value = "info";
   manualImportMessage.value = "正在解析文件，请稍候。大文件会在后台线程处理，页面不会被阻塞。";
   try {
     workbook.value = await readWorkbookInWorker(file);
+    workbookVersion += 1;
+    lastPreviewSignature = "";
+    pendingPreviewSignature = "";
     selectedSheetName.value = workbook.value.sheets[0]?.name || "";
     manualCorrections.value = [];
-    await selectSheet();
-    manualImportMessageType.value = "success";
-    manualImportMessage.value = `已读取 ${workbook.value.sheets.length} 个工作表，请确认字段映射后导入。`;
+    manualImportBusy.value = false;
+    manualImportMessageType.value = "info";
+    manualImportMessage.value = `已读取 ${workbook.value.sheets.length} 个工作表，正在生成预览。`;
+    void selectSheet();
   } catch (error) {
     workbook.value = null;
     activeSheet.value = null;
@@ -729,33 +749,76 @@ async function selectSheet() {
 }
 
 async function refreshPreview() {
-  const sheet = activeSheet.value;
+  const sheet = cloneSheetForWorker(activeSheet.value);
   if (!sheet) {
     preview.value = null;
     return;
   }
+  const workerMapping = { ...mapping };
+  const workerOptions = { ...options };
+  const signature = previewSignature(sheet, workerMapping, workerOptions);
+  if (signature === pendingPreviewSignature) return;
+  if (signature === lastPreviewSignature && preview.value) {
+    previewBusy.value = false;
+    applyPreviewMessage(preview.value);
+    return;
+  }
   const seq = ++previewSeq;
+  pendingPreviewSignature = signature;
   previewBusy.value = true;
-  manualImportMessageType.value = "info";
-  manualImportMessage.value = "正在校验行数据与字段映射...";
+  if (!preview.value) {
+    manualImportMessageType.value = "info";
+    manualImportMessage.value = "正在校验行数据与字段映射...";
+  }
   try {
-    const nextPreview = await buildPreviewInWorker(sheet, { ...mapping }, { ...options });
+    const nextPreview = await buildPreviewInWorker(sheet, workerMapping, workerOptions);
     if (seq !== previewSeq) return;
     preview.value = nextPreview;
-    manualImportMessageType.value = nextPreview.invalidRows.length ? "warning" : "success";
-    manualImportMessage.value = nextPreview.invalidRows.length
-      ? `已完成预览：${nextPreview.validRows.length} 行有效，${nextPreview.invalidRows.length} 行需要确认。`
-      : `已完成预览：${nextPreview.validRows.length} 行全部通过校验。`;
+    lastPreviewSignature = signature;
+    applyPreviewMessage(nextPreview);
   } catch (error) {
     if (seq !== previewSeq) return;
     preview.value = null;
     manualImportMessageType.value = "error";
     manualImportMessage.value = error?.message || "预览校验失败，请检查字段映射。";
   } finally {
-    if (seq === previewSeq) previewBusy.value = false;
+    if (seq === previewSeq) {
+      if (pendingPreviewSignature === signature) pendingPreviewSignature = "";
+      previewBusy.value = false;
+    }
   }
   manualCorrections.value = [];
   closeSuggestion();
+}
+
+function previewSignature(sheet, workerMapping, workerOptions) {
+  return JSON.stringify({
+    workbookVersion,
+    sheetName: sheet.name,
+    headerRowIndex: sheet.headerRowIndex,
+    headers: sheet.headers,
+    rowCount: sheet.rows.length,
+    mapping: workerMapping,
+    options: workerOptions
+  });
+}
+
+function applyPreviewMessage(nextPreview) {
+  manualImportMessageType.value = nextPreview.invalidRows.length ? "warning" : "success";
+  manualImportMessage.value = nextPreview.invalidRows.length
+    ? `已完成预览：${nextPreview.validRows.length} 行有效，${nextPreview.invalidRows.length} 行需要确认。`
+    : `已完成预览：${nextPreview.validRows.length} 行全部通过校验。`;
+}
+
+function cloneSheetForWorker(sheet) {
+  if (!sheet) return null;
+  return {
+    name: sheet.name,
+    headerRowIndex: Number(sheet.headerRowIndex || 0),
+    headers: [...(sheet.headers || [])],
+    rows: (sheet.rows || []).map((row) => [...row]),
+    mapping: { ...(sheet.mapping || {}) }
+  };
 }
 
 function resetRecognitionResult() {

@@ -1,4 +1,3 @@
-let currentWorker = null;
 let currentJobId = 0;
 
 export function readWorkbookInWorker(file) {
@@ -11,44 +10,51 @@ export function buildPreviewInWorker(sheet, mapping, options) {
 }
 
 function runExcelImportWorker(action, payload, timeoutMs) {
-  if (currentWorker) {
-    currentWorker.terminate();
-    currentWorker = null;
-  }
-
   const id = ++currentJobId;
-  currentWorker = new Worker(new URL("../workers/excelImportWorker.js", import.meta.url), { type: "module" });
+  const worker = new Worker(new URL("../workers/excelImportWorker.js", import.meta.url), { type: "module" });
 
   return new Promise((resolve, reject) => {
+    let settled = false;
     const timer = window.setTimeout(() => {
-      cleanup();
-      reject(new Error("文件解析时间过长，请确认文件行数，或拆分为较小批次后再导入。"));
+      settle(reject, new Error("文件解析时间过长，请确认文件行数，或拆分为较小批次后再导入。"));
     }, timeoutMs);
 
-    currentWorker.onmessage = (event) => {
+    function cleanup() {
+      window.clearTimeout(timer);
+      worker.onmessage = null;
+      worker.onerror = null;
+      worker.onmessageerror = null;
+      worker.terminate();
+    }
+
+    function settle(callback, value) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback(value);
+    }
+
+    worker.onmessage = (event) => {
       const { id: messageId, type, result, message } = event.data || {};
       if (messageId !== id) return;
-      window.clearTimeout(timer);
-      cleanup();
-      if (type === "result") resolve(result);
-      else reject(new Error(message || "文件解析失败，请检查 Excel/CSV 格式。"));
+      if (type === "result") settle(resolve, result);
+      else settle(reject, new Error(message || "文件解析失败，请检查 Excel/CSV 格式。"));
     };
 
-    currentWorker.onerror = (error) => {
-      window.clearTimeout(timer);
-      cleanup();
-      reject(new Error(error?.message || "文件解析失败，请检查 Excel/CSV 格式。"));
+    worker.onerror = (error) => {
+      settle(reject, new Error(error?.message || "文件解析失败，请检查 Excel/CSV 格式。"));
     };
 
-    currentWorker.postMessage({ id, action, payload });
+    worker.onmessageerror = () => {
+      settle(reject, new Error("文件解析结果无法传回页面，请检查 Excel/CSV 格式。"));
+    };
+
+    try {
+      worker.postMessage({ id, action, payload });
+    } catch (error) {
+      settle(reject, new Error(error?.message || "文件解析任务启动失败。"));
+    }
   });
-}
-
-function cleanup() {
-  if (currentWorker) {
-    currentWorker.terminate();
-    currentWorker = null;
-  }
 }
 
 function workbookTimeoutMs(file) {

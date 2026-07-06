@@ -27,7 +27,7 @@ const FIELD_ALIASES = {
   totalWeightKg: ["totalWeight", "totalWeightKg", "grossWeight", "总重", "总重量", "总毛重", "毛重", "总净重", "总重量kg"],
   type: ["type", "cargoType", "rule", "货物类型", "类型", "规则", "摆放规则", "堆叠规则", "属性"],
   color: ["color", "颜色", "色值", "显示颜色"],
-  id: ["id", "sku", "code", "货号", "编号", "物料编码", "产品编号", "条码"],
+  id: ["id", "sku", "code", "cargoId", "goodsId", "productId", "货物ID", "货物编号", "货号", "编号", "物料编码", "产品编号", "条码"],
   remark: ["remark", "remarks", "note", "notes", "备注", "说明", "特殊要求", "装箱要求"],
   dimensionText: ["dimension", "dimensions", "size", "规格", "尺寸", "外尺寸", "长宽高", "尺寸cm", "尺寸mm", "规格尺寸"]
 };
@@ -129,7 +129,7 @@ export function guessMapping(headers) {
     let matchIndex = normalized.findIndex((header) => normalizedAliases.includes(header));
     if (matchIndex < 0) {
       matchIndex = normalized.findIndex((header) =>
-        normalizedAliases.some((alias) => alias && (header.includes(alias) || alias.includes(header)))
+        normalizedAliases.some((alias) => alias && canFuzzyMatchAlias(alias) && header.includes(alias))
       );
     }
     mapping[field.key] = matchIndex >= 0 ? headers[matchIndex] : "";
@@ -546,6 +546,10 @@ function cleanCell(value) {
 
 function normalizeHeader(value) {
   return cleanCell(value).toLowerCase().replace(/[\s_()（）\-:：/\\.【】\[\]]/g, "");
+}
+
+function canFuzzyMatchAlias(alias) {
+  return alias.length > 2 || /[\u4e00-\u9fa5]/.test(alias);
 }
 
 function uniquifyHeaders(headers) {

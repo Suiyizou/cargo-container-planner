@@ -273,9 +273,6 @@
                 <el-button :icon="Box" @click="openContainerModal">添加箱型</el-button>
                 <el-button :icon="MagicStick" @click="loadSample">套用示例</el-button>
                 <el-button :icon="Download" @click="exportCsv">导出 CSV</el-button>
-                <el-upload :auto-upload="false" :show-file-list="false" accept=".csv,.tsv,text/csv,text/tab-separated-values" :disabled="fileImporting" :on-change="handleCsvUpload">
-                  <el-button :icon="Upload" :loading="fileImporting">导入 CSV</el-button>
-                </el-upload>
                 <el-button :icon="Refresh" @click="resetContainers">恢复默认箱型</el-button>
                 <el-button type="danger" plain :icon="Delete" @click="clearCargos">清空货物</el-button>
               </div>
@@ -394,9 +391,6 @@
             <div class="section-actions cargo-list-actions">
               <el-button type="primary" :icon="Plus" @click="openCargoModal()">{{ ui('app.manualEntry') }}</el-button>
               <el-button :icon="Star" @click="smartImportOpen = !smartImportOpen">{{ smartImportOpen ? ui('app.hideSmartImport') : ui('excel.title') }}</el-button>
-              <el-upload :auto-upload="false" :show-file-list="false" accept=".csv,.tsv,text/csv,text/tab-separated-values" :disabled="fileImporting" :on-change="handleCsvUpload">
-                <el-button :icon="Upload" :loading="fileImporting">{{ ui('app.importCsv') }}</el-button>
-              </el-upload>
               <el-button :icon="Delete" :disabled="!selectedCargoRows.length" @click="deleteSelectedCargos">{{ ui('app.batchDelete') }}</el-button>
               <el-button type="danger" plain :icon="Delete" :disabled="!cargos.length" @click="clearCargos">{{ ui('app.clearAll') }}</el-button>
             </div>
