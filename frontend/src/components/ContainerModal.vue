@@ -26,6 +26,9 @@
       <el-form-item label="高 cm" required>
         <el-input-number v-model="model.heightCm" :min="1" :step="0.1" :precision="1" controls-position="right" />
       </el-form-item>
+      <el-form-item v-if="model.ignoreHeightLimit" :label="ui('container.heightLimitCm')" required>
+        <el-input-number v-model="model.heightLimitCm" :min="1" :step="1" :precision="0" controls-position="right" />
+      </el-form-item>
       <el-form-item label="载重 kg" required>
         <el-input-number v-model="model.payloadKg" :min="1" :step="1" :precision="0" controls-position="right" />
       </el-form-item>
@@ -46,7 +49,8 @@
         </el-select>
       </el-form-item>
       <el-form-item class="span-2">
-        <el-checkbox v-model="model.ignoreHeightLimit">平板/超限设备不按箱体高度硬拦截</el-checkbox>
+        <el-checkbox v-model="model.ignoreHeightLimit">{{ ui('container.useCustomHeightLimit') }}</el-checkbox>
+        <small class="form-help">{{ ui('container.heightLimitHelp') }}</small>
       </el-form-item>
     </el-form>
     <template #footer>
@@ -87,6 +91,7 @@ const model = reactive({
   lengthCm: Number(props.container?.lengthCm || 590),
   widthCm: Number(props.container?.widthCm || 235),
   heightCm: Number(props.container?.heightCm || 239),
+  heightLimitCm: Number(props.container?.heightLimitCm || props.container?.heightCm || 239),
   payloadKg: Number(props.container?.payloadKg || 28000),
   usagePriority: props.container?.usagePriority || "common",
   visualKind: props.container?.visualKind || "",
@@ -124,9 +129,13 @@ function submit() {
   const referencePrice = Number(model.referencePrice || 0);
   const defaultPrice = Number(defaultContainer.value?.referencePrice || 0);
   const priceEdited = Boolean(defaultContainer.value) && Number.isFinite(referencePrice) && referencePrice > 0 && Math.abs(referencePrice - defaultPrice) >= 0.01;
+  const heightLimitCm = model.ignoreHeightLimit
+    ? Math.max(1, Number(model.heightLimitCm || model.heightCm || 1))
+    : Number(model.heightCm || 0);
   emit("save", {
     ...model,
     id: model.id || uid("container"),
+    heightLimitCm,
     referencePrice: Number.isFinite(referencePrice) && referencePrice > 0 ? referencePrice : undefined,
     referenceCurrency: "USD",
     priceEdited

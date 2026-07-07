@@ -38,13 +38,21 @@ export function formatDimension(value = 0) {
 
 function normalizeContainer(container: ContainerLike | null): ContainerLike | null {
   if (!container) return null;
+  const heightCm = visualHeightLimit(container);
   return {
     ...container,
     lengthCm: Number(container.lengthCm || 0),
     widthCm: Number(container.widthCm || 0),
-    heightCm: Number(container.heightCm || 0),
+    heightCm,
+    heightLimitCm: Number(container.heightLimitCm || heightCm),
     payloadKg: Number(container.payloadKg || 0)
   };
+}
+
+function visualHeightLimit(container: ContainerLike) {
+  const heightLimit = Number(container.heightLimitCm || 0);
+  if (isFlatRack(container, null) && heightLimit > 0) return heightLimit;
+  return Number(container.heightCm || 0);
 }
 
 function normalizeCargo(placement: PlacementLike, index: number, colorMap: Map<string, string>): SceneCargo {

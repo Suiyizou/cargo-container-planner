@@ -181,6 +181,14 @@ const uiText = {
     en: "Dimensions come from public carrier/container-owner references; reference prices come from public freight indexes and equipment estimates. They are for plan comparison only, not live booking quotes. Actual loading should follow the released unit number, yard measurements, booked equipment, current quotations, and lashing plan."
   },
   "container.flatRackHeightIgnored": { zh: "平板不计高度", en: "Flat rack height ignored" },
+  "container.flatRackHeightLimitTag": { zh: "装载高限 {value} cm", en: "Load height limit {value} cm" },
+  "container.heightLimitCm": { zh: "装载高度上限 cm", en: "Load Height Limit cm" },
+  "container.heightLimitShort": { zh: "高限", en: "Height Limit" },
+  "container.useCustomHeightLimit": { zh: "平板/超限设备使用自定义装载高度上限", en: "Use custom load height limit for flat-rack/OOG equipment" },
+  "container.heightLimitHelp": {
+    zh: "平板柜不再无限制堆高；计算会以这里的高度作为最高装载边界。",
+    en: "Flat racks are no longer treated as unlimited height; packing uses this value as the maximum load height."
+  },
   "container.calcSize": { zh: "计算尺寸", en: "Calculation Size" },
   "container.maxPayload": { zh: "最大载重", en: "Max Payload" },
   "container.referencePrice": { zh: "参考价格", en: "Reference Price" },

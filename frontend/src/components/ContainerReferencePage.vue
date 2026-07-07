@@ -40,11 +40,17 @@
               </el-tag>
               <h3>{{ tr(container.name) }}</h3>
             </div>
-            <el-tag v-if="container.ignoreHeightLimit" type="warning" effect="plain">{{ ui('container.flatRackHeightIgnored') }}</el-tag>
+            <el-tag v-if="container.ignoreHeightLimit" type="warning" effect="plain">
+              {{ ui('container.flatRackHeightLimitTag', { value: formatNumber(container.heightLimitCm || container.heightCm) }) }}
+            </el-tag>
           </div>
 
           <dl class="container-reference-specs">
             <div><dt>{{ ui('container.calcSize') }}</dt><dd>{{ dimensionText(container) }} cm</dd></div>
+            <div v-if="container.ignoreHeightLimit">
+              <dt>{{ ui('container.heightLimitCm') }}</dt>
+              <dd>{{ formatNumber(container.heightLimitCm || container.heightCm) }} cm</dd>
+            </div>
             <div><dt>{{ ui('container.maxPayload') }}</dt><dd>{{ payloadText(container) }}</dd></div>
             <div class="container-reference-price">
               <dt>{{ ui('container.referencePrice') }}</dt>

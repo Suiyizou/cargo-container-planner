@@ -11,6 +11,7 @@ export interface ContainerLike {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
+  heightLimitCm?: number;
   payloadKg?: number;
   ignoreHeightLimit?: boolean;
   equipmentClass?: string;

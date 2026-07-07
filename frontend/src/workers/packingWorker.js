@@ -1095,6 +1095,51 @@ function strategyById(strategyId) {
 }
 
 function packLayerLaff(container, units, strategy, fixedPlaced = []) {
+  if (isFlatRackUsage(container) && !fixedPlaced.length) {
+    return packFlatRackDeckFirst(container, units, strategy);
+  }
+  return packLayerLaffCore(container, units, strategy, fixedPlaced);
+}
+
+function packFlatRackDeckFirst(container, units, strategy) {
+  const placed = [];
+  const pending = [];
+  let deckPlacedCount = 0;
+  const ordered = orderUnits(units.map(stripPlacement), strategy.unitOrder);
+
+  for (const unit of ordered) {
+    const placement = packExtremePoint(container, placed, unit, strategy, { floorOnly: true, preferDeckSpread: true });
+    if (placement) {
+      placed.push(applyPlacement(unit, placement));
+      deckPlacedCount += unitQuantity(unit);
+    } else {
+      pending.push(unit);
+    }
+  }
+
+  if (!pending.length) {
+    return makePackedBox(placed, [], strategy, {
+      localSearchPasses: 0,
+      repairedCount: 0,
+      deckFloorPlacedCount: deckPlacedCount,
+      layerCount: countLayers(placed)
+    });
+  }
+
+  const layered = packLayerLaffCore(container, pending, strategy, placed);
+  layered.strategySummary = {
+    ...layered.strategySummary,
+    deckFloorPlacedCount: deckPlacedCount
+  };
+  traceDecision({
+    phase: "layer",
+    level: "summary",
+    text: `${container.name} · ${strategy.name} · \u5e73\u677f\u7532\u677f\u4f18\u5148\uff1a\u9996\u5c42\u5148\u94fa\u5165 ${deckPlacedCount} \u4ef6\uff0c\u518d\u5bf9\u5269\u4f59 ${sumUnitQuantity(pending)} \u4ef6\u5c1d\u8bd5\u4e0a\u5c42/\u56de\u586b\u3002`
+  });
+  return layered;
+}
+
+function packLayerLaffCore(container, units, strategy, fixedPlaced = []) {
   const placed = fixedPlaced.map(copyUnit);
   const unplaced = [];
   const originalActive = units.map(stripPlacement);
@@ -1679,7 +1724,7 @@ function packExtremePoint(container, placed, unit, strategy, options = {}) {
   for (const dims of orientations) {
     if (!fitsContainerDims(container, dims)) continue;
     for (const point of extremePoints(container, placed, dims, options)) {
-      const placement = { ...point, ...dims };
+      const placement = { ...point, ...dims, floorOnly: Boolean(options.floorOnly) };
       const validation = validatePlacement(container, placed, unit, placement, supportRatio);
       if (!validation.valid) continue;
       if (options.exposedTop && hasAnyBoxInColumnAbove(placement, placed)) continue;
@@ -3233,9 +3278,11 @@ function extremePoints(container, placed, dims, options = {}) {
   const hasLayerBottom = Number.isFinite(layerBottom);
   const layerTop = Number(options.layerTop);
   const hasLayerTop = Number.isFinite(layerTop);
+  const floorOnly = Boolean(options.floorOnly);
   const add = (x, y, z) => {
     const point = { x: round3(x), y: round3(y), z: round3(z) };
     if (point.x < -EPS || point.y < -EPS || point.z < -EPS) return;
+    if (floorOnly && Math.abs(point.z) > EPS) return;
     if (point.x + dims.lengthCm > container.lengthCm + EPS) return;
     if (point.y + dims.widthCm > container.widthCm + EPS) return;
     if (point.z + dims.heightCm > heightLimit + EPS) return;
@@ -3249,7 +3296,7 @@ function extremePoints(container, placed, dims, options = {}) {
   const centerY = Number(container.widthCm || 0) / 2;
   const xAnchors = [0, centerX - dims.lengthCm, centerX - dims.lengthCm / 2, centerX, container.lengthCm - dims.lengthCm];
   const yAnchors = [0, centerY - dims.widthCm, centerY - dims.widthCm / 2, centerY, container.widthCm - dims.widthCm];
-  const zAnchors = uniqueSorted(placed.map((box) => box.z + box.heightCm), 0);
+  const zAnchors = floorOnly ? [0] : uniqueSorted(placed.map((box) => box.z + box.heightCm), 0);
   for (const z of zAnchors) {
     for (const x of xAnchors) {
       for (const y of yAnchors) add(x, y, z);
@@ -3260,14 +3307,16 @@ function extremePoints(container, placed, dims, options = {}) {
     add(box.x, box.y - dims.widthCm, box.z);
     add(box.x + box.lengthCm, box.y, box.z);
     add(box.x, box.y + box.widthCm, box.z);
-    add(box.x, box.y, box.z + box.heightCm);
+    if (!floorOnly) add(box.x, box.y, box.z + box.heightCm);
     add(box.x + box.lengthCm, box.y + box.widthCm, box.z);
-    add(box.x + box.lengthCm, box.y, box.z + box.heightCm);
-    add(box.x, box.y + box.widthCm, box.z + box.heightCm);
-    add(box.x + box.lengthCm, box.y + box.widthCm, box.z + box.heightCm);
+    if (!floorOnly) {
+      add(box.x + box.lengthCm, box.y, box.z + box.heightCm);
+      add(box.x, box.y + box.widthCm, box.z + box.heightCm);
+      add(box.x + box.lengthCm, box.y + box.widthCm, box.z + box.heightCm);
+    }
   }
 
-  const zs = uniqueSorted(placed.map((box) => box.z + box.heightCm), 0);
+  const zs = floorOnly ? [0] : uniqueSorted(placed.map((box) => box.z + box.heightCm), 0);
   const xs = uniqueSorted(placed.flatMap((box) => [box.x, box.x + box.lengthCm]), 0);
   const ys = uniqueSorted(placed.flatMap((box) => [box.y, box.y + box.widthCm]), 0);
   for (const z of zs) {
@@ -3441,6 +3490,7 @@ function makePackedBox(placed, unplaced, strategy, stats) {
       sparseTailSpreadCount: Number(stats.sparseTailSpreadCount || 0),
       sparseTailBackfillPlacedCount: Number(stats.sparseTailBackfillPlacedCount || 0),
       sparseTailSupportGain: round(stats.sparseTailSupportGain || 0),
+      deckFloorPlacedCount: Number(stats.deckFloorPlacedCount || 0),
       layerCount: Number(stats.layerCount || countLayers(placed)),
       balanceSeverity: stats.balanceValidation?.severity || "",
       balanceScore: round(stats.balanceValidation?.score || 0),
@@ -3499,6 +3549,17 @@ function comparePackAttempt(container) {
     if (balanceRankDiff) return balanceRankDiff;
     const balanceScoreDiff = Number(a.balanceValidation?.score || 0) - Number(b.balanceValidation?.score || 0);
     if (Math.abs(balanceScoreDiff) > EPS) return balanceScoreDiff;
+    if (isFlatRackUsage(container)) {
+      const aPlacedCount = sumUnitQuantity(a.placed);
+      const bPlacedCount = sumUnitQuantity(b.placed);
+      if (aPlacedCount !== bPlacedCount) return bPlacedCount - aPlacedCount;
+      const deckDiff = placementDeckAreaM2(b.placed) - placementDeckAreaM2(a.placed);
+      if (Math.abs(deckDiff) > EPS) return deckDiff;
+      const topDiff = maxTop(a.placed) - maxTop(b.placed);
+      if (Math.abs(topDiff) > EPS) return topDiff;
+      const lengthDiff = lengthUtilizationPercent(container, b.placed) - lengthUtilizationPercent(container, a.placed);
+      if (Math.abs(lengthDiff) > EPS) return lengthDiff;
+    }
     const occupiedDiff = sumOccupiedVolumeM3(b.placed) - sumOccupiedVolumeM3(a.placed);
     if (Math.abs(occupiedDiff) > EPS) return occupiedDiff;
     const rawVolumeDiff = sumCargoVolumeM3(b.placed) - sumCargoVolumeM3(a.placed);
@@ -3819,7 +3880,12 @@ function isHeightUnlimited(container) {
 }
 
 function containerHeightLimit(container) {
-  return isHeightUnlimited(container) ? Number.POSITIVE_INFINITY : Number(container?.heightCm || 0);
+  const explicitLimit = Number(container?.heightLimitCm ?? container?.oogHeightLimitCm);
+  if (isHeightUnlimited(container)) {
+    if (Number.isFinite(explicitLimit) && explicitLimit > 0) return explicitLimit;
+    return Math.max(1, Number(container?.heightCm || 0));
+  }
+  return Math.max(1, Number(container?.heightCm || 0));
 }
 
 function placedWeightKg(placed = []) {
@@ -3880,7 +3946,16 @@ function placementScore(placement, unit, container, strategy, placed = []) {
   const front = placement.x + placement.lengthCm;
   const right = placement.y + placement.widthCm;
   const area = placement.lengthCm * placement.widthCm;
-  const supportBonus = unit.nonStack ? 0 : area * Math.max(0, 1 - top / Math.max(1, container.heightCm));
+  if (isFlatRackUsage(container)) {
+    const deckGain = deckAreaGainCm2(placed, placement);
+    const stackPenalty = placement.z > EPS ? 80_000_000 + placement.z * 1_200_000 : 0;
+    const balanceExempt = isProjectedBalanceExempt(container, placed, unit);
+    const balancePenalty = balanceExempt ? 0 : projectedBalancePenalty(container, placed, unit, placement);
+    const centerPenalty = placement.floorOnly ? 0 : centerDistancePenalty(container, placement) * (unit.isHeavy ? 1800 : 40);
+    const spreadPenalty = balanceExempt ? 0 : zoneSpreadPenalty(container, placed, placement, unit) * (unit.isHeavy ? HEAVY_ZONE_WEIGHT : LIGHT_ZONE_WEIGHT);
+    return stackPenalty + top * 12_000 + balancePenalty + spreadPenalty + centerPenalty + front * 30 + right - deckGain * 450;
+  }
+  const supportBonus = unit.nonStack ? 0 : area * Math.max(0, 1 - top / Math.max(1, containerHeightLimit(container)));
   const supportCoveragePenalty = unit.nonStack ? 0 : (1 - supportCoverageRatio(placement, placed)) * 1000;
   const verticalPenalty = strategy.blueVertical && shouldPreferVertical(unit) ? -placement.heightCm * 100 : 0;
   const balanceExempt = isProjectedBalanceExempt(container, placed, unit);
@@ -3895,12 +3970,35 @@ function placementScore(placement, unit, container, strategy, placed = []) {
   return top * 1_000_000 + supportCoveragePenalty + balancePenalty + spreadPenalty + front * 1_000 + right + heavyCenterPenalty - supportBonus + verticalPenalty;
 }
 
+function deckAreaGainCm2(placed, placement) {
+  const rect = {
+    x: Number(placement.x || 0),
+    y: Number(placement.y || 0),
+    lengthCm: Number(placement.lengthCm || 0),
+    widthCm: Number(placement.widthCm || 0)
+  };
+  if (rect.lengthCm <= EPS || rect.widthCm <= EPS) return 0;
+  const before = deckUnionAreaCm2(placed);
+  const after = deckUnionAreaCm2([...placed, rect]);
+  return Math.max(0, after - before);
+}
+
+function deckUnionAreaCm2(items) {
+  return unionArea((items || []).map((unit) => ({
+    x: Number(unit.x || 0),
+    y: Number(unit.y || 0),
+    lengthCm: Number(unit.lengthCm || 0),
+    widthCm: Number(unit.widthCm || 0)
+  })).filter((rect) => rect.lengthCm > EPS && rect.widthCm > EPS));
+}
+
 function supportSurfaceScore(placed, container) {
+  const heightLimit = containerHeightLimit(container);
   return placed
     .filter((unit) => !unit.nonStack)
     .reduce((score, unit) => {
       const top = unit.z + unit.heightCm;
-      const normalizedHeight = container.heightCm > 0 ? 1 - top / container.heightCm : 0;
+      const normalizedHeight = heightLimit > 0 && Number.isFinite(heightLimit) ? 1 - top / heightLimit : 0;
       return score + unit.lengthCm * unit.widthCm * Math.max(0, normalizedHeight);
     }, 0);
 }
@@ -4092,7 +4190,7 @@ function usageMetricsForPackedBoxes(container, packedBoxes, utilizationPercent) 
     acc.capacity += usageCapacity(boxContainer, utilizationPercent);
     if (usageMode(boxContainer) === "deck") {
       acc.deckUsed += placementDeckAreaM2(box.placed || []);
-      acc.deckCapacity += deckAreaM2(boxContainer) * utilizationPercent / 100;
+      acc.deckCapacity += deckAreaM2(boxContainer);
     }
     return acc;
   }, { used: 0, capacity: 0, deckUsed: 0, deckCapacity: 0 });
@@ -4101,7 +4199,7 @@ function usageMetricsForPackedBoxes(container, packedBoxes, utilizationPercent) 
     mode,
     firstFillPercent: firstCapacity > 0 ? firstUsed / firstCapacity * 100 : 0,
     averageFillPercent: totals.capacity > 0 ? totals.used / totals.capacity * 100 : 0,
-    firstDeckAreaPercent: deckAreaPercent(firstContainer, firstBox.placed || [], utilizationPercent),
+    firstDeckAreaPercent: deckAreaPercent(firstContainer, firstBox.placed || []),
     firstLengthPercent: lengthUtilizationPercent(firstContainer, firstBox.placed || []),
     averageDeckAreaPercent: totals.deckCapacity > 0 ? totals.deckUsed / totals.deckCapacity * 100 : 0
   };
@@ -4150,8 +4248,8 @@ function placementDeckAreaM2(placed) {
   return unionArea(rects) / 10_000;
 }
 
-function deckAreaPercent(container, placed, utilizationPercent) {
-  const capacity = deckAreaM2(container) * utilizationPercent / 100;
+function deckAreaPercent(container, placed) {
+  const capacity = deckAreaM2(container);
   return capacity > 0 ? placementDeckAreaM2(placed) / capacity * 100 : 0;
 }
 

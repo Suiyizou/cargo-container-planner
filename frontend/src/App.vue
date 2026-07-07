@@ -2065,7 +2065,7 @@ function canRestoreContainerPrice(container) {
 
 function containerDimensionsEdited(container, defaultContainer) {
   if (!container || !defaultContainer) return false;
-  return ["lengthCm", "widthCm", "heightCm", "payloadKg"].some((field) =>
+  return ["lengthCm", "widthCm", "heightCm", "heightLimitCm", "payloadKg"].some((field) =>
     Math.abs(Number(container[field] || 0) - Number(defaultContainer[field] || 0)) >= 0.01
   ) || Boolean(container.ignoreHeightLimit) !== Boolean(defaultContainer.ignoreHeightLimit);
 }
@@ -2389,7 +2389,12 @@ function containerIcon(name) {
 }
 
 function containerDimensionText(container: any) {
-  return `${formatDimensionNumber(container?.lengthCm)} × ${formatDimensionNumber(container?.widthCm)} × ${formatDimensionNumber(container?.heightCm)}`;
+  const base = `${formatDimensionNumber(container?.lengthCm)} × ${formatDimensionNumber(container?.widthCm)} × ${formatDimensionNumber(container?.heightCm)}`;
+  const heightLimit = Number(container?.heightLimitCm || 0);
+  if ((container?.ignoreHeightLimit || /fr|flat|\u5e73\u677f/i.test(`${container?.id || ""} ${container?.name || ""}`)) && heightLimit > 0) {
+    return `${base} / ${ui("container.heightLimitShort")} ${formatDimensionNumber(heightLimit)}`;
+  }
+  return base;
 }
 
 function containerPayloadText(container: any) {

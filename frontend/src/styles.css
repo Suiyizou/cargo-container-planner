@@ -3988,6 +3988,13 @@ select {
   color: #174777;
 }
 
+.form-help {
+  display: block;
+  margin-top: 6px;
+  color: #64748b;
+  line-height: 1.5;
+}
+
 .template-agent-flow {
   display: flex;
   flex-wrap: wrap;

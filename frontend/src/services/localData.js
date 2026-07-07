@@ -12,7 +12,8 @@ export const defaultContainers = [
     dimensionNote: "公开规格为名义内尺寸，实际柜号可能因制造批次存在公差。",
     usagePriority: "common",
     visualKind: "dry",
-    ignoreHeightLimit: false
+    ignoreHeightLimit: false,
+    heightLimitCm: 239.5
   },
   {
     id: "20hq",
@@ -27,7 +28,8 @@ export const defaultContainers = [
     dimensionNote: "20HQ 不是最常见海运标配，订舱前请按实际设备确认。",
     usagePriority: "common",
     visualKind: "high-cube",
-    ignoreHeightLimit: false
+    ignoreHeightLimit: false,
+    heightLimitCm: 268.9
   },
   {
     id: "20fr",
@@ -39,10 +41,11 @@ export const defaultContainers = [
     dimensionSource: "Hapag-Lloyd 20' Flatrack",
     dimensionSourceUrl: "https://www.hapag-lloyd.com/en/services-information/cargo-fleet/container/20-flatrack.html",
     dimensionBasis: "Inside Dimension / Min. Width",
-    dimensionNote: "平板柜为开放设备；系统默认不按箱体高度硬拦截，来源地板宽 219.4cm，超宽超高需按船司 OOG 与绑扎方案复核。",
+    dimensionNote: "\u5e73\u677f\u67dc\u4e3a\u5f00\u653e\u8bbe\u5907\uff1b\u7cfb\u7edf\u9ed8\u8ba4\u6309 300cm \u88c5\u8f7d\u9ad8\u5ea6\u4e0a\u9650\u53c2\u4e0e\u8ba1\u7b97\uff0c\u7528\u6237\u53ef\u6309 OOG\u3001\u573a\u7ad9\u3001\u7ed1\u624e\u548c\u8fd0\u8f93\u65b9\u6848\u81ea\u5b9a\u4e49\u3002",
     usagePriority: "special",
     visualKind: "flat-rack",
-    ignoreHeightLimit: true
+    ignoreHeightLimit: true,
+    heightLimitCm: 300
   },
   {
     id: "40gp",
@@ -57,7 +60,8 @@ export const defaultContainers = [
     dimensionNote: "公开规格为名义内尺寸，实际柜号可能因制造批次存在公差。",
     usagePriority: "common",
     visualKind: "dry",
-    ignoreHeightLimit: false
+    ignoreHeightLimit: false,
+    heightLimitCm: 239.5
   },
   {
     id: "40hq",
@@ -72,7 +76,8 @@ export const defaultContainers = [
     dimensionNote: "公开规格为名义内尺寸，实际柜号可能因制造批次存在公差。",
     usagePriority: "common",
     visualKind: "high-cube",
-    ignoreHeightLimit: false
+    ignoreHeightLimit: false,
+    heightLimitCm: 270
   },
   {
     id: "40fr",
@@ -84,10 +89,11 @@ export const defaultContainers = [
     dimensionSource: "Hapag-Lloyd 40' Flatrack High Cube",
     dimensionSourceUrl: "https://www.hapag-lloyd.com/en/services-information/cargo-fleet/container/40-flatrack-high-cube.html",
     dimensionBasis: "Inside Dimension / Min. Width",
-    dimensionNote: "平板柜为开放设备；系统默认不按箱体高度硬拦截，来源地板宽 224.5cm，超宽超高需按船司 OOG 与绑扎方案复核。",
+    dimensionNote: "\u5e73\u677f\u67dc\u4e3a\u5f00\u653e\u8bbe\u5907\uff1b\u7cfb\u7edf\u9ed8\u8ba4\u6309 300cm \u88c5\u8f7d\u9ad8\u5ea6\u4e0a\u9650\u53c2\u4e0e\u8ba1\u7b97\uff0c\u7528\u6237\u53ef\u6309 OOG\u3001\u573a\u7ad9\u3001\u7ed1\u624e\u548c\u8fd0\u8f93\u65b9\u6848\u81ea\u5b9a\u4e49\u3002",
     usagePriority: "special",
     visualKind: "flat-rack",
-    ignoreHeightLimit: true
+    ignoreHeightLimit: true,
+    heightLimitCm: 300
   },
   {
     id: "20rf",
@@ -102,7 +108,8 @@ export const defaultContainers = [
     dimensionNote: "冷藏柜属于特殊设备；普通货和冷藏设备类货物优先尝试普柜/高柜，只有温控运输才建议选 RF。",
     usagePriority: "special",
     visualKind: "reefer",
-    ignoreHeightLimit: false
+    ignoreHeightLimit: false,
+    heightLimitCm: 215.9
   },
   {
     id: "40rf",
@@ -117,7 +124,8 @@ export const defaultContainers = [
     dimensionNote: "冷藏柜属于特殊设备；普通货和冷藏设备类货物优先尝试普柜/高柜，只有温控运输才建议选 RF。",
     usagePriority: "special",
     visualKind: "reefer",
-    ignoreHeightLimit: false
+    ignoreHeightLimit: false,
+    heightLimitCm: 242.5
   }
 ];
 
@@ -174,7 +182,8 @@ const defaultDimensionFields = [
   "dimensionNote",
   "usagePriority",
   "visualKind",
-  "ignoreHeightLimit"
+  "ignoreHeightLimit",
+  "heightLimitCm"
 ];
 
 function withDefaultProfile(container, options = {}) {
