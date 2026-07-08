@@ -303,7 +303,7 @@ export function calculate(request = {}, options = {}) {
   }
 
   const mixedEvaluation = shouldBuildMixedContainerEvaluation(orderedContainers, total)
-    ? safeBuildMixedContainerEvaluation(orderedContainers, cargos, total, utilization, globalGapCm, balanceSettings, supportSettings)
+    ? safeBuildMixedContainerEvaluation(orderedContainers, cargos, total, utilization, globalGapCm, balanceSettings, supportSettings, evaluations)
     : null;
   if (mixedEvaluation) {
     evaluations.push(mixedEvaluation);
@@ -475,6 +475,7 @@ function buildEvaluation(container, units, total, utilizationPercent, globalGapC
   };
   evaluation.recommendation = buildRecommendation(evaluation);
   Object.defineProperty(evaluation, "_sourceFirstBox", { value: multi.firstBox, enumerable: false });
+  Object.defineProperty(evaluation, "_sourcePackedBoxes", { value: multi.packedBoxes, enumerable: false });
   return evaluation;
 }
 
@@ -555,9 +556,9 @@ function packMultiple(container, allUnits) {
   };
 }
 
-function safeBuildMixedContainerEvaluation(containers, cargos, total, utilizationPercent, globalGapCm, balanceSettings, supportSettings) {
+function safeBuildMixedContainerEvaluation(containers, cargos, total, utilizationPercent, globalGapCm, balanceSettings, supportSettings, baseEvaluations = []) {
   try {
-    return buildMixedContainerEvaluation(containers, cargos, total, utilizationPercent, globalGapCm, balanceSettings, supportSettings);
+    return buildMixedContainerEvaluation(containers, cargos, total, utilizationPercent, globalGapCm, balanceSettings, supportSettings, baseEvaluations);
   } catch (error) {
     return null;
   }
@@ -565,14 +566,16 @@ function safeBuildMixedContainerEvaluation(containers, cargos, total, utilizatio
 
 function shouldBuildMixedContainerEvaluation(containers, total) {
   if (!Array.isArray(containers) || containers.length < 2) return false;
-  if (containers.length > 2) return false;
-  if (Number(total?.totalQuantity || 0) > 180) return false;
+  if (Number(total?.totalQuantity || 0) > 360) return false;
   return true;
 }
 
-function buildMixedContainerEvaluation(containers, cargos, total, utilizationPercent, globalGapCm, balanceSettings, supportSettings) {
+function buildMixedContainerEvaluation(containers, cargos, total, utilizationPercent, globalGapCm, balanceSettings, supportSettings, baseEvaluations = []) {
   if (!Array.isArray(containers) || containers.length < 2 || !total.totalQuantity) return null;
   const runtimeContainers = containers.map((container) => ({ ...container, balanceSettings, supportSettings }));
+  const upgradedFromSinglePlans = buildMixedContainerEvaluationFromSinglePlans(runtimeContainers, baseEvaluations, total, utilizationPercent, globalGapCm);
+  if (upgradedFromSinglePlans) return upgradedFromSinglePlans;
+
   const seedContainer = pickMixedSeedContainer(runtimeContainers);
   let remaining = buildUnits(cargos, globalGapCm, seedContainer, total).map(copyUnit);
   if (remaining.length > MIXED_PLAN_MAX_SOLVER_UNITS) return null;
@@ -672,6 +675,165 @@ function buildMixedContainerEvaluation(containers, cargos, total, utilizationPer
   };
   evaluation.recommendation = buildRecommendation(evaluation);
   return evaluation;
+}
+
+function buildMixedContainerEvaluationFromSinglePlans(runtimeContainers, baseEvaluations, total, utilizationPercent, globalGapCm) {
+  const candidates = [];
+  const usableContainers = runtimeContainers
+    .filter((container) => isPrimaryCalculationContainer(container) || container?.usagePriority === "special")
+    .sort((a, b) => {
+      const priceDiff = equipmentMeta(a).referencePrice - equipmentMeta(b).referencePrice;
+      if (Math.abs(priceDiff) > EPS) return priceDiff;
+      return volumeM3(a) - volumeM3(b);
+    });
+  if (usableContainers.length < 2) return null;
+
+  for (const baseEvaluation of baseEvaluations || []) {
+    if (!canUseEvaluationAsMixedBase(baseEvaluation)) continue;
+    const replacementBoxes = [];
+    let failed = false;
+    for (const sourceBox of baseEvaluation._sourcePackedBoxes || []) {
+      const replacement = cheapestContainerForPackedBox(usableContainers, sourceBox, utilizationPercent);
+      if (!replacement) {
+        failed = true;
+        break;
+      }
+      replacementBoxes.push(replacement);
+    }
+    if (failed || !replacementBoxes.length) continue;
+    const distinctContainerIds = new Set(replacementBoxes.map((box) => box.container?.id).filter(Boolean));
+    if (distinctContainerIds.size < 2) continue;
+    const mixedFreight = mixedPlanFreightCost(replacementBoxes);
+    if (!(mixedFreight < estimatedFreightCost(baseEvaluation) - EPS)) continue;
+    const evaluation = buildMixedEvaluationFromPackedBoxes(replacementBoxes, total, utilizationPercent, globalGapCm);
+    evaluation.mixedPlan = {
+      ...evaluation.mixedPlan,
+      sourceContainerId: baseEvaluation.container?.id,
+      sourceContainerName: baseEvaluation.container?.name
+    };
+    evaluation.recommendation = buildRecommendation(evaluation);
+    candidates.push(evaluation);
+  }
+
+  return candidates.sort(compareEvaluation)[0] || null;
+}
+
+function canUseEvaluationAsMixedBase(evaluation) {
+  const boxes = Number(evaluation?.boxes || 0);
+  const sourceBoxes = evaluation?._sourcePackedBoxes || [];
+  return evaluation
+    && !evaluation.isMixedPlan
+    && evaluation.fitStatus === FIT_STATUS.FIT
+    && boxes > 1
+    && !evaluation.estimatedBoxes
+    && sourceBoxes.length === boxes
+    && sourceBoxes.every((box) => box?.placed?.length)
+    && !(sourceBoxes[sourceBoxes.length - 1]?.unplaced || []).length;
+}
+
+function cheapestContainerForPackedBox(containers, sourceBox, utilizationPercent) {
+  const sourceUnits = (sourceBox?.placed || []).map(stripPlacement);
+  const sourceQuantity = sumUnitQuantity(sourceUnits);
+  const candidates = [];
+  for (const container of containers) {
+    if (!sourceUnits.length) continue;
+    if (Number(container.payloadKg || 0) > 0 && sourceUnits.reduce((sum, unit) => sum + Number(unit.weightKg || 0), 0) > Number(container.payloadKg || 0) + EPS) {
+      continue;
+    }
+    const packed = packContainer(container, sourceUnits.map(stripPlacement));
+    if (!packed?.placed?.length || packed.unplaced?.length || sumUnitQuantity(packed.placed) < sourceQuantity) continue;
+    if (packed.balanceValidation?.severity === "red" || packed.strategySummary?.complianceBlocked) continue;
+    const meta = equipmentMeta(container);
+    const capacity = Math.max(EPS, usageCapacity(container, utilizationPercent));
+    const fillPercent = usageUsedCapacity(container, packed.placed) / capacity * 100;
+    candidates.push({
+      container,
+      packed,
+      price: meta.referencePrice,
+      volume: volumeM3(container),
+      fillPercent,
+      specialPenalty: meta.equipmentClass === "FR" ? 3 : meta.equipmentClass === "RF" ? 2 : 0
+    });
+  }
+  const selected = candidates.sort((a, b) => {
+    const priceDiff = a.price - b.price;
+    if (Math.abs(priceDiff) > EPS) return priceDiff;
+    const specialDiff = a.specialPenalty - b.specialPenalty;
+    if (specialDiff) return specialDiff;
+    const volumeDiff = a.volume - b.volume;
+    if (Math.abs(volumeDiff) > EPS) return volumeDiff;
+    return b.fillPercent - a.fillPercent;
+  })[0];
+  if (!selected) return null;
+  return {
+    ...selected.packed,
+    container: mixedPlanBoxContainer(selected.container),
+    strategySummary: {
+      ...(selected.packed.strategySummary || {}),
+      mixedReplacementFrom: sourceBox?.container?.name || "",
+      mixedReplacementFillPercent: round(selected.fillPercent)
+    }
+  };
+}
+
+function buildMixedEvaluationFromPackedBoxes(packedBoxes, total, utilizationPercent, globalGapCm, fatalOversize = false, balanceBlocked = false) {
+  const mixedContainer = {
+    id: "mixed-plan",
+    name: "智能组合方案",
+    lengthCm: packedBoxes[0].container.lengthCm,
+    widthCm: packedBoxes[0].container.widthCm,
+    heightCm: packedBoxes[0].container.heightCm,
+    payloadKg: packedBoxes.reduce((sum, box) => sum + Number(box.container.payloadKg || 0), 0),
+    equipmentClass: "MIX",
+    priceTier: "mixed",
+    costFactor: mixedPlanCost(packedBoxes),
+    referencePrice: mixedPlanFreightCost(packedBoxes),
+    mixedPlan: true
+  };
+  const multi = {
+    boxes: fatalOversize ? -1 : packedBoxes.length,
+    firstBox: packedBoxes[0],
+    packedBoxes,
+    detailedBoxLimit: MAX_DETAILED_BOXES,
+    remainingUnitCountAfterDetailed: 0,
+    estimated: false,
+    fatalOversize,
+    balanceBlocked
+  };
+  const units = packedBoxes.flatMap((box) => box.placed.map(copyUnit));
+  const evaluation = buildEvaluation(mixedContainer, units, total, utilizationPercent, globalGapCm, multi);
+  evaluation.isMixedPlan = true;
+  const totalUsableVolume = packedBoxes.reduce((sum, box) => sum + volumeM3(box.container) * utilizationPercent / 100, 0);
+  const totalOccupiedVolume = packedBoxes.reduce((sum, box) => sum + sumCargoVolumeM3(box.placed), 0);
+  const usage = usageMetricsForPackedBoxes(mixedContainer, packedBoxes, utilizationPercent);
+  evaluation.usableVolumeM3 = round(totalUsableVolume);
+  evaluation.firstBoxOccupiedVolumeM3 = round(totalOccupiedVolume);
+  evaluation.firstBoxRemainingVolumeM3 = round(Math.max(0, totalUsableVolume - totalOccupiedVolume));
+  evaluation.usageMode = usage.mode;
+  evaluation.firstBoxFillPercent = round(usage.averageFillPercent);
+  evaluation.firstBoxRawFillPercent = evaluation.firstBoxFillPercent;
+  evaluation.averageFillPercent = evaluation.firstBoxFillPercent;
+  evaluation.firstBoxDeckAreaPercent = round(usage.firstDeckAreaPercent);
+  evaluation.firstBoxLengthPercent = round(usage.firstLengthPercent);
+  evaluation.averageDeckAreaPercent = round(usage.averageDeckAreaPercent);
+  evaluation.mixedPlan = {
+    summary: mixedPlanSummary(packedBoxes),
+    boxes: packedBoxes.map((box, index) => ({
+      index: index + 1,
+      containerId: box.container.id,
+      containerName: box.container.name,
+      placedCount: sumUnitQuantity(box.placed)
+    }))
+  };
+  evaluation.recommendation = buildRecommendation(evaluation);
+  return evaluation;
+}
+
+function mixedPlanBoxContainer(container) {
+  const copy = { ...container };
+  delete copy.balanceSettings;
+  delete copy.supportSettings;
+  return copy;
 }
 
 function mixedBoxCandidateScore(container, packed, remaining, utilizationPercent, fitStatus) {

@@ -537,7 +537,7 @@
             >
               <span class="container-icon">{{ containerIcon(evaluation.container.name) }}</span>
               <mark v-if="result?.bestContainerId === evaluation.container.id" class="container-recommend-mark">{{ tr("推荐") }}</mark>
-              <strong>{{ trPlanSummary(evaluation.container.name) }}</strong>
+              <strong>{{ evaluationCardTitle(evaluation) }}</strong>
               <small>{{ evaluationCardSubtitle(evaluation) }}</small>
               <em class="freight-cost">{{ evaluationFreightText(evaluation) }}</em>
               <small class="utilization-line">{{ evaluationCardMetric(evaluation) }}</small>
@@ -2457,9 +2457,16 @@ function containerSourceShort(container: any) {
 
 function evaluationCardSubtitle(evaluation) {
   if (evaluation?.isMixedPlan || evaluation?.container?.mixedPlan) {
-    return trPlanSummary(evaluation?.mixedPlan?.summary || "多箱型组合");
+    return evaluationFitText(evaluation);
   }
   return `${containerDimensionText(evaluation?.container)} cm`;
+}
+
+function evaluationCardTitle(evaluation) {
+  if (evaluation?.isMixedPlan || evaluation?.container?.mixedPlan) {
+    return trPlanSummary(evaluation?.mixedPlan?.summary || evaluation?.container?.name || "");
+  }
+  return trPlanSummary(evaluation?.container?.name || "");
 }
 
 function evaluationCardMetric(evaluation) {
@@ -2604,7 +2611,7 @@ function evaluationRecommendationText(evaluation) {
 
 function evaluationHint(evaluation) {
   return [
-    trPlanSummary(evaluation?.container?.name || ui("result.planFallback")),
+    evaluationCardTitle(evaluation) || ui("result.planFallback"),
     evaluationCardSubtitle(evaluation),
     evaluationFreightText(evaluation),
     evaluationCardMetric(evaluation),
