@@ -574,24 +574,7 @@
               <h2>{{ trContainerName(selectedContainer?.name || "请选择箱型") }} · {{ tr(`第 ${selectedBoxIndex} 货舱`) }}</h2>
             </div>
           </div>
-          <div v-if="!visualSceneActivated" class="visual-lazy-card">
-            <div>
-              <span>{{ ui("result.visualLazyEyebrow") }}</span>
-              <strong>{{ ui("result.visualLazyTitle") }}</strong>
-              <p>{{ ui("result.visualLazyDescription") }}</p>
-            </div>
-            <dl>
-              <template v-for="row in visualPreviewRows" :key="row.key">
-                <dt>{{ row.label }}</dt>
-                <dd>{{ row.value }}</dd>
-              </template>
-            </dl>
-            <el-button type="primary" :disabled="!selectedEvaluation?.packedBoxes?.length" @click="activateVisualScene">
-              {{ ui("result.load3d") }}
-            </el-button>
-          </div>
           <ContainerScene
-            v-else
             :container="selectedContainer"
             :placements="selectedPlacements"
             :evaluation="selectedEvaluation"
@@ -806,7 +789,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { UploadFile } from "element-plus";
 import {
@@ -836,6 +819,7 @@ import LoginPage from "./components/LoginPage.vue";
 import CargoModal from "./components/CargoModal.vue";
 import ContainerModal from "./components/ContainerModal.vue";
 import ContainerReferencePage from "./components/ContainerReferencePage.vue";
+import ContainerScene from "./components/ContainerScene.vue";
 import LanguageSwitcher from "./components/LanguageSwitcher.vue";
 import { exportPackingReportsZip, exportPackingReport } from "./services/exportReport";
 import { assignCargoModels } from "./services/excelImport";
@@ -854,7 +838,6 @@ const TEMPLATE_STORAGE_KEY = "cargo-planner-cargo-templates";
 const REFERENCE_PRICE_BASE = 1000;
 const PACKING_RESULT_CACHE_LIMIT = 6;
 const packingResultCache = new Map<string, any>();
-const ContainerScene = defineAsyncComponent(() => import("./components/ContainerScene.vue"));
 const colors = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3", "#ca8a04", "#475569"];
 const DEFAULT_BALANCE_SETTINGS = {
   greenLimitPercent: 2.5,
@@ -961,7 +944,6 @@ const switchingBox = ref(false);
 const sceneRendering = ref(false);
 const showRemaining = ref(true);
 const showMassBalance = ref(true);
-const visualSceneActivated = ref(false);
 const cargoModalOpen = ref(false);
 const containerModalOpen = ref(false);
 const smartImportOpen = ref(false);
@@ -1030,7 +1012,6 @@ const resultSummary = computed(() => {
 });
 const resultOptimizationRows = computed(() => buildResultOptimizationRows(sortedEvaluations.value));
 const resultMixedHoldRows = computed(() => buildMixedHoldRows(sortedEvaluations.value[0]));
-const visualPreviewRows = computed(() => buildVisualPreviewRows(selectedEvaluation.value));
 const decisionFlowSteps = computed(() => {
   currentLocale.value;
   return buildDecisionFlow(decisionLogs.value, loading.value);
@@ -1441,16 +1422,6 @@ function buildMixedHoldRows(evaluation) {
   }));
 }
 
-function buildVisualPreviewRows(evaluation) {
-  if (!evaluation) return [];
-  return [
-    { key: "plan", label: ui("result.previewPlan"), value: evaluationPlanName(evaluation) },
-    { key: "boxes", label: ui("result.previewBoxes"), value: evaluationFitText(evaluation) },
-    { key: "freight", label: ui("result.previewFreight"), value: evaluationFreightText(evaluation) },
-    { key: "fill", label: ui("result.previewFill"), value: evaluationCardMetric(evaluation) }
-  ];
-}
-
 function evaluationPlanName(evaluation) {
   if (!evaluation) return "-";
   const summary = evaluation?.mixedPlan?.summary;
@@ -1462,11 +1433,6 @@ function evaluationPlanName(evaluation) {
 
 function sumPlacementQuantity(placements = []) {
   return placements.reduce((sum, item) => sum + Number(item?.quantity || 1), 0);
-}
-
-function activateVisualScene() {
-  if (!selectedEvaluation.value?.packedBoxes?.length) return;
-  visualSceneActivated.value = true;
 }
 
 async function recalculate(force = false) {
@@ -1481,7 +1447,6 @@ async function recalculate(force = false) {
     apiStatus.value = ui("result.cacheHit");
     selectedContainerId.value = result.value.bestContainerId || result.value.evaluations[0]?.container.id || selectedContainerId.value;
     selectedBoxIndex.value = 1;
-    visualSceneActivated.value = false;
     loading.value = false;
     packingTimeoutDialogOpen.value = false;
     stopPackingElapsedTimer();
@@ -1495,7 +1460,6 @@ async function recalculate(force = false) {
   decisionLogs.value = [];
   packingWorkerProgress.value = null;
   packingTimeoutDialogOpen.value = false;
-  visualSceneActivated.value = false;
   apiStatus.value = workload.seconds >= 20 ? `预计 ${workload.durationLabel}` : "正在计算";
   try {
     const nextResult = await calculatePacking(payload, {
@@ -1516,7 +1480,6 @@ async function recalculate(force = false) {
         apiStatus.value = t("packingStatus.partialReady");
         selectedContainerId.value = result.value.bestContainerId || result.value.evaluations[0]?.container.id || selectedContainerId.value;
         selectedBoxIndex.value = 1;
-        visualSceneActivated.value = false;
       }
     });
     if (seq !== calcSeq) return;
@@ -1525,7 +1488,6 @@ async function recalculate(force = false) {
     apiStatus.value = "本机计算";
     selectedContainerId.value = result.value.bestContainerId || result.value.evaluations[0]?.container.id || selectedContainerId.value;
     selectedBoxIndex.value = 1;
-    visualSceneActivated.value = false;
   } catch (error) {
     if (seq !== calcSeq) return;
     apiStatus.value = "计算异常";
