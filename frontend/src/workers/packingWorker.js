@@ -3904,7 +3904,7 @@ function validateWeightBalance(container, placed) {
 function calculateWeightBalance(container, placed) {
   const lengthCm = Number(container?.lengthCm || 0);
   const widthCm = Number(container?.widthCm || 0);
-  const heightCm = Number(container?.heightCm || 0);
+  const heightCm = containerHeightLimit(container);
   const centerX = lengthCm / 2;
   const centerY = widthCm / 2;
   const centerZ = heightCm / 2;
@@ -4019,7 +4019,7 @@ function overlapLength(a1, a2, b1, b2) {
 function emptyWeightBalance(container) {
   const centerX = Number(container?.lengthCm || 0) / 2;
   const centerY = Number(container?.widthCm || 0) / 2;
-  const centerZ = Number(container?.heightCm || 0) / 2;
+  const centerZ = containerHeightLimit(container) / 2;
   return {
     valid: false,
     severity: "green",
@@ -4071,16 +4071,21 @@ function balanceSeverityRank(validation) {
 
 function isFortyFootFlatRack(container) {
   const text = `${container?.name || ""} ${container?.id || ""}`.toLowerCase();
-  return /40\s*fr|40fr|flat\s*rack|flatrack|flat|平板/.test(text);
+  return /40\s*fr|40fr/.test(text) || (/40/.test(text) && isFlatRackLike(container));
 }
 
 function isHeightUnlimited(container) {
   return container?.ignoreHeightLimit === true;
 }
 
+function isFlatRackLike(container) {
+  const text = `${container?.id || ""} ${container?.name || ""} ${container?.visualKind || ""} ${container?.equipmentClass || ""}`.toLowerCase();
+  return /fr|flat\s*rack|flatrack|flat|\u5e73\u677f/.test(text);
+}
+
 function containerHeightLimit(container) {
   const explicitLimit = Number(container?.heightLimitCm ?? container?.oogHeightLimitCm);
-  if (isHeightUnlimited(container)) {
+  if (isHeightUnlimited(container) || isFlatRackLike(container)) {
     if (Number.isFinite(explicitLimit) && explicitLimit > 0) return explicitLimit;
     return Math.max(1, Number(container?.heightCm || 0));
   }

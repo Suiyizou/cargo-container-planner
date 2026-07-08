@@ -51,7 +51,7 @@ function normalizeContainer(container: ContainerLike | null): ContainerLike | nu
 
 function visualHeightLimit(container: ContainerLike) {
   const heightLimit = Number(container.heightLimitCm || 0);
-  if (isFlatRack(container, null) && heightLimit > 0) return heightLimit;
+  if ((isFlatRack(container, null) || heightLimit > Number(container.heightCm || 0)) && heightLimit > 0) return heightLimit;
   return Number(container.heightCm || 0);
 }
 

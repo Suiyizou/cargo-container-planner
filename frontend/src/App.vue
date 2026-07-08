@@ -304,21 +304,23 @@
                 <el-button size="small" :icon="Box" @click="openContainerModal()">添加箱型</el-button>
                 <el-button size="small" :icon="Refresh" @click="resetContainers">恢复默认</el-button>
               </div>
-              <el-table :data="containerSourceRows" size="small" class="container-source-table compact" max-height="320">
+              <el-table :data="containerSourceRows" size="small" class="container-source-table compact" max-height="calc(100vh - 370px)">
                 <el-table-column prop="name" label="箱型" min-width="120" />
-                <el-table-column label="尺寸 cm" min-width="170">
+                <el-table-column :label="ui('common.dimensionsCm')" min-width="190">
                   <template #default="{ row }">{{ containerDimensionText(row) }}</template>
                 </el-table-column>
-                <el-table-column :label="ui('container.referencePrice')" width="120">
+                <el-table-column :label="ui('container.referencePrice')" width="138">
                   <template #default="{ row }">
                     <span class="source-basis" :class="{ edited: row.priceEdited }">{{ containerPriceText(row) }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column :label="ui('common.actions')" width="160" fixed="right">
+                <el-table-column :label="ui('common.actions')" width="210" fixed="right" class-name="container-action-cell">
                   <template #default="{ row }">
-                    <el-button link type="primary" @click="openContainerModal(row)">编辑</el-button>
-                    <el-button link :disabled="!canRestoreContainerPrice(row)" @click="restoreContainerPrice(row)">{{ ui('container.restorePriceShort') }}</el-button>
-                    <el-button link :disabled="!isDefaultContainer(row.id)" @click="restoreContainerDefaults(row)">恢复</el-button>
+                    <div class="container-row-actions">
+                      <el-button link type="primary" @click="openContainerModal(row)">编辑</el-button>
+                      <el-button link :disabled="!canRestoreContainerPrice(row)" @click="restoreContainerPrice(row)">{{ ui('container.restorePriceShort') }}</el-button>
+                      <el-button link :disabled="!isDefaultContainer(row.id)" @click="restoreContainerDefaults(row)">恢复</el-button>
+                    </div>
                   </template>
                 </el-table-column>
               </el-table>
@@ -2548,9 +2550,14 @@ function containerIcon(name) {
 }
 
 function containerDimensionText(container: any) {
-  const base = `${formatDimensionNumber(container?.lengthCm)} × ${formatDimensionNumber(container?.widthCm)} × ${formatDimensionNumber(container?.heightCm)}`;
   const heightLimit = Number(container?.heightLimitCm || 0);
-  if ((container?.ignoreHeightLimit || /fr|flat|\u5e73\u677f/i.test(`${container?.id || ""} ${container?.name || ""}`)) && heightLimit > 0) {
+  const isFlatRack = container?.ignoreHeightLimit || /fr|flat|\u5e73\u677f/i.test(`${container?.id || ""} ${container?.name || ""} ${container?.visualKind || ""} ${container?.equipmentClass || ""}`);
+  const displayHeight = isFlatRack && heightLimit > 0 ? heightLimit : Number(container?.heightCm || 0);
+  const base = `${formatDimensionNumber(container?.lengthCm)} × ${formatDimensionNumber(container?.widthCm)} × ${formatDimensionNumber(displayHeight)}`;
+  if (isFlatRack && heightLimit > 0 && Math.abs(heightLimit - Number(container?.heightCm || 0)) > 0.1) {
+    return `${base} / ${ui("container.frameHeightShort")} ${formatDimensionNumber(container?.heightCm)}`;
+  }
+  if (isFlatRack && heightLimit > 0) {
     return `${base} / ${ui("container.heightLimitShort")} ${formatDimensionNumber(heightLimit)}`;
   }
   return base;
