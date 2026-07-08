@@ -2123,6 +2123,81 @@ select {
   color: #dc2626;
 }
 
+.optimization-explainer {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.optimization-head {
+  display: grid;
+  gap: 4px;
+}
+
+.optimization-head span {
+  color: #165dff;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.optimization-head strong {
+  color: #102033;
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.optimization-head small {
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.optimization-list,
+.optimization-holds {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.optimization-holds {
+  padding-top: 12px;
+  border-top: 1px solid #d8e4f2;
+}
+
+.optimization-row,
+.optimization-holds > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #d8e4f2;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.optimization-row span,
+.optimization-holds span {
+  color: #60738a;
+  font-size: 12px;
+}
+
+.optimization-row b,
+.optimization-holds b {
+  color: #102033;
+  font-size: 15px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.optimization-row small,
+.optimization-holds small {
+  color: #64748b;
+  line-height: 1.45;
+}
+
 .decision-flow-empty {
   padding: 22px;
   border: 1px dashed #c7d7ea;
@@ -2897,6 +2972,65 @@ select {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.visual-lazy-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(240px, 0.8fr) auto;
+  align-items: center;
+  gap: 18px;
+  min-height: 360px;
+  padding: 22px;
+  border: 1px dashed #b9cbe2;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #f8fbff 0%, #ffffff 100%);
+}
+
+.visual-lazy-card span {
+  display: block;
+  margin-bottom: 8px;
+  color: #165dff;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.visual-lazy-card strong {
+  display: block;
+  color: #102033;
+  font-size: 22px;
+  line-height: 1.3;
+}
+
+.visual-lazy-card p {
+  max-width: 560px;
+  margin: 8px 0 0;
+  color: #64748b;
+  line-height: 1.6;
+}
+
+.visual-lazy-card dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #d8e4f2;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.visual-lazy-card dt {
+  color: #60738a;
+  font-size: 12px;
+}
+
+.visual-lazy-card dd {
+  min-width: 0;
+  margin: 0;
+  color: #102033;
+  font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .scene-tools,
@@ -5032,6 +5166,16 @@ select {
 
   .result-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .optimization-list,
+  .optimization-holds,
+  .visual-lazy-card {
+    grid-template-columns: 1fr;
+  }
+
+  .visual-lazy-card {
+    align-items: stretch;
   }
 
   .decision-live-line {

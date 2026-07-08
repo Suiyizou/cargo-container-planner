@@ -507,6 +507,27 @@
               <small>{{ ui("result.freightFormula") }}</small>
             </div>
           </div>
+          <div v-if="resultOptimizationRows.length" class="optimization-explainer">
+            <div class="optimization-head">
+              <span>{{ ui("result.optimizationEyebrow") }}</span>
+              <strong>{{ ui("result.optimizationTitle") }}</strong>
+              <small>{{ ui("result.optimizationBasis") }}</small>
+            </div>
+            <div class="optimization-list">
+              <div v-for="row in resultOptimizationRows" :key="row.key" class="optimization-row">
+                <span>{{ row.label }}</span>
+                <b>{{ row.value }}</b>
+                <small>{{ row.detail }}</small>
+              </div>
+            </div>
+            <div v-if="resultMixedHoldRows.length" class="optimization-holds">
+              <div v-for="row in resultMixedHoldRows" :key="row.key">
+                <span>{{ row.label }}</span>
+                <b>{{ row.value }}</b>
+                <small>{{ row.detail }}</small>
+              </div>
+            </div>
+          </div>
         </section>
         <section class="panel ranking-panel">
           <div class="section-head">
@@ -517,7 +538,7 @@
             <div class="view-actions">
               <el-tag :type="loading ? 'warning' : 'primary'" effect="light">{{ tr(apiStatus) }}</el-tag>
               <el-button :icon="ArrowLeft" @click="goPlannerStep('cargos')">{{ tr("返回货物总览") }}</el-button>
-              <el-button type="primary" :icon="Refresh" @click="recalculate">{{ tr("重新计算") }}</el-button>
+              <el-button type="primary" :icon="Refresh" @click="recalculate(true)">{{ ui("result.recalculate") }}</el-button>
             </div>
           </div>
           <div class="container-grid">
@@ -553,7 +574,24 @@
               <h2>{{ trContainerName(selectedContainer?.name || "请选择箱型") }} · {{ tr(`第 ${selectedBoxIndex} 货舱`) }}</h2>
             </div>
           </div>
+          <div v-if="!visualSceneActivated" class="visual-lazy-card">
+            <div>
+              <span>{{ ui("result.visualLazyEyebrow") }}</span>
+              <strong>{{ ui("result.visualLazyTitle") }}</strong>
+              <p>{{ ui("result.visualLazyDescription") }}</p>
+            </div>
+            <dl>
+              <template v-for="row in visualPreviewRows" :key="row.key">
+                <dt>{{ row.label }}</dt>
+                <dd>{{ row.value }}</dd>
+              </template>
+            </dl>
+            <el-button type="primary" :disabled="!selectedEvaluation?.packedBoxes?.length" @click="activateVisualScene">
+              {{ ui("result.load3d") }}
+            </el-button>
+          </div>
           <ContainerScene
+            v-else
             :container="selectedContainer"
             :placements="selectedPlacements"
             :evaluation="selectedEvaluation"
@@ -748,7 +786,7 @@
         <footer class="timeout-modal-footer">
           <el-button @click="packingTimeoutDialogOpen = false">{{ t("packingTimeout.close") }}</el-button>
           <el-button @click="goPlannerStep('config'); packingTimeoutDialogOpen = false">{{ t("packingTimeout.adjust") }}</el-button>
-          <el-button type="primary" @click="packingTimeoutDialogOpen = false; recalculate()">{{ t("packingTimeout.retry") }}</el-button>
+          <el-button type="primary" @click="packingTimeoutDialogOpen = false; recalculate(true)">{{ t("packingTimeout.retry") }}</el-button>
         </footer>
       </div>
     </div>
@@ -768,7 +806,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { UploadFile } from "element-plus";
 import {
@@ -798,7 +836,6 @@ import LoginPage from "./components/LoginPage.vue";
 import CargoModal from "./components/CargoModal.vue";
 import ContainerModal from "./components/ContainerModal.vue";
 import ContainerReferencePage from "./components/ContainerReferencePage.vue";
-import ContainerScene from "./components/ContainerScene.vue";
 import LanguageSwitcher from "./components/LanguageSwitcher.vue";
 import { exportPackingReportsZip, exportPackingReport } from "./services/exportReport";
 import { assignCargoModels } from "./services/excelImport";
@@ -815,6 +852,9 @@ import { cargoLabel, fmt, shortType, uid } from "./utils/format";
 const STORAGE_KEY = "cargo-planner-vue-state";
 const TEMPLATE_STORAGE_KEY = "cargo-planner-cargo-templates";
 const REFERENCE_PRICE_BASE = 1000;
+const PACKING_RESULT_CACHE_LIMIT = 6;
+const packingResultCache = new Map<string, any>();
+const ContainerScene = defineAsyncComponent(() => import("./components/ContainerScene.vue"));
 const colors = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3", "#ca8a04", "#475569"];
 const DEFAULT_BALANCE_SETTINGS = {
   greenLimitPercent: 2.5,
@@ -921,6 +961,7 @@ const switchingBox = ref(false);
 const sceneRendering = ref(false);
 const showRemaining = ref(true);
 const showMassBalance = ref(true);
+const visualSceneActivated = ref(false);
 const cargoModalOpen = ref(false);
 const containerModalOpen = ref(false);
 const smartImportOpen = ref(false);
@@ -987,6 +1028,9 @@ const resultSummary = computed(() => {
       : "暂无计算结果"
   };
 });
+const resultOptimizationRows = computed(() => buildResultOptimizationRows(sortedEvaluations.value));
+const resultMixedHoldRows = computed(() => buildMixedHoldRows(sortedEvaluations.value[0]));
+const visualPreviewRows = computed(() => buildVisualPreviewRows(selectedEvaluation.value));
 const decisionFlowSteps = computed(() => {
   currentLocale.value;
   return buildDecisionFlow(decisionLogs.value, loading.value);
@@ -1305,12 +1349,8 @@ function handleMenuSelect(index) {
   router.push(index);
 }
 
-async function recalculate() {
-  const activeContainers = calculationContainers.value;
-  if (!cargos.value.length || !activeContainers.length) return;
-  const seq = ++calcSeq;
-  const startedAt = Date.now();
-  const workload = estimatePackingWorkload({
+function buildPackingPayload(activeContainers = calculationContainers.value) {
+  return {
     cargos: cargos.value,
     containers: activeContainers,
     utilizationPercent: utilizationPercent.value,
@@ -1318,23 +1358,147 @@ async function recalculate() {
     supportRatioPercent: supportRatioPercent.value,
     nonStackSupportRatioPercent: nonStackSupportRatioPercent.value,
     balanceSettings: balanceSettings.value
-  });
+  };
+}
+
+function normalizeCacheValue(value) {
+  if (Array.isArray(value)) return value.map((item) => normalizeCacheValue(item));
+  if (value && typeof value === "object") {
+    return Object.keys(value).sort().reduce((next, key) => {
+      const field = value[key];
+      if (typeof field !== "function" && field !== undefined) {
+        next[key] = normalizeCacheValue(field);
+      }
+      return next;
+    }, {});
+  }
+  if (typeof value === "number") return Number.isFinite(value) ? Number(value.toFixed(4)) : value;
+  return value;
+}
+
+function packingCacheKey(payload) {
+  return JSON.stringify(normalizeCacheValue(payload));
+}
+
+function cloneForCache(value) {
+  if (typeof structuredClone === "function") return structuredClone(value);
+  return JSON.parse(JSON.stringify(value));
+}
+
+function rememberPackingResult(key, nextResult) {
+  if (!key || !nextResult) return;
+  packingResultCache.delete(key);
+  packingResultCache.set(key, cloneForCache(nextResult));
+  while (packingResultCache.size > PACKING_RESULT_CACHE_LIMIT) {
+    const oldestKey = packingResultCache.keys().next().value;
+    packingResultCache.delete(oldestKey);
+  }
+}
+
+function buildResultOptimizationRows(evaluations = []) {
+  const best = evaluations[0];
+  if (!best) return [];
+  const rows = [{
+    key: "best",
+    label: ui("result.optimizationBest"),
+    value: evaluationPlanName(best),
+    detail: `${evaluationFitText(best)} / ${evaluationFreightText(best)}`
+  }];
+  const baseline = evaluations.find((item) => item && item !== best && !item.isMixedPlan && !item.container?.mixedPlan && item.fitStatus === "fit")
+    || evaluations.find((item) => item && item !== best && item.fitStatus === "fit");
+  if (baseline) {
+    const saving = evaluationFreightValue(baseline) - evaluationFreightValue(best);
+    rows.push({
+      key: "compare",
+      label: ui("result.optimizationCompare"),
+      value: evaluationPlanName(baseline),
+      detail: saving > 0
+        ? ui("result.optimizationSaving", { amount: formatCurrency(saving, evaluationFreightCurrency(best)) })
+        : ui("result.optimizationNoSaving")
+    });
+  }
+  if (best.isMixedPlan || best.container?.mixedPlan) {
+    rows.push({
+      key: "mixed",
+      label: ui("result.optimizationMixed"),
+      value: best.mixedPlan?.summary ? trPlanSummary(best.mixedPlan.summary) : ui("result.mixedPlan"),
+      detail: ui("result.optimizationMixedDetail")
+    });
+  }
+  return rows;
+}
+
+function buildMixedHoldRows(evaluation) {
+  if (!(evaluation?.isMixedPlan || evaluation?.container?.mixedPlan)) return [];
+  return (evaluation.packedBoxes || []).map((box) => ({
+    key: `hold-${box.index}`,
+    label: ui("result.holdLabel", { index: box.index }),
+    value: trContainerName(box.container?.name || ""),
+    detail: ui("result.holdDetail", {
+      pieces: sumPlacementQuantity(box.placed),
+      freight: formatCurrency(containerReferencePrice(box.container), containerReferenceCurrency(box.container))
+    })
+  }));
+}
+
+function buildVisualPreviewRows(evaluation) {
+  if (!evaluation) return [];
+  return [
+    { key: "plan", label: ui("result.previewPlan"), value: evaluationPlanName(evaluation) },
+    { key: "boxes", label: ui("result.previewBoxes"), value: evaluationFitText(evaluation) },
+    { key: "freight", label: ui("result.previewFreight"), value: evaluationFreightText(evaluation) },
+    { key: "fill", label: ui("result.previewFill"), value: evaluationCardMetric(evaluation) }
+  ];
+}
+
+function evaluationPlanName(evaluation) {
+  if (!evaluation) return "-";
+  const summary = evaluation?.mixedPlan?.summary;
+  if (summary) return trPlanSummary(summary);
+  const name = trContainerName(evaluation?.container?.name || "");
+  const boxes = Number(evaluation?.boxes || 0);
+  return boxes > 1 ? `${name} x ${boxes}` : name;
+}
+
+function sumPlacementQuantity(placements = []) {
+  return placements.reduce((sum, item) => sum + Number(item?.quantity || 1), 0);
+}
+
+function activateVisualScene() {
+  if (!selectedEvaluation.value?.packedBoxes?.length) return;
+  visualSceneActivated.value = true;
+}
+
+async function recalculate(force = false) {
+  const activeContainers = calculationContainers.value;
+  if (!cargos.value.length || !activeContainers.length) return;
+  const seq = ++calcSeq;
+  const payload = buildPackingPayload(activeContainers);
+  const cacheKey = packingCacheKey(payload);
+  const cachedResult = force ? null : packingResultCache.get(cacheKey);
+  if (cachedResult) {
+    result.value = normalizeResult(cloneForCache(cachedResult));
+    apiStatus.value = ui("result.cacheHit");
+    selectedContainerId.value = result.value.bestContainerId || result.value.evaluations[0]?.container.id || selectedContainerId.value;
+    selectedBoxIndex.value = 1;
+    visualSceneActivated.value = false;
+    loading.value = false;
+    packingTimeoutDialogOpen.value = false;
+    stopPackingElapsedTimer();
+    return;
+  }
+
+  const startedAt = Date.now();
+  const workload = estimatePackingWorkload(payload);
   loading.value = true;
   startPackingElapsedTimer(startedAt);
   decisionLogs.value = [];
   packingWorkerProgress.value = null;
   packingTimeoutDialogOpen.value = false;
+  visualSceneActivated.value = false;
   apiStatus.value = workload.seconds >= 20 ? `预计 ${workload.durationLabel}` : "正在计算";
   try {
-    const nextResult = await calculatePacking({
-      cargos: cargos.value,
-      containers: activeContainers,
-      utilizationPercent: utilizationPercent.value,
-      globalGapCm: globalGapCm.value,
-      supportRatioPercent: supportRatioPercent.value,
-      nonStackSupportRatioPercent: nonStackSupportRatioPercent.value,
-      balanceSettings: balanceSettings.value
-    }, {
+    const nextResult = await calculatePacking(payload, {
       maxDecisionEntries: 800,
       decisionBatchSize: 10,
       progressIntervalMs: 250,
@@ -1352,13 +1516,16 @@ async function recalculate() {
         apiStatus.value = t("packingStatus.partialReady");
         selectedContainerId.value = result.value.bestContainerId || result.value.evaluations[0]?.container.id || selectedContainerId.value;
         selectedBoxIndex.value = 1;
+        visualSceneActivated.value = false;
       }
     });
     if (seq !== calcSeq) return;
     result.value = normalizeResult(nextResult);
+    rememberPackingResult(cacheKey, result.value);
     apiStatus.value = "本机计算";
     selectedContainerId.value = result.value.bestContainerId || result.value.evaluations[0]?.container.id || selectedContainerId.value;
     selectedBoxIndex.value = 1;
+    visualSceneActivated.value = false;
   } catch (error) {
     if (seq !== calcSeq) return;
     apiStatus.value = "计算异常";
@@ -1375,7 +1542,6 @@ async function recalculate() {
     }
   }
 }
-
 function appendDecisionLogs(decisions: any[]) {
   const normalized = (Array.isArray(decisions) ? decisions : [])
     .map((item) => ({
