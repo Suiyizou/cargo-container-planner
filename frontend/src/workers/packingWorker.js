@@ -2,7 +2,7 @@ const TYPE_RULES = {
   normal: { rotatable: true, nonStack: false, extraGapCm: 0 },
   upright: { rotatable: false, nonStack: false, extraGapCm: 1 },
   nonstack: { rotatable: true, nonStack: true, extraGapCm: 2 },
-  pallet: { rotatable: false, nonStack: false, extraGapCm: 3 }
+  pallet: { rotatable: true, nonStack: false, extraGapCm: 3 }
 };
 
 const COLORS = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3", "#ca8a04", "#475569"];
@@ -1173,7 +1173,7 @@ function packLayerLaffCore(container, units, strategy, fixedPlaced = []) {
     const placedSeed = applyPlacement(seed, seedPlacement);
     placed.push(placedSeed);
     const layerBottom = placedSeed.z;
-    const layerTop = placedSeed.z + placedSeed.heightCm;
+    let layerTop = placedSeed.z + placedSeed.heightCm;
     layerNo += 1;
     let layerPlacedQuantity = unitQuantity(placedSeed);
     traceProgress({
@@ -1196,10 +1196,11 @@ function packLayerLaffCore(container, units, strategy, fixedPlaced = []) {
       for (const unit of layerCandidates) {
         const index = active.findIndex((item) => item.unitKey === unit.unitKey);
         if (index < 0) continue;
-        const placement = packExtremePoint(stackableContainer, placed, unit, strategy, { layerBottom, layerTop });
+        const placement = packExtremePoint(stackableContainer, placed, unit, strategy, { layerBottom, baseZOnly: true });
         if (!placement) continue;
         active.splice(index, 1);
         placed.push(applyPlacement(unit, placement));
+        layerTop = Math.max(layerTop, placement.z + placement.heightCm);
         layerPlacedQuantity += unitQuantity(unit);
         traceDecision({
           phase: "placement",
@@ -1210,8 +1211,9 @@ function packLayerLaffCore(container, units, strategy, fixedPlaced = []) {
       }
     }
 
+    const remainingHeight = containerHeightLimit(stackableContainer) - layerBottom;
     const skippedByHeight = active.filter((unit) =>
-      !unit.orientations.some((dims) => dims.heightCm <= layerTop - layerBottom + EPS)
+      !unit.orientations.some((dims) => dims.heightCm <= remainingHeight + EPS)
     ).length;
     if (skippedByHeight) {
       traceDecision({
@@ -3279,10 +3281,13 @@ function extremePoints(container, placed, dims, options = {}) {
   const layerTop = Number(options.layerTop);
   const hasLayerTop = Number.isFinite(layerTop);
   const floorOnly = Boolean(options.floorOnly);
+  const baseZOnly = Boolean(options.baseZOnly);
+  const baseZ = hasLayerBottom ? layerBottom : 0;
   const add = (x, y, z) => {
     const point = { x: round3(x), y: round3(y), z: round3(z) };
     if (point.x < -EPS || point.y < -EPS || point.z < -EPS) return;
     if (floorOnly && Math.abs(point.z) > EPS) return;
+    if (baseZOnly && Math.abs(point.z - baseZ) > EPS) return;
     if (point.x + dims.lengthCm > container.lengthCm + EPS) return;
     if (point.y + dims.widthCm > container.widthCm + EPS) return;
     if (point.z + dims.heightCm > heightLimit + EPS) return;
@@ -3296,7 +3301,7 @@ function extremePoints(container, placed, dims, options = {}) {
   const centerY = Number(container.widthCm || 0) / 2;
   const xAnchors = [0, centerX - dims.lengthCm, centerX - dims.lengthCm / 2, centerX, container.lengthCm - dims.lengthCm];
   const yAnchors = [0, centerY - dims.widthCm, centerY - dims.widthCm / 2, centerY, container.widthCm - dims.widthCm];
-  const zAnchors = floorOnly ? [0] : uniqueSorted(placed.map((box) => box.z + box.heightCm), 0);
+  const zAnchors = floorOnly ? [0] : baseZOnly ? [baseZ] : uniqueSorted(placed.map((box) => box.z + box.heightCm), 0);
   for (const z of zAnchors) {
     for (const x of xAnchors) {
       for (const y of yAnchors) add(x, y, z);
@@ -3316,13 +3321,14 @@ function extremePoints(container, placed, dims, options = {}) {
     }
   }
 
-  const zs = floorOnly ? [0] : uniqueSorted(placed.map((box) => box.z + box.heightCm), 0);
+  const zs = floorOnly ? [0] : baseZOnly ? [baseZ] : uniqueSorted(placed.map((box) => box.z + box.heightCm), 0);
   const xs = uniqueSorted(placed.flatMap((box) => [box.x, box.x + box.lengthCm]), 0);
   const ys = uniqueSorted(placed.flatMap((box) => [box.y, box.y + box.widthCm]), 0);
   for (const z of zs) {
     for (const x of xs) add(x, 0, z);
     for (const y of ys) add(0, y, z);
   }
+  addDenseEdgeIntersections(container, placed, dims, zs, add);
   if (options.denseTop) {
     for (const z of zs) {
       const supportsAtLevel = placed.filter((box) => Math.abs(box.z + box.heightCm - z) < EPS);
@@ -3355,6 +3361,37 @@ function extremePoints(container, placed, dims, options = {}) {
     if (Math.abs(a.y - b.y) > EPS) return a.y - b.y;
     return a.x - b.x;
   });
+}
+
+function addDenseEdgeIntersections(container, placed, dims, zs, add) {
+  if (!placed?.length || !zs?.length) return;
+  const maxEdgeCombinations = 900;
+  const lengthLimit = Number(container.lengthCm || 0);
+  const widthLimit = Number(container.widthCm || 0);
+  const xs = uniqueSorted(placed.flatMap((box) => [
+    0,
+    lengthLimit - dims.lengthCm,
+    box.x,
+    box.x + box.lengthCm,
+    box.x - dims.lengthCm,
+    box.x + box.lengthCm - dims.lengthCm
+  ]));
+  const ys = uniqueSorted(placed.flatMap((box) => [
+    0,
+    widthLimit - dims.widthCm,
+    box.y,
+    box.y + box.widthCm,
+    box.y - dims.widthCm,
+    box.y + box.widthCm - dims.widthCm
+  ]));
+  const usableXs = xs.filter((x) => x >= -EPS && x + dims.lengthCm <= lengthLimit + EPS);
+  const usableYs = ys.filter((y) => y >= -EPS && y + dims.widthCm <= widthLimit + EPS);
+  if (!usableXs.length || !usableYs.length || usableXs.length * usableYs.length > maxEdgeCombinations) return;
+  for (const z of zs) {
+    for (const x of usableXs) {
+      for (const y of usableYs) add(x, y, z);
+    }
+  }
 }
 
 function hasSupport(placement, placed, supportRatio = DEFAULT_SUPPORT_RATIO) {

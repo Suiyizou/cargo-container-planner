@@ -1240,6 +1240,30 @@ select {
   padding: 0 18px 18px;
 }
 
+.cargo-template-panel.el-card {
+  border-radius: 8px;
+}
+
+.cargo-template-panel .el-card__header {
+  padding: 16px 18px 0;
+  border-bottom: 0;
+}
+
+.cargo-template-panel .el-card__body {
+  padding: 12px 18px 18px;
+}
+
+.cargo-template-content {
+  display: grid;
+  gap: 10px;
+}
+
+.cargo-template-table {
+  border: 1px solid #e1eaf5;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
 .embedded-smart-import {
   display: grid;
   gap: 12px;

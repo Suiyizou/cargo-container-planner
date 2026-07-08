@@ -161,6 +161,9 @@
               <el-option :label="ui('excel.appendCargo')" value="append" />
             </el-select>
           </el-form-item>
+          <el-button :disabled="!recognitionHasResult" @click="openRecognitionReviewDialog">
+            {{ ui('excel.openRecognitionReview') }}
+          </el-button>
           <el-button type="primary" :disabled="!recognitionRows.length" @click="importRecognitionRows">
             {{ ui('common.import') }} {{ recognitionRows.length }} {{ ui('unit.classes') }} / {{ recognitionQuantity }} {{ ui('unit.cargoPieces') }}
           </el-button>

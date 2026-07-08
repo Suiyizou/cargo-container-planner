@@ -61,6 +61,12 @@ const uiText = {
   "app.batchDelete": { zh: "批量删除", en: "Batch Delete" },
   "app.clearAll": { zh: "清空全部", en: "Clear All" },
   "app.emptyCargoList": { zh: "还没有录入货物，可以先手动新增，或使用上方智能导入/CSV 导入表格。", en: "No cargo has been entered yet. Add cargo manually, or use Smart Import/CSV import above." },
+  "template.deleteConfirm": { zh: "确认删除模板「{name}」吗？", en: "Delete template \"{name}\"?" },
+  "template.deleted": { zh: "已删除模板。", en: "Template deleted." },
+  "template.cargoTemplates": { zh: "货物模板", en: "Cargo Templates" },
+  "template.save": { zh: "保存模板", en: "Save Template" },
+  "template.name": { zh: "模板名称", en: "Template Name" },
+  "template.scale": { zh: "规模", en: "Scale" },
 
   "profile.personalCenter": { zh: "个人中心", en: "Personal Center" },
   "profile.role.admin": { zh: "管理员", en: "Admin" },
@@ -138,8 +144,8 @@ const uiText = {
   },
   "algorithm.step.rotation": { zh: "3. 旋转枚举", en: "3. Rotation Enumeration" },
   "algorithm.step.rotationText": {
-    zh: "普通货物会枚举最多 6 种长宽高方向；托盘或保持朝上类型按规则限制旋转。每个结果都会记录 X/Y/Z 分别对应货物原始哪条边。",
-    en: "General cargo enumerates up to 6 length/width/height orientations; pallet or keep-upright cargo restricts rotation by rule. Each result records which original edge maps to X/Y/Z."
+    zh: "普通货物和托盘/木箱会枚举最多 6 种长宽高方向；需要固定朝向时请使用保持朝上或不可重压类型。每个结果都会记录 X/Y/Z 分别对应货物原始哪条边。",
+    en: "General cargo and pallet/wooden-crate units enumerate up to 6 length/width/height orientations; use keep-upright or non-stackable types when orientation must be constrained. Each result records which original edge maps to X/Y/Z."
   },
   "algorithm.step.points": { zh: "4. 候选坐标", en: "4. Candidate Points" },
   "algorithm.step.pointsText": {
@@ -360,6 +366,7 @@ const uiText = {
     zh: "托盘/木箱单重为空或为 0，装箱计算会低估重量，请补全单重。",
     en: "Pallet/crate unit weight is empty or zero; packing will underestimate weight, so fill in the unit weight."
   },
+  "excel.openRecognitionReview": { zh: "查看审查结果", en: "View Review Results" },
 
   "scene.lengthCm": { zh: "长 {value} cm", en: "Length {value} cm" },
   "scene.widthCm": { zh: "宽 {value} cm", en: "Width {value} cm" },

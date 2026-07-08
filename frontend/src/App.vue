@@ -286,40 +286,10 @@
           <el-card class="planner-card template-container-card" shadow="hover">
             <template #header>
               <div class="card-header-title">
-                <el-icon><Files /></el-icon>
-                <strong>模板与箱型</strong>
+                <el-icon><Box /></el-icon>
+                <strong>箱型尺寸管理</strong>
               </div>
             </template>
-            <div class="compact-template-block">
-              <div class="compact-section-head">
-                <div>
-                  <strong>货物模板</strong>
-                  <small>本机常用货物组合</small>
-                </div>
-                <el-button size="small" type="primary" :disabled="!cargos.length" @click="saveCargoTemplate">保存模板</el-button>
-              </div>
-              <div class="template-save-row compact">
-                <el-input v-model.trim="templateName" placeholder="模板名称，例如：E-House 项目" clearable />
-              </div>
-              <el-table v-if="cargoTemplates.length" :data="cargoTemplates" size="small" class="template-table-lite compact" max-height="132">
-                <el-table-column prop="name" label="模板名称" min-width="150" />
-                <el-table-column label="规模" width="110">
-                  <template #default="{ row }">{{ row.cargos.length }} 类 / {{ templateQuantity(row) }} 件</template>
-                </el-table-column>
-                <el-table-column label="操作" width="82" fixed="right">
-                  <template #default="{ row }">
-                    <el-button size="small" type="primary" plain @click="applyCargoTemplate(row.id)">套用</el-button>
-                  </template>
-                </el-table-column>
-              </el-table>
-              <el-empty v-else description="还没有本机货物模板" :image-size="48" />
-              <div class="template-placeholder-grid compact">
-                <el-button :icon="MagicStick" @click="loadSample">套用示例</el-button>
-                <el-button :icon="Delete" :disabled="!cargoTemplates.length" @click="deleteSelectedCargoTemplate">删除最近</el-button>
-              </div>
-            </div>
-
-            <el-divider />
             <div class="container-source-compact">
               <div class="compact-section-head">
                 <div>
@@ -390,6 +360,37 @@
           show-icon
           :closable="false"
         />
+
+        <el-card class="panel cargo-template-panel" shadow="never">
+          <template #header>
+            <div class="section-head">
+              <div>
+                <p>Templates</p>
+                <h2>{{ ui('template.cargoTemplates') }}</h2>
+              </div>
+              <el-button type="primary" :disabled="!cargos.length" @click="saveCargoTemplate">{{ ui('template.save') }}</el-button>
+            </div>
+          </template>
+          <div class="cargo-template-content">
+            <div class="template-save-row">
+              <el-input v-model.trim="templateName" placeholder="模板名称，例如：E-House 项目" clearable />
+              <el-button :icon="MagicStick" @click="loadSample">套用示例</el-button>
+            </div>
+            <el-table v-if="cargoTemplates.length" :data="cargoTemplates" size="small" class="template-table-lite cargo-template-table" max-height="220">
+              <el-table-column prop="name" :label="ui('template.name')" min-width="180" />
+              <el-table-column :label="ui('template.scale')" width="140">
+                <template #default="{ row }">{{ row.cargos.length }} 类 / {{ templateQuantity(row) }} 件</template>
+              </el-table-column>
+              <el-table-column :label="ui('common.actions')" width="150" fixed="right">
+                <template #default="{ row }">
+                  <el-button size="small" type="primary" plain @click="applyCargoTemplate(row.id)">套用</el-button>
+                  <el-button size="small" type="danger" plain @click="deleteCargoTemplate(row.id)">{{ ui('common.delete') }}</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <el-empty v-else description="还没有本机货物模板" :image-size="48" />
+          </div>
+        </el-card>
 
         <el-card class="panel cargo-overview-panel" shadow="never">
           <template #header>
@@ -776,7 +777,6 @@ import {
   Document,
   Download,
   Expand,
-  Files,
   Fold,
   House,
   MagicStick,
@@ -2183,13 +2183,13 @@ function applyCargoTemplate(templateId) {
   showToast(`已套用模板「${template.name}」。`);
 }
 
-function deleteSelectedCargoTemplate() {
-  const template = cargoTemplates.value[0];
+function deleteCargoTemplate(templateId) {
+  const template = cargoTemplates.value.find((item) => item.id === templateId);
   if (!template) return;
-  if (!window.confirm(`确认删除最近模板「${template.name}」吗？`)) return;
-  cargoTemplates.value = cargoTemplates.value.slice(1);
+  if (!window.confirm(ui("template.deleteConfirm", { name: template.name }))) return;
+  cargoTemplates.value = cargoTemplates.value.filter((item) => item.id !== template.id);
   persistCargoTemplates();
-  showToast("已删除模板。");
+  showToast(ui("template.deleted"));
 }
 
 function templateQuantity(template) {
