@@ -473,9 +473,52 @@
                     {{ ui('common.edit') }}
                   </el-button>
                 </header>
-                <ul>
-                  <li v-for="message in finding.messages" :key="message">{{ message }}</li>
-                </ul>
+                <div class="recognition-review-detail-grid">
+                  <section class="recognition-review-detail-card">
+                    <h4>{{ ui('excel.reviewOriginalData') }}</h4>
+                    <table class="recognition-review-field-table">
+                      <tbody>
+                        <tr v-for="row in recognitionReviewOriginalRows(finding)" :key="`origin-${finding.id}-${row.label}`">
+                          <th>{{ row.label }}</th>
+                          <td>{{ row.value }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </section>
+
+                  <section class="recognition-review-detail-card">
+                    <h4>{{ ui('excel.reviewAgentSuggestion') }}</h4>
+                    <table v-if="recognitionReviewSuggestionRows(finding).length" class="recognition-review-field-table">
+                      <tbody>
+                        <tr v-for="row in recognitionReviewSuggestionRows(finding)" :key="`suggestion-${finding.id}-${row.label}`">
+                          <th>{{ row.label }}</th>
+                          <td>{{ row.value }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <p v-else class="recognition-review-card-empty">{{ ui('excel.reviewNoSuggestion') }}</p>
+                  </section>
+
+                  <section class="recognition-review-detail-card">
+                    <h4>{{ ui('excel.reviewImportedCandidate') }}</h4>
+                    <table v-if="recognitionReviewCargoRows(finding.cargo).length" class="recognition-review-field-table">
+                      <tbody>
+                        <tr v-for="row in recognitionReviewCargoRows(finding.cargo)" :key="`cargo-${finding.id}-${row.label}`">
+                          <th>{{ row.label }}</th>
+                          <td>{{ row.value }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <p v-else class="recognition-review-card-empty">-</p>
+                  </section>
+                </div>
+
+                <section class="recognition-review-system">
+                  <h4>{{ ui('excel.reviewSystemJudgement') }}</h4>
+                  <ul>
+                    <li v-for="message in finding.messages" :key="message">{{ message }}</li>
+                  </ul>
+                </section>
               </article>
             </div>
             <p v-else class="recognition-review-empty">{{ ui('excel.reviewNoIssues') }}</p>
@@ -809,6 +852,8 @@ const recognitionReviewFindings = computed(() => {
         : (cargo?.name ? suggestionCargoLabel(cargo) : ui("excel.reviewUnknownItem")),
       source: issue.text || issue.rawText || "",
       messages: issueMessages(issue),
+      issue,
+      suggestion: issue?.suggestion || null,
       cargo: cargoIndex >= 0 ? recognitionRows.value[cargoIndex] : cargo,
       index: cargoIndex
     });
@@ -823,6 +868,8 @@ const recognitionReviewFindings = computed(() => {
       title: reviewCargoTitle(cargo, index),
       source: cargo.remark || "",
       messages: reasons,
+      issue: null,
+      suggestion: null,
       cargo,
       index
     });
@@ -1231,6 +1278,72 @@ function reviewSearchText(cargo) {
 function reviewCargoTitle(cargo, index) {
   const label = suggestionCargoLabel(cargo) || ui("excel.reviewUnknownItem");
   return `${index + 1}. ${label} · ${cargo.lengthCm || "-"} × ${cargo.widthCm || "-"} × ${cargo.heightCm || "-"} cm`;
+}
+
+function recognitionReviewOriginalRows(finding) {
+  const issue = finding?.issue || {};
+  const rows = [];
+  if (issue.rowNumber != null) {
+    rows.push({ label: ui("excel.reviewRowNumber"), value: issue.rowNumber });
+  }
+  const sourceText = issue.text || issue.rawText || finding?.source || "";
+  if (sourceText) {
+    rows.push({ label: ui("excel.reviewSourceText"), value: sourceText });
+  }
+  if (finding?.cargo?.packageInfo) {
+    rows.push({ label: ui("excel.reviewPackageInfo"), value: reviewValue(finding.cargo.packageInfo) });
+  }
+  if (!rows.length && finding?.cargo?.remark) {
+    rows.push({ label: ui("common.remark"), value: finding.cargo.remark });
+  }
+  return rows.length ? rows : [{ label: ui("excel.reviewSourceText"), value: "-" }];
+}
+
+function recognitionReviewSuggestionRows(finding) {
+  const suggestion = finding?.suggestion || {};
+  const rows = recognitionReviewCargoRows(suggestion.cargo);
+  const notes = reviewListValue(suggestion.notes);
+  if (notes) rows.push({ label: ui("excel.reviewAgentNotes"), value: notes });
+  const errors = reviewListValue(suggestion.errors);
+  if (errors) rows.push({ label: ui("excel.reviewValidation"), value: errors });
+  return rows;
+}
+
+function recognitionReviewCargoRows(cargo) {
+  if (!cargo) return [];
+  const rows = [
+    { label: ui("common.cargo"), value: cargo.name || "-" },
+    { label: ui("common.model"), value: cargo.model || "-" },
+    { label: ui("common.dimensionsCm"), value: recognitionDimensionText(cargo) },
+    { label: ui("common.quantity"), value: cargo.quantity ?? "-" },
+    { label: ui("common.unitWeightKg"), value: cargo.weightKg ?? "-" },
+    { label: ui("common.type"), value: typeText(cargo.type) }
+  ];
+  if (cargo.remark) rows.push({ label: ui("common.remark"), value: cargo.remark });
+  if (cargo.packageInfo) rows.push({ label: ui("excel.reviewPackageInfo"), value: reviewValue(cargo.packageInfo) });
+  return rows;
+}
+
+function recognitionDimensionText(cargo) {
+  return `${cargo?.lengthCm ?? "-"} × ${cargo?.widthCm ?? "-"} × ${cargo?.heightCm ?? "-"} cm`;
+}
+
+function reviewListValue(value) {
+  if (!Array.isArray(value)) return "";
+  return value.filter(Boolean).map((item) => reviewValue(item)).join("；");
+}
+
+function reviewValue(value) {
+  if (value == null || value === "") return "-";
+  if (typeof value === "object") {
+    try {
+      const text = JSON.stringify(value);
+      return text.length > 260 ? `${text.slice(0, 260)}...` : text;
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
 }
 
 function findRecognitionCargoIndex(cargo) {

@@ -4336,6 +4336,90 @@ select {
   line-height: 1.65;
 }
 
+.recognition-review-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.recognition-review-detail-card {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #ead7b4;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.recognition-review-detail-card h4,
+.recognition-review-system h4 {
+  margin: 0 0 8px;
+  color: #7c2d12;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.recognition-review-field-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.recognition-review-field-table th,
+.recognition-review-field-table td {
+  padding: 6px 0;
+  border-top: 1px solid rgba(234, 215, 180, 0.72);
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.recognition-review-field-table tr:first-child th,
+.recognition-review-field-table tr:first-child td {
+  border-top: 0;
+}
+
+.recognition-review-field-table th {
+  width: 78px;
+  padding-right: 8px;
+  color: #8a642b;
+  font-weight: 700;
+  text-align: left;
+}
+
+.recognition-review-field-table td {
+  color: #4b3a24;
+}
+
+.recognition-review-card-empty {
+  margin: 0;
+  color: #8a642b;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.recognition-review-system {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px dashed #e5c58e;
+  border-radius: 8px;
+  background: rgba(255, 251, 235, 0.74);
+}
+
+.recognition-review-system ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #5f4828;
+  line-height: 1.65;
+}
+
+@media (max-width: 900px) {
+  .recognition-review-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .recognition-review-empty {
   margin: 0;
   padding: 12px;

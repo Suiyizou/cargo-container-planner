@@ -376,8 +376,10 @@
               <el-input v-model.trim="templateName" placeholder="模板名称，例如：E-House 项目" clearable />
               <el-button :icon="MagicStick" @click="loadSample">套用示例</el-button>
             </div>
-            <el-table v-if="cargoTemplates.length" :data="cargoTemplates" size="small" class="template-table-lite cargo-template-table" max-height="220">
-              <el-table-column prop="name" :label="ui('template.name')" min-width="180" />
+            <el-table v-if="cargoTemplates.length" :data="cargoTemplates" row-key="id" size="small" class="template-table-lite cargo-template-table" max-height="220">
+              <el-table-column :label="ui('template.name')" min-width="180">
+                <template #default="{ row }">{{ templateDisplayName(row) }}</template>
+              </el-table-column>
               <el-table-column :label="ui('template.scale')" width="140">
                 <template #default="{ row }">{{ row.cargos.length }} 类 / {{ templateQuantity(row) }} 件</template>
               </el-table-column>
@@ -1251,6 +1253,34 @@ function restoreCargoTemplates() {
 
 function persistCargoTemplates() {
   localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(cargoTemplates.value.slice(0, 20)));
+}
+
+function normalizeTemplateName(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function templateDisplayName(template) {
+  return normalizeTemplateName(template?.name) || ui("template.unnamed");
+}
+
+function defaultCargoTemplateName() {
+  return ui("template.generatedName", {
+    types: cargos.value.length,
+    pieces: cargos.value.reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0)
+  });
+}
+
+function uniqueCargoTemplateName(baseName) {
+  const normalizedBase = normalizeTemplateName(baseName) || defaultCargoTemplateName();
+  const existingNames = new Set(cargoTemplates.value.map((item) => normalizeTemplateName(item.name)));
+  if (!existingNames.has(normalizedBase)) return normalizedBase;
+  let index = 2;
+  let candidate = `${normalizedBase} (${index})`;
+  while (existingNames.has(candidate)) {
+    index += 1;
+    candidate = `${normalizedBase} (${index})`;
+  }
+  return candidate;
 }
 
 function goPlannerStep(stepKey) {
@@ -2155,7 +2185,7 @@ function saveCargoTemplate() {
     showToast("请先录入货物，再保存模板。");
     return;
   }
-  const name = templateName.value || `货物模板 ${cargoTemplates.value.length + 1}`;
+  const name = uniqueCargoTemplateName(templateName.value || defaultCargoTemplateName());
   const snapshot = cargos.value.map(({ id, ...cargo }) => ({ ...cargo }));
   const template = {
     id: uid("tpl"),
@@ -2163,10 +2193,11 @@ function saveCargoTemplate() {
     cargos: snapshot,
     createdAt: new Date().toISOString()
   };
-  cargoTemplates.value = [template, ...cargoTemplates.value.filter((item) => item.name !== name)].slice(0, 20);
-  templateName.value = "";
+  cargoTemplates.value = [template, ...cargoTemplates.value].slice(0, 20);
   persistCargoTemplates();
-  showToast("已保存货物模板。");
+  restoreCargoTemplates();
+  templateName.value = "";
+  showToast(ui("template.saved", { name }));
 }
 
 function applyCargoTemplate(templateId) {
