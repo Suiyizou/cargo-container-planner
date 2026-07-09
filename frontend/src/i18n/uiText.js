@@ -137,6 +137,17 @@ const uiText = {
   },
   "report.dimensionsQuantity": { zh: "{dimensions} cm / {quantity} 件", en: "{dimensions} cm / {quantity} pcs" },
   "report.itemCount": { zh: "{count} 件", en: "{count} pcs" },
+  "report.faceStatsTitle": { zh: "A/B/C 面与摆放方向", en: "A/B/C Faces and Orientation" },
+  "report.faceStatsNote": {
+    zh: "第 {index} 层：说明当前底面、X/Y/Z 方向与长宽高对应关系",
+    en: "Layer {index}: base face plus X/Y/Z mapping to length, width, and height"
+  },
+  "report.faceNameA": { zh: "长×宽", en: "L × W" },
+  "report.faceNameB": { zh: "宽×高", en: "W × H" },
+  "report.faceNameC": { zh: "长×高", en: "L × H" },
+  "report.faceBottomLine": { zh: "{face}面 = {name}", en: "Face {face} = {name}" },
+  "report.faceSizeLine": { zh: "{a}={aValue}cm / {b}={bValue}cm", en: "{a}={aValue}cm / {b}={bValue}cm" },
+  "report.faceAxisLine": { zh: "当前 X={xAxis}{xValue}cm / Y={yAxis}{yValue}cm / Z={zAxis}{zValue}cm", en: "Current X={xAxis}{xValue}cm / Y={yAxis}{yValue}cm / Z={zAxis}{zValue}cm" },
   "report.footerNote": {
     zh: "说明：分层按货物底面 z 坐标分组；A=长×宽底、B=宽×高底、C=长×高底；大批量同规格货物可能以组合块显示，件数按真实数量统计。",
     en: "Note: Layers are grouped by cargo base z-coordinate; A=L x W base, B=W x H base, C=L x H base. Bulk same-size cargo may be shown as grouped blocks while counts remain true quantities."
@@ -283,8 +294,8 @@ const uiText = {
   "excel.needsAction": { zh: "需要处理", en: "Needs Action" },
   "excel.recognitionTip": { zh: "识别提示", en: "Recognition Tip" },
   "excel.recognitionCompleteMessage": {
-    zh: "智能识别完成：{types} 类货物，{pieces} 件；{review} 条需要人工确认。",
-    en: "Smart recognition complete: {types} cargo types, {pieces} pcs; {review} items need manual confirmation."
+    zh: "智能识别完成：{types} 类货物，{pieces} 件；{review} 条硬性问题需确认。低风险提示已自动放行，导入后请检查当前货物清单。",
+    en: "Smart recognition complete: {types} cargo types, {pieces} pcs; {review} hard issues need confirmation. Low-risk hints were auto-approved; review the current cargo list after importing."
   },
   "excel.textItems": { zh: "文本条目", en: "Text Items" },
   "excel.validItems": { zh: "有效条目", en: "Valid Items" },
@@ -353,8 +364,8 @@ const uiText = {
   "excel.recognitionReviewEyebrow": { zh: "识别复核", en: "Recognition Review" },
   "excel.recognitionReviewTitle": { zh: "请确认智能识别结果", en: "Review Smart Recognition Results" },
   "excel.recognitionReviewNotice": {
-    zh: "Agent 识别不能保证每次完全正确。系统已把正常识别项和需人工确认项列出；如发现尺寸、数量、重量或托盘关系不对，请点击识别结果中的“编辑”自行修正后再导入。",
-    en: "Agent recognition is not guaranteed to be perfect. Normal items and items needing manual confirmation are listed here; if dimensions, quantity, weight, or pallet relationships are wrong, use Edit in the recognition result before importing."
+    zh: "系统已按宽松规则放行低风险识别项，只把名称、尺寸、数量等硬性问题列为需确认。导入前可在这里点“编辑”修正，导入后也请在当前货物清单再次检查尺寸、数量、重量和托盘关系。",
+    en: "Low-risk recognition hints are auto-approved; only hard issues such as name, dimensions, and quantity are listed for confirmation. You can edit here before importing, and should re-check dimensions, quantity, weight, and pallet relationships in the current cargo list afterward."
   },
   "excel.reviewNormalItems": { zh: "正常识别项", en: "Normal Items" },
   "excel.reviewNeedsConfirmItems": { zh: "需确认项", en: "Items to Confirm" },

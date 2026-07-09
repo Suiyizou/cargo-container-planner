@@ -842,6 +842,8 @@ const recognitionReviewFindings = computed(() => {
   const issueCargoKeys = new Set();
 
   recognitionIssues.value.forEach((issue, index) => {
+    const messages = issueMessages(issue);
+    if (isSoftRecognitionIssue(issue, messages)) return;
     const cargo = issue?.suggestion?.cargo || null;
     const cargoIndex = cargo ? findRecognitionCargoIndex(cargo) : -1;
     if (cargoIndex >= 0) issueCargoKeys.add(cargoReviewKey(recognitionRows.value[cargoIndex]));
@@ -851,7 +853,7 @@ const recognitionReviewFindings = computed(() => {
         ? reviewCargoTitle(recognitionRows.value[cargoIndex], cargoIndex)
         : (cargo?.name ? suggestionCargoLabel(cargo) : ui("excel.reviewUnknownItem")),
       source: issue.text || issue.rawText || "",
-      messages: issueMessages(issue),
+      messages,
       issue,
       suggestion: issue?.suggestion || null,
       cargo: cargoIndex >= 0 ? recognitionRows.value[cargoIndex] : cargo,
@@ -887,7 +889,9 @@ const recognitionNormalRows = computed(() =>
 );
 const recognitionSkippedIssueCount = computed(() =>
   recognitionIssues.value.filter((issue) => {
-    const text = issueMessages(issue).join(" ").toLowerCase();
+    const messages = issueMessages(issue);
+    if (isSoftRecognitionIssue(issue, messages)) return false;
+    const text = messages.join(" ").toLowerCase();
     if (text.includes("\u590d\u6838") || text.includes("review:")) return false;
     const cargo = issue?.suggestion?.cargo || null;
     return !cargo || findRecognitionCargoIndex(cargo) < 0;
@@ -928,6 +932,22 @@ const reviewKeywords = {
   standalone: ["\u5355\u72ec", "\u72ec\u7acb", "\u5355\u4e2a", "separate", "standalone", "alone"],
   pallet: ["\u6258\u76d8", "\u6728\u6258", "\u6808\u677f", "pallet", "skid"]
 };
+const hardRecognitionIssueKeywords = [
+  "\u7f3a\u5c11\u8d27\u7269\u540d\u79f0",
+  "\u540d\u79f0\u672a\u8bc6\u522b",
+  "\u957f\u5ea6\u5fc5\u987b",
+  "\u5bbd\u5ea6\u5fc5\u987b",
+  "\u9ad8\u5ea6\u5fc5\u987b",
+  "\u5c3a\u5bf8\u672a\u8bc6\u522b",
+  "\u6570\u91cf\u5fc5\u987b",
+  "\u6570\u91cf\u672a\u8bc6\u522b",
+  "missing name",
+  "invalid name",
+  "missing dimension",
+  "invalid dimension",
+  "missing quantity",
+  "invalid quantity"
+];
 
 let previewSeq = 0;
 let workbookVersion = 0;
@@ -1230,25 +1250,28 @@ function issueMessages(issue) {
   return message ? [message] : [ui("excel.reviewUnknownReason")];
 }
 
+function isSoftRecognitionIssue(issue, messages = []) {
+  const suggestion = issue?.suggestion || {};
+  const text = [
+    issue?.message,
+    issue?.text,
+    issue?.rawText,
+    ...(Array.isArray(issue?.errors) ? issue.errors : []),
+    ...(Array.isArray(suggestion.notes) ? suggestion.notes : []),
+    ...(Array.isArray(suggestion.errors) ? suggestion.errors : []),
+    ...messages
+  ].filter(Boolean).join(" ").toLowerCase();
+  if (hardRecognitionIssueKeywords.some((keyword) => text.includes(keyword))) return false;
+  return text.includes("review:")
+    || containsReviewKeyword(text, reviewKeywords.emptyPallet)
+    || containsReviewKeyword(text, reviewKeywords.mixedPallet)
+    || containsReviewKeyword(text, reviewKeywords.uncertain)
+    || (containsReviewKeyword(text, reviewKeywords.standalone) && containsReviewKeyword(text, reviewKeywords.pallet));
+}
+
 function cargoReviewReasons(cargo) {
   const text = reviewSearchText(cargo);
   const reasons = [];
-  if (containsReviewKeyword(text, reviewKeywords.emptyPallet)) {
-    reasons.push(ui("excel.reviewReasonEmptyPallet"));
-  }
-  if (containsReviewKeyword(text, reviewKeywords.mixedPallet)) {
-    reasons.push(ui("excel.reviewReasonMixedPallet"));
-  }
-  if (containsReviewKeyword(text, reviewKeywords.uncertain)) {
-    reasons.push(ui("excel.reviewReasonUncertain"));
-  }
-  if (
-    cargo?.type === "pallet"
-    && containsReviewKeyword(text, reviewKeywords.standalone)
-    && containsReviewKeyword(text, reviewKeywords.pallet)
-  ) {
-    reasons.push(ui("excel.reviewReasonStandalonePallet"));
-  }
   if (cargo?.type === "pallet" && Number(cargo?.weightKg || 0) <= 0) {
     reasons.push(ui("excel.reviewReasonPalletWeight"));
   }

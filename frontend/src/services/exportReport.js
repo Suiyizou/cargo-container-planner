@@ -623,8 +623,8 @@ function drawIsoCargoBadge(ctx, item, point) {
 }
 
 function drawLayerStats(ctx, x, y, width, height, layer, index) {
-  drawPlotFrame(ctx, { x, y, width, height }, "本层标注与堆放方式", `第 ${index + 1} 层：色块编号、底面方向与承重规则`);
-  const stats = countByCargo(layer.items);
+  drawPlotFrame(ctx, { x, y, width, height }, reportText(ctx, "report.faceStatsTitle"), reportText(ctx, "report.faceStatsNote", { index: index + 1 }));
+  const stats = countByCargo(layer.items, ctx);
   let rowY = y + 76;
   stats.forEach((item) => {
     if (rowY > y + height - 74) return;
@@ -644,9 +644,7 @@ function drawLayerStats(ctx, x, y, width, height, layer, index) {
 
     ctx.font = "700 13px Microsoft YaHei, Arial";
     ctx.fillStyle = "#1f3148";
-    wrapText(ctx, item.orientationDetails[0] || "-", x + 18, rowY + 22, width - 36, 17, 2);
-    ctx.fillStyle = item.nonStack ? "#9a3412" : "#166534";
-    wrapText(ctx, item.stackMethods[0] || "-", x + 18, rowY + 62, width - 36, 17, 2);
+    wrapText(ctx, item.orientationDetails[0] || "-", x + 18, rowY + 22, width - 36, 17, 4);
 
     rowY += 118;
   });
@@ -842,7 +840,7 @@ function buildLayers(placements) {
     }));
 }
 
-function countByCargo(items) {
+function countByCargo(items, ctx = null) {
   const map = new Map();
   items.forEach((item) => {
     const faceCode = bottomFaceCode(item);
@@ -865,7 +863,7 @@ function countByCargo(items) {
     current.count += placementQuantity(item);
     current.nonStack = current.nonStack || Boolean(item.nonStack);
     current.bottomFaces.add(item.bottomFace || "长×宽");
-    current.orientationDetails.add(orientationDetail(item));
+    current.orientationDetails.add(orientationDetail(item, ctx));
     current.stackMethods.add(stackMethod(item));
   });
   return [...map.values()]
@@ -878,13 +876,25 @@ function countByCargo(items) {
     .sort((a, b) => a.cargoNo - b.cargoNo || a.faceCode.localeCompare(b.faceCode));
 }
 
-function orientationDetail(item) {
+function orientationDetail(item, ctx = null) {
   const faceCode = bottomFaceCode(item);
+  const [faceAxisA, faceAxisB] = faceAxisNames(faceCode);
   const details = [
-    `底面${faceCode}=${bottomFaceName(faceCode)}`,
-    `X=${item.xAxis || "长"}${formatNum(item.xAxisBaseCm, 0)}cm`,
-    `Y=${item.yAxis || "宽"}${formatNum(item.yAxisBaseCm, 0)}cm`,
-    `高度Z=${item.zAxis || item.heightAxis || "高"}${formatNum(item.zAxisBaseCm, 0)}cm`
+    reportText(ctx, "report.faceBottomLine", { face: faceCode, name: bottomFaceNameLocalized(ctx, faceCode) }),
+    reportText(ctx, "report.faceSizeLine", {
+      a: faceAxisA,
+      aValue: formatNum(axisBaseCm(item, faceAxisA), 0),
+      b: faceAxisB,
+      bValue: formatNum(axisBaseCm(item, faceAxisB), 0)
+    }),
+    reportText(ctx, "report.faceAxisLine", {
+      xAxis: item.xAxis || AXIS_LENGTH,
+      xValue: formatNum(item.xAxisBaseCm, 0),
+      yAxis: item.yAxis || AXIS_WIDTH,
+      yValue: formatNum(item.yAxisBaseCm, 0),
+      zAxis: item.zAxis || item.heightAxis || AXIS_HEIGHT,
+      zValue: formatNum(item.zAxisBaseCm, 0)
+    })
   ];
   if (placementQuantity(item) > 1) details.push(`组合${placementQuantity(item)}件`);
   return details.join(" / ");
@@ -904,6 +914,31 @@ function bottomFaceCode(item) {
 
 function bottomFaceName(code) {
   return { A: "长×宽", B: "宽×高", C: "长×高" }[code] || "长×宽";
+}
+
+function bottomFaceNameLocalized(ctx, code) {
+  const safeCode = ["A", "B", "C"].includes(code) ? code : "A";
+  return reportText(ctx, `report.faceName${safeCode}`);
+}
+
+const AXIS_LENGTH = "\u957f";
+const AXIS_WIDTH = "\u5bbd";
+const AXIS_HEIGHT = "\u9ad8";
+
+function faceAxisNames(code) {
+  if (code === "B") return [AXIS_WIDTH, AXIS_HEIGHT];
+  if (code === "C") return [AXIS_LENGTH, AXIS_HEIGHT];
+  return [AXIS_LENGTH, AXIS_WIDTH];
+}
+
+function axisBaseCm(item, axis) {
+  if (axis === item.xAxis) return item.xAxisBaseCm;
+  if (axis === item.yAxis) return item.yAxisBaseCm;
+  if (axis === item.zAxis || axis === item.heightAxis) return item.zAxisBaseCm;
+  if (axis === AXIS_LENGTH) return item.baseLengthCm || item.rawLengthCm || item.lengthCm;
+  if (axis === AXIS_WIDTH) return item.baseWidthCm || item.rawWidthCm || item.widthCm;
+  if (axis === AXIS_HEIGHT) return item.baseHeightCm || item.rawHeightCm || item.heightCm;
+  return 0;
 }
 
 function stackMethod(item) {
