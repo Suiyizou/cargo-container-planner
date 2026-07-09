@@ -112,6 +112,9 @@ const uiText = {
   "profile.employeesDevicesSystem": { zh: "员工、设备和系统", en: "Employees, devices, and system" },
   "profile.logout": { zh: "退出登录", en: "Log Out" },
 
+  "admin.runtimeHasFailedRequests": { zh: "有失败请求", en: "Failed Requests" },
+  "admin.runtimeRunningNormally": { zh: "运行正常", en: "Running Normally" },
+
   "report.title": { zh: "装箱分层剖析报告", en: "Layered Packing Analysis Report" },
   "report.subtitle": {
     zh: "按高度剖开货舱：每层提供俯视定位、斜侧立体剖析与色块堆放方式说明",

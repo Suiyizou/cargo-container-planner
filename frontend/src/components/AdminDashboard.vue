@@ -117,8 +117,8 @@
                 <p>Runtime</p>
                 <h2>运行监控</h2>
               </div>
-              <span class="admin-health-pill" :class="{ warn: Number(monitoring?.runtime?.failedRequests || 0) > 0 }">
-                {{ Number(monitoring?.runtime?.failedRequests || 0) > 0 ? "有异常" : "运行正常" }}
+              <span class="admin-health-pill" :class="{ warn: runtimeHasFailedRequests }">
+                {{ runtimeHealthLabel }}
               </span>
             </div>
             <div class="admin-runtime-list">
@@ -570,6 +570,7 @@ import {
 } from "../services/adminApi";
 import { currentLocale } from "../i18n";
 import { translateLegacyText } from "../i18n/legacyText";
+import { translateUiText } from "../i18n/uiText";
 
 const props = defineProps({
   currentUser: { type: Object, default: null }
@@ -624,6 +625,13 @@ const normalizedDevices = computed(() => devices.value.map(normalizeDisplayName)
 const onlineDevices = computed(() => normalizedDevices.value.filter((device) => device.online));
 const recentEvents = computed(() => monitoring.value?.recentEvents || []);
 const topEndpoints = computed(() => monitoring.value?.runtime?.topEndpoints || []);
+const runtimeFailedRequestCount = computed(() => Number(monitoring.value?.runtime?.failedRequests || 0));
+const runtimeHasFailedRequests = computed(() => runtimeFailedRequestCount.value > 0);
+const runtimeHealthLabel = computed(() =>
+  runtimeHasFailedRequests.value
+    ? ui("admin.runtimeHasFailedRequests", { count: runtimeFailedRequestCount.value })
+    : ui("admin.runtimeRunningNormally")
+);
 const selectedUploadedFileCount = computed(() => selectedUploadIds.value.length);
 const llmStatusText = computed(() => {
   if (!llmSettings.value) return tr("未加载");
@@ -912,6 +920,10 @@ function formatDate(value) {
 
 function tr(value) {
   return translateLegacyText(value, currentLocale.value);
+}
+
+function ui(key, params) {
+  return translateUiText(key, currentLocale.value, params);
 }
 
 const CP1252_BYTES = {
