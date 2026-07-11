@@ -80,21 +80,6 @@ export async function fetchMonitoring() {
   return request("/admin/monitoring");
 }
 
-export async function fetchUploadedFiles() {
-  return request("/admin/uploaded-files");
-}
-
-export async function fetchUploadedFilesSummary() {
-  return request("/admin/uploaded-files/summary");
-}
-
-export async function deleteUploadedFiles(ids) {
-  return request("/admin/uploaded-files", {
-    method: "DELETE",
-    body: { ids }
-  });
-}
-
 export async function fetchLlmSettings() {
   return request("/admin/settings/llm");
 }

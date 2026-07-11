@@ -4349,6 +4349,102 @@ select {
   color: #24415f;
 }
 
+.recognition-elapsed {
+  margin-left: auto;
+  padding: 7px 12px;
+  border: 1px solid #93c5fd;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #174777;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.source-workbook-bar {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid #cbdcf2;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.source-workbook-bar > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.source-workbook-bar span,
+.source-workbook-bar small,
+.source-preview-toolbar span {
+  color: #64748b;
+}
+
+.source-workbook-bar strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-workbook-actions,
+.source-preview-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.source-preview-toolbar {
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.source-preview-toolbar .el-select {
+  width: min(360px, 60vw);
+}
+
+.source-preview-table-wrap {
+  max-height: min(65vh, 680px);
+}
+
+.source-preview-table {
+  width: max-content;
+  min-width: 100%;
+}
+
+.source-preview-table th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 52px;
+  text-align: center;
+}
+
+.source-preview-table td {
+  min-width: 120px;
+  max-width: 320px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .recognition-loading-panel,
+  .source-workbook-bar,
+  .source-preview-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .recognition-elapsed {
+    margin-left: 0;
+    align-self: flex-start;
+  }
+}
+
 .recognition-loading-panel strong,
 .recognition-loading-panel p {
   margin: 0;

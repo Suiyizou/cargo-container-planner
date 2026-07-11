@@ -324,9 +324,17 @@ public class TextRecognitionService {
     return String.valueOf(text == null ? "" : text).contains("EXCEL_FORMATTED_TABLE_FOR_AGENT");
   }
 
-  private RecognitionResult recognizeWithOpenAiCompatible(LlmRuntimeSettings settings, String text, String languageHint) throws JsonProcessingException {
+  private RecognitionResult recognizeWithOpenAiCompatible(LlmRuntimeSettings settings, String text, String languageHint) {
     String content = callOpenAiCompatibleChat(settings, text, languageHint);
-    Map<String, Object> payload = objectMapper.readValue(extractJsonObject(content), new TypeReference<Map<String, Object>>() {});
+    Map<String, Object> payload;
+    try {
+      payload = objectMapper.readValue(extractJsonObject(content), new TypeReference<Map<String, Object>>() {});
+    } catch (JsonProcessingException error) {
+      throw new IllegalStateException(
+          "Agent 返回的 JSON 不完整或格式错误，请重试；如果是大表，请减少无关工作表或空白行。详情：" + trim(error.getOriginalMessage(), 160),
+          error
+      );
+    }
     List<Map<String, Object>> rawRows = mapList(payload.get("rows"));
     List<Map<String, Object>> modelIssues = mapList(payload.get("issues"));
     List<Map<String, Object>> validRows = new ArrayList<>();
@@ -381,6 +389,7 @@ public class TextRecognitionService {
     body.put("model", settings.model());
     body.put("temperature", 0.1);
     body.put("stream", false);
+    body.put("max_tokens", 8192);
     body.put("response_format", Map.of("type", "json_object"));
     body.put("messages", List.of(
         Map.of("role", "system", "content", systemPrompt()),
@@ -435,6 +444,10 @@ public class TextRecognitionService {
     if (choicesValue instanceof List<?> choices && !choices.isEmpty()) {
       Object first = choices.get(0);
       if (first instanceof Map<?, ?> choice) {
+        String finishReason = cleanCell(choice.get("finish_reason"));
+        if ("length".equalsIgnoreCase(finishReason)) {
+          throw new IllegalStateException("Agent 输出达到长度上限，返回结果被截断。请重试或减少无关工作表、空白行。");
+        }
         String content = contentText(choice.get("message"));
         if (content.isBlank()) content = contentText(choice.get("delta"));
         if (content.isBlank()) content = contentText(choice.get("text"));

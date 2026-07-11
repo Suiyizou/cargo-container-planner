@@ -152,6 +152,21 @@
           <strong>{{ ui('excel.recognizingCargo') }}</strong>
           <p>{{ ui('excel.recognizingCargoText') }}</p>
         </div>
+        <time class="recognition-elapsed" aria-live="polite">
+          {{ ui('excel.elapsedTime', { time: recognitionElapsedText }) }}
+        </time>
+      </div>
+
+      <div v-if="sourceWorkbookFile" class="source-workbook-bar">
+        <div>
+          <span>{{ ui('excel.sourceWorkbook') }}</span>
+          <strong>{{ sourceWorkbookFile.name }}</strong>
+          <small>{{ sourceWorkbookFileSize }}</small>
+        </div>
+        <div class="source-workbook-actions">
+          <el-button :disabled="!workbook" @click="openSourceWorkbookPreview">{{ ui('excel.previewWorkbook') }}</el-button>
+          <el-button @click="downloadSourceWorkbook">{{ ui('excel.downloadOriginalWorkbook') }}</el-button>
+        </div>
       </div>
 
       <div v-if="recognitionMessage" class="recognition-placeholder" :class="{ error: recognitionMessageType === 'error' }">
@@ -185,6 +200,7 @@
 
         <div v-if="recognitionAgentTask" class="agent-status-row text-agent-status">
           <span>{{ recognitionAgentTask.taskNo }} · {{ recognitionAgentTask.agentNotes }}</span>
+          <small v-if="recognitionElapsedSeconds">{{ ui('excel.completedIn', { time: recognitionElapsedText }) }}</small>
           <el-button :disabled="!recognitionAgentTask.id" @click="downloadRecognitionAgentResult">
             {{ ui('common.downloadRecognitionExcel') }}
           </el-button>
@@ -448,6 +464,50 @@
         {{ ui('excel.recognitionPositionText') }}
       </p>
     </div>
+
+    <el-dialog
+      v-model="sourcePreviewOpen"
+      class="planner-dialog source-workbook-dialog"
+      width="min(1180px, calc(100vw - 32px))"
+      destroy-on-close
+    >
+      <template #header>
+        <div class="dialog-title">
+          <p>{{ ui('excel.onlinePreview') }}</p>
+          <h2>{{ sourceWorkbookFile?.name || ui('excel.sourceWorkbook') }}</h2>
+        </div>
+      </template>
+      <div class="source-preview-toolbar">
+        <el-select v-model="sourcePreviewSheetName">
+          <el-option
+            v-for="sheet in workbook?.sheets || []"
+            :key="sheet.name"
+            :label="`${sheet.name} / ${sourceSheetRowCount(sheet)} ${ui('unit.rows')}`"
+            :value="sheet.name"
+          />
+        </el-select>
+        <span>{{ ui('excel.previewLimit', { count: SOURCE_PREVIEW_ROW_LIMIT }) }}</span>
+      </div>
+      <div class="template-table-wrap source-preview-table-wrap">
+        <table class="template-table source-preview-table">
+          <tbody>
+            <tr v-for="(row, rowIndex) in sourcePreviewRows" :key="`source-row-${rowIndex}`">
+              <th>{{ rowIndex + 1 }}</th>
+              <td v-for="(cell, columnIndex) in row" :key="`source-cell-${rowIndex}-${columnIndex}`">
+                {{ cell || '' }}
+              </td>
+            </tr>
+            <tr v-if="!sourcePreviewRows.length">
+              <td>{{ ui('excel.emptyWorksheet') }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <template #footer>
+        <el-button @click="downloadSourceWorkbook">{{ ui('excel.downloadOriginalWorkbook') }}</el-button>
+        <el-button type="primary" @click="sourcePreviewOpen = false">{{ ui('common.close') }}</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog
       v-if="recognitionReviewDialogOpen"
@@ -747,7 +807,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, reactive, ref } from "vue";
 import { EditPen, UploadFilled } from "@element-plus/icons-vue";
 import {
   aggregateCargos,
@@ -794,6 +854,10 @@ const recognitionPreview = ref(null);
 const recognitionMessage = ref("");
 const recognitionMessageType = ref("ok");
 const recognitionAgentBusy = ref(false);
+const recognitionElapsedSeconds = ref(0);
+const sourceWorkbookFile = ref(null);
+const sourcePreviewOpen = ref(false);
+const sourcePreviewSheetName = ref("");
 const manualImportBusy = ref(false);
 const manualDropActive = ref(false);
 const manualFileInput = ref(null);
@@ -881,6 +945,19 @@ const recognitionQuantity = computed(() =>
 const recognitionTotalRows = computed(() => recognitionAgentTask.value?.rowCount ?? 0);
 const recognitionValidCount = computed(() => recognitionAgentTask.value?.validCount ?? 0);
 const recognitionHasResult = computed(() => Boolean(recognitionAgentTask.value));
+const recognitionElapsedText = computed(() => formatElapsedTime(recognitionElapsedSeconds.value));
+const sourceWorkbookFileSize = computed(() => formatFileSize(sourceWorkbookFile.value?.size || 0));
+const sourcePreviewSheet = computed(() =>
+  workbook.value?.sheets?.find((sheet) => sheet.name === sourcePreviewSheetName.value) || workbook.value?.sheets?.[0] || null
+);
+const SOURCE_PREVIEW_ROW_LIMIT = 200;
+const sourcePreviewRows = computed(() => {
+  const sheet = sourcePreviewSheet.value;
+  const rows = Array.isArray(sheet?.rawRows) && sheet.rawRows.length
+    ? sheet.rawRows
+    : [[...(sheet?.headers || [])], ...(sheet?.rows || [])];
+  return rows.slice(0, SOURCE_PREVIEW_ROW_LIMIT);
+});
 const recognitionRowsWithIndex = computed(() => recognitionRows.value.map((cargo, index) => ({ cargo, index })));
 const recognitionReviewFindings = computed(() => {
   const findings = [];
@@ -1071,6 +1148,8 @@ async function loadWorkbookFile(file) {
     return;
   }
   manualImportBusy.value = true;
+  sourceWorkbookFile.value = file;
+  startRecognitionTimer();
   preview.value = null;
   activeSheet.value = null;
   manualImportMessageType.value = "info";
@@ -1090,7 +1169,8 @@ async function loadWorkbookFile(file) {
     manualImportMessage.value = ui("excel.agentSubmittedFromExcel", { count: workbook.value?.sheets?.length || 0 });
     await submitTextRecognitionTask({
       textOverride: formattedText,
-      sourceName: file?.name || ui("excel.excelFormattedSource")
+      sourceName: file?.name || ui("excel.excelFormattedSource"),
+      keepTimer: true
     });
   } catch (error) {
     workbook.value = null;
@@ -1100,6 +1180,7 @@ async function loadWorkbookFile(file) {
     manualImportMessage.value = error?.message || ui("excel.excelAgentFailed");
   } finally {
     manualImportBusy.value = false;
+    if (!recognitionAgentBusy.value) stopRecognitionTimer();
   }
 }
 
@@ -1273,6 +1354,7 @@ function resetRecognitionResult() {
 async function submitTextRecognitionTask(options = {}) {
   const text = String(options.textOverride ?? recognitionText.value).trim();
   if (!text) return;
+  if (!options.keepTimer) startRecognitionTimer();
   recognitionAgentBusy.value = true;
   recognitionMessage.value = "";
   recognitionPreview.value = null;
@@ -1306,10 +1388,69 @@ async function submitTextRecognitionTask(options = {}) {
     closeRecognitionReviewDialog();
   } finally {
     recognitionAgentBusy.value = false;
+    stopRecognitionTimer();
   }
 }
 
+let recognitionTimerId = null;
+
+function startRecognitionTimer() {
+  stopRecognitionTimer();
+  recognitionElapsedSeconds.value = 0;
+  const startedAt = Date.now();
+  recognitionTimerId = window.setInterval(() => {
+    recognitionElapsedSeconds.value = Math.floor((Date.now() - startedAt) / 1000);
+  }, 250);
+}
+
+function stopRecognitionTimer() {
+  if (recognitionTimerId != null) {
+    window.clearInterval(recognitionTimerId);
+    recognitionTimerId = null;
+  }
+}
+
+function formatElapsedTime(totalSeconds) {
+  const seconds = Math.max(0, Number(totalSeconds || 0));
+  const minutes = Math.floor(seconds / 60);
+  const remaining = seconds % 60;
+  return minutes ? `${minutes}:${String(remaining).padStart(2, "0")}` : `${remaining} ${ui("unit.seconds")}`;
+}
+
+function formatFileSize(bytes) {
+  const value = Number(bytes || 0);
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function sourceSheetRowCount(sheet) {
+  return (sheet?.rawRows?.length || sheet?.rows?.length || 0);
+}
+
+function openSourceWorkbookPreview() {
+  if (!workbook.value) return;
+  sourcePreviewSheetName.value = workbook.value.sheets?.[0]?.name || "";
+  sourcePreviewOpen.value = true;
+}
+
+function downloadSourceWorkbook() {
+  if (!sourceWorkbookFile.value) return;
+  const url = URL.createObjectURL(sourceWorkbookFile.value);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = sourceWorkbookFile.value.name || "source-workbook.xlsx";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+onBeforeUnmount(stopRecognitionTimer);
+
 function fillRecognitionSample() {
+  sourceWorkbookFile.value = null;
+  sourcePreviewOpen.value = false;
   recognitionText.value = t("smartImport.recognitionSample");
   recognitionPreview.value = null;
   recognitionAgentTask.value = null;
@@ -1321,6 +1462,8 @@ function fillRecognitionSample() {
 }
 
 function clearRecognition() {
+  sourceWorkbookFile.value = null;
+  sourcePreviewOpen.value = false;
   recognitionText.value = "";
   recognitionPreview.value = null;
   recognitionAgentTask.value = null;

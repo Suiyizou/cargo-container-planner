@@ -18,6 +18,7 @@ const uiText = {
   "common.sourceLine": { zh: "原文行", en: "Source Line" },
   "common.rowNumber": { zh: "行号", en: "Row No." },
   "common.cancel": { zh: "取消", en: "Cancel" },
+  "common.close": { zh: "关闭", en: "Close" },
   "common.applyToImportPreview": { zh: "应用到导入预览", en: "Apply to Import Preview" },
   "common.saveToRecognitionResult": { zh: "保存到识别结果", en: "Save to Recognition Result" },
   "common.chooseFile": { zh: "选择文件", en: "Choose File" },
@@ -40,6 +41,7 @@ const uiText = {
   "unit.row": { zh: "行", en: "row" },
   "unit.rows": { zh: "行", en: "rows" },
   "unit.item": { zh: "条", en: "item" },
+  "unit.seconds": { zh: "秒", en: "sec" },
   "cargo.normal": { zh: "普通货物", en: "General Cargo" },
   "cargo.upright": { zh: "保持朝上", en: "Keep Upright" },
   "cargo.nonstack": { zh: "不可重压", en: "Non-stackable" },
@@ -304,11 +306,19 @@ const uiText = {
     en: "Paste chat records, quote details, or email cargo descriptions; the system sends them to the backend smart-recognition flow and returns an importable list."
   },
   "excel.recognizing": { zh: "智能识别中...", en: "Recognizing..." },
+  "excel.elapsedTime": { zh: "已识别 {time}", en: "Elapsed {time}" },
+  "excel.completedIn": { zh: "本次识别耗时 {time}", en: "Completed in {time}" },
   "excel.recognizingCargo": { zh: "正在智能识别货物信息", en: "Recognizing cargo information" },
   "excel.recognizingCargoText": {
     zh: "后端会提取货物名称、型号、尺寸、数量、重量和备注，完成后自动生成可导入清单。",
     en: "The backend extracts cargo name, model, dimensions, quantity, weight, and notes, then generates an importable list."
   },
+  "excel.sourceWorkbook": { zh: "原始工作簿", en: "Source Workbook" },
+  "excel.previewWorkbook": { zh: "在线预览", en: "Preview Online" },
+  "excel.downloadOriginalWorkbook": { zh: "下载原文件", en: "Download Original" },
+  "excel.onlinePreview": { zh: "浏览器内预览", en: "Browser Preview" },
+  "excel.previewLimit": { zh: "为保证页面流畅，最多展示前 {count} 行；下载文件不受影响。", en: "Up to {count} rows are shown for performance. Downloads are unaffected." },
+  "excel.emptyWorksheet": { zh: "该工作表没有可预览的数据。", en: "This worksheet has no previewable data." },
   "excel.needsAction": { zh: "需要处理", en: "Needs Action" },
   "excel.recognitionTip": { zh: "识别提示", en: "Recognition Tip" },
   "excel.recognitionCompleteMessage": {
