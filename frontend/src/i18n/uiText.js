@@ -264,6 +264,21 @@ const uiText = {
     zh: "先把工作簿转换为带行列坐标的格式化文本，再交给智能识别 agent 判断最终装柜单元。",
     en: "The workbook is converted into coordinate-preserving text first, then sent to the agent to identify final handled units."
   },
+  "excel.dropToRecognize": { zh: "拖拽文件到此识别", en: "Drop a file here to recognize" },
+  "excel.dropRelease": { zh: "松开文件，立即开始识别", en: "Release to start recognition" },
+  "excel.dropBusy": { zh: "正在读取并识别文件", en: "Reading and recognizing the file" },
+  "excel.dropSupportText": {
+    zh: "也可以点击此区域选择文件，松开后会自动进入智能识别。",
+    en: "You can also click this area to choose a file. Recognition starts automatically after the file is added."
+  },
+  "excel.dropSingleFileOnly": {
+    zh: "每次只能识别一个文件，请重新拖入单个 Excel 或 CSV 文件。",
+    en: "Only one file can be recognized at a time. Drop a single Excel or CSV file."
+  },
+  "excel.dropUnsupportedFile": {
+    zh: "不支持文件“{name}”，请选择 XLSX、XLS、CSV 或 TSV 文件。",
+    en: "The file “{name}” is not supported. Choose an XLSX, XLS, CSV, or TSV file."
+  },
   "excel.agentPreparingFromExcel": {
     zh: "正在读取 Excel，并转换为带单元格坐标的格式化文本。",
     en: "Reading the workbook and converting it into coordinate-preserving text."

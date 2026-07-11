@@ -35,18 +35,54 @@
       </el-menu>
 
       <div class="excel-main-pane">
-      <div v-if="excelMode === 'manual'" class="excel-manual-card">
+      <div
+        v-if="excelMode === 'manual'"
+        class="excel-manual-card"
+        :class="{ 'is-dragging': manualDropActive, 'is-busy': manualImportBusy }"
+        @dragenter.prevent="handleManualDragEnter"
+        @dragover.prevent="handleManualDragOver"
+        @dragleave.prevent="handleManualDragLeave"
+        @drop.prevent="handleManualDrop"
+      >
         <div class="excel-import-hero">
           <div>
             <strong>{{ ui('excel.manualPath') }}</strong>
             <p>{{ ui('excel.manualPathText') }}</p>
           </div>
           <div class="excel-import-actions">
-            <el-upload :auto-upload="false" :show-file-list="false" accept=".xlsx,.xls,.csv,.tsv,text/csv" :disabled="manualImportBusy" :on-change="handleWorkbookUpload">
-              <el-button type="primary" :loading="manualImportBusy">{{ ui('common.chooseFile') }}</el-button>
-            </el-upload>
+            <input
+              ref="manualFileInput"
+              hidden
+              type="file"
+              :accept="WORKBOOK_FILE_ACCEPT"
+              :disabled="manualImportBusy"
+              @change="handleFile"
+            />
+            <el-button type="primary" :loading="manualImportBusy" @click="openManualFilePicker">
+              {{ ui('common.chooseFile') }}
+            </el-button>
             <el-button @click="downloadTemplate">{{ ui('common.downloadTemplate') }}</el-button>
           </div>
+        </div>
+
+        <div
+          class="excel-drop-zone"
+          :class="{ active: manualDropActive }"
+          role="button"
+          tabindex="0"
+          :aria-disabled="manualImportBusy"
+          @click="openManualFilePicker"
+          @keydown.enter.prevent="openManualFilePicker"
+          @keydown.space.prevent="openManualFilePicker"
+        >
+          <el-icon class="excel-drop-icon"><UploadFilled /></el-icon>
+          <div class="excel-drop-copy">
+            <strong>
+              {{ ui(manualImportBusy ? 'excel.dropBusy' : manualDropActive ? 'excel.dropRelease' : 'excel.dropToRecognize') }}
+            </strong>
+            <span>{{ ui('excel.dropSupportText') }}</span>
+          </div>
+          <span class="excel-drop-formats">XLSX / XLS / CSV / TSV</span>
         </div>
 
         <el-alert
@@ -710,6 +746,7 @@
 
 <script setup>
 import { computed, reactive, ref } from "vue";
+import { UploadFilled } from "@element-plus/icons-vue";
 import {
   aggregateCargos,
   downloadTemplateWorkbook,
@@ -756,6 +793,8 @@ const recognitionMessage = ref("");
 const recognitionMessageType = ref("ok");
 const recognitionAgentBusy = ref(false);
 const manualImportBusy = ref(false);
+const manualDropActive = ref(false);
+const manualFileInput = ref(null);
 const previewBusy = ref(false);
 const manualImportMessage = ref("");
 const manualImportMessageType = ref("info");
@@ -948,14 +987,18 @@ const hardRecognitionIssueKeywords = [
   "missing quantity",
   "invalid quantity"
 ];
+const WORKBOOK_FILE_ACCEPT = ".xlsx,.xls,.csv,.tsv,text/csv,text/tab-separated-values";
+const SUPPORTED_WORKBOOK_FILE_PATTERN = /\.(xlsx|xls|csv|tsv)$/i;
 
 let previewSeq = 0;
 let workbookVersion = 0;
 let lastPreviewSignature = "";
 let pendingPreviewSignature = "";
+let manualDragDepth = 0;
 
-async function handleWorkbookUpload(uploadFile) {
-  if (uploadFile.raw) await loadWorkbookFile(uploadFile.raw);
+function openManualFilePicker() {
+  if (manualImportBusy.value) return;
+  manualFileInput.value?.click();
 }
 
 async function handleFile(event) {
@@ -965,7 +1008,56 @@ async function handleFile(event) {
   await loadWorkbookFile(file);
 }
 
+function handleManualDragEnter(event) {
+  if (manualImportBusy.value || !dragContainsFiles(event)) return;
+  manualDragDepth += 1;
+  manualDropActive.value = true;
+}
+
+function handleManualDragOver(event) {
+  if (manualImportBusy.value || !dragContainsFiles(event)) return;
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+  manualDropActive.value = true;
+}
+
+function handleManualDragLeave() {
+  if (!manualDropActive.value) return;
+  manualDragDepth = Math.max(0, manualDragDepth - 1);
+  if (manualDragDepth === 0) manualDropActive.value = false;
+}
+
+async function handleManualDrop(event) {
+  manualDragDepth = 0;
+  manualDropActive.value = false;
+  if (manualImportBusy.value) return;
+
+  const files = Array.from(event.dataTransfer?.files || []);
+  if (!files.length) return;
+  if (files.length > 1) {
+    showManualFileError(ui("excel.dropSingleFileOnly"));
+    return;
+  }
+  await loadWorkbookFile(files[0]);
+}
+
+function dragContainsFiles(event) {
+  return Array.from(event.dataTransfer?.types || []).includes("Files");
+}
+
+function isSupportedWorkbookFile(file) {
+  return Boolean(file?.name && SUPPORTED_WORKBOOK_FILE_PATTERN.test(file.name));
+}
+
+function showManualFileError(message) {
+  manualImportMessageType.value = "error";
+  manualImportMessage.value = message;
+}
+
 async function loadWorkbookFile(file) {
+  if (!isSupportedWorkbookFile(file)) {
+    showManualFileError(ui("excel.dropUnsupportedFile", { name: file?.name || "-" }));
+    return;
+  }
   manualImportBusy.value = true;
   preview.value = null;
   activeSheet.value = null;
