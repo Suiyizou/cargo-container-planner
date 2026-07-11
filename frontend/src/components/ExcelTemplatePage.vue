@@ -453,7 +453,7 @@
       v-if="recognitionReviewDialogOpen"
       :model-value="true"
       class="planner-dialog recognition-review-dialog"
-      width="920px"
+      width="min(920px, calc(100vw - 32px))"
       align-center
       destroy-on-close
       @close="closeRecognitionReviewDialog"
@@ -501,60 +501,62 @@
             <div v-if="recognitionReviewFindings.length" class="recognition-review-issue-list">
               <article v-for="finding in recognitionReviewFindings" :key="finding.id" class="recognition-review-issue">
                 <header>
-                  <div>
-                    <strong>{{ finding.title }}</strong>
-                    <span v-if="finding.source">{{ finding.source }}</span>
-                  </div>
-                  <el-button v-if="finding.index >= 0" link type="primary" @click="editRecognitionReviewCargo(finding)">
-                    {{ ui('common.edit') }}
-                  </el-button>
+                  <strong>{{ finding.title }}</strong>
+                  <span class="recognition-review-status">{{ ui('excel.reviewNeedsConfirm') }}</span>
                 </header>
-                <div class="recognition-review-detail-grid">
-                  <section class="recognition-review-detail-card">
-                    <h4>{{ ui('excel.reviewOriginalData') }}</h4>
-                    <table class="recognition-review-field-table">
-                      <tbody>
-                        <tr v-for="row in recognitionReviewOriginalRows(finding)" :key="`origin-${finding.id}-${row.label}`">
-                          <th>{{ row.label }}</th>
-                          <td>{{ row.value }}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </section>
+                <ol class="recognition-review-three-lines">
+                  <li class="recognition-review-line source-line">
+                    <div class="recognition-review-line-label">
+                      <span>1</span>
+                      <strong>{{ ui('excel.reviewOriginalData') }}</strong>
+                    </div>
+                    <div class="recognition-review-line-content">
+                      <small v-if="finding.issue?.rowNumber != null">
+                        {{ ui('excel.reviewRowNumber') }} {{ finding.issue.rowNumber }}
+                      </small>
+                      <p>{{ recognitionReviewSourceText(finding) }}</p>
+                    </div>
+                  </li>
 
-                  <section class="recognition-review-detail-card">
-                    <h4>{{ ui('excel.reviewAgentSuggestion') }}</h4>
-                    <table v-if="recognitionReviewSuggestionRows(finding).length" class="recognition-review-field-table">
-                      <tbody>
-                        <tr v-for="row in recognitionReviewSuggestionRows(finding)" :key="`suggestion-${finding.id}-${row.label}`">
-                          <th>{{ row.label }}</th>
-                          <td>{{ row.value }}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                    <p v-else class="recognition-review-card-empty">{{ ui('excel.reviewNoSuggestion') }}</p>
-                  </section>
+                  <li class="recognition-review-line agent-line">
+                    <div class="recognition-review-line-label">
+                      <span>2</span>
+                      <strong>{{ ui('excel.reviewAgentSuggestion') }}</strong>
+                    </div>
+                    <div class="recognition-review-line-content">
+                      <div v-if="recognitionReviewSuggestionRows(finding).length" class="recognition-review-inline-fields">
+                        <span v-for="row in recognitionReviewSuggestionRows(finding)" :key="`suggestion-${finding.id}-${row.label}`">
+                          <b>{{ row.label }}</b>{{ row.value }}
+                        </span>
+                      </div>
+                      <p v-else class="recognition-review-card-empty">{{ ui('excel.reviewNoSuggestion') }}</p>
+                      <div class="recognition-review-reason">
+                        <strong>{{ ui('excel.reviewSystemJudgement') }}</strong>
+                        <ul>
+                          <li v-for="message in finding.messages" :key="message">{{ message }}</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </li>
 
-                  <section class="recognition-review-detail-card">
-                    <h4>{{ ui('excel.reviewImportedCandidate') }}</h4>
-                    <table v-if="recognitionReviewCargoRows(finding.cargo).length" class="recognition-review-field-table">
-                      <tbody>
-                        <tr v-for="row in recognitionReviewCargoRows(finding.cargo)" :key="`cargo-${finding.id}-${row.label}`">
-                          <th>{{ row.label }}</th>
-                          <td>{{ row.value }}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                    <p v-else class="recognition-review-card-empty">-</p>
-                  </section>
-                </div>
-
-                <section class="recognition-review-system">
-                  <h4>{{ ui('excel.reviewSystemJudgement') }}</h4>
-                  <ul>
-                    <li v-for="message in finding.messages" :key="message">{{ message }}</li>
-                  </ul>
-                </section>
+                  <li class="recognition-review-line import-line">
+                    <div class="recognition-review-line-label">
+                      <span>3</span>
+                      <strong>{{ ui('excel.reviewImportedCandidate') }}</strong>
+                    </div>
+                    <div class="recognition-review-line-content">
+                      <div v-if="recognitionReviewCargoRows(finding.cargo).length" class="recognition-review-inline-fields import-fields">
+                        <span v-for="row in recognitionReviewCargoRows(finding.cargo)" :key="`cargo-${finding.id}-${row.label}`">
+                          <b>{{ row.label }}</b>{{ row.value }}
+                        </span>
+                      </div>
+                      <p v-else class="recognition-review-card-empty">{{ ui('excel.reviewNotImportedYet') }}</p>
+                    </div>
+                    <el-button type="primary" plain :icon="EditPen" @click="editRecognitionReviewCargo(finding)">
+                      {{ ui('excel.reviewEditImport') }}
+                    </el-button>
+                  </li>
+                </ol>
               </article>
             </div>
             <p v-else class="recognition-review-empty">{{ ui('excel.reviewNoIssues') }}</p>
@@ -746,7 +748,7 @@
 
 <script setup>
 import { computed, reactive, ref } from "vue";
-import { UploadFilled } from "@element-plus/icons-vue";
+import { EditPen, UploadFilled } from "@element-plus/icons-vue";
 import {
   aggregateCargos,
   downloadTemplateWorkbook,
@@ -800,9 +802,13 @@ const manualImportMessage = ref("");
 const manualImportMessageType = ref("info");
 const recognitionAgentTask = ref(null);
 const recognitionEditIndex = ref(-1);
+const recognitionEditAppendMode = ref(false);
+const recognitionEditPackageInfo = ref(null);
+const recognitionEditFindingId = ref("");
 const recognitionEditErrors = ref([]);
 const recognitionReviewDialogOpen = ref(false);
 const recognitionReviewActiveNames = ref(["needsReview", "normal"]);
+const recognitionReviewIndexOverrides = ref({});
 const manualCorrections = ref([]);
 const suggestionRow = ref(null);
 const suggestionErrors = ref([]);
@@ -884,10 +890,16 @@ const recognitionReviewFindings = computed(() => {
     const messages = issueMessages(issue);
     if (isSoftRecognitionIssue(issue, messages)) return;
     const cargo = issue?.suggestion?.cargo || null;
-    const cargoIndex = cargo ? findRecognitionCargoIndex(cargo) : -1;
+    const findingId = `issue-${issue.rowNumber ?? index}-${index}`;
+    const overriddenIndex = recognitionReviewIndexOverrides.value[findingId];
+    const cargoIndex = Number.isInteger(overriddenIndex)
+      && overriddenIndex >= 0
+      && overriddenIndex < recognitionRows.value.length
+      ? overriddenIndex
+      : (cargo ? findRecognitionCargoIndex(cargo) : -1);
     if (cargoIndex >= 0) issueCargoKeys.add(cargoReviewKey(recognitionRows.value[cargoIndex]));
     findings.push({
-      id: `issue-${issue.rowNumber ?? index}-${index}`,
+      id: findingId,
       title: cargoIndex >= 0
         ? reviewCargoTitle(recognitionRows.value[cargoIndex], cargoIndex)
         : (cargo?.name ? suggestionCargoLabel(cargo) : ui("excel.reviewUnknownItem")),
@@ -1252,6 +1264,7 @@ function previewValidRowCount(nextPreview) {
 function resetRecognitionResult() {
   recognitionPreview.value = null;
   recognitionAgentTask.value = null;
+  recognitionReviewIndexOverrides.value = {};
   recognitionMessage.value = "";
   closeRecognitionReviewDialog();
   closeRecognitionEdit();
@@ -1264,6 +1277,7 @@ async function submitTextRecognitionTask(options = {}) {
   recognitionMessage.value = "";
   recognitionPreview.value = null;
   recognitionAgentTask.value = null;
+  recognitionReviewIndexOverrides.value = {};
   try {
     const task = await createTextRecognitionTask(text, {
       sourceName: options.sourceName || ui("excel.pastedTextSource"),
@@ -1299,6 +1313,7 @@ function fillRecognitionSample() {
   recognitionText.value = t("smartImport.recognitionSample");
   recognitionPreview.value = null;
   recognitionAgentTask.value = null;
+  recognitionReviewIndexOverrides.value = {};
   closeRecognitionReviewDialog();
   closeRecognitionEdit();
   recognitionMessage.value = t("smartImport.sampleLoadedMessage");
@@ -1309,6 +1324,7 @@ function clearRecognition() {
   recognitionText.value = "";
   recognitionPreview.value = null;
   recognitionAgentTask.value = null;
+  recognitionReviewIndexOverrides.value = {};
   closeRecognitionReviewDialog();
   closeRecognitionEdit();
   recognitionMessage.value = "";
@@ -1330,9 +1346,22 @@ function closeRecognitionReviewDialog() {
 }
 
 function editRecognitionReviewCargo(finding) {
-  if (!finding || finding.index < 0 || !finding.cargo) return;
+  if (!finding) return;
+  const cargo = finding.cargo || finding.suggestion?.cargo || {
+    name: ui("excel.reviewUnknownItem"),
+    model: "",
+    lengthCm: 0,
+    widthCm: 0,
+    heightCm: 0,
+    quantity: 1,
+    weightKg: 0,
+    type: "normal",
+    remark: recognitionReviewSourceText(finding)
+  };
+  const append = finding.index < 0;
+  const index = append ? recognitionRows.value.length : finding.index;
   closeRecognitionReviewDialog();
-  openRecognitionEdit(finding.cargo, finding.index);
+  openRecognitionEdit(cargo, index, { append, findingId: finding.id });
 }
 
 function issueMessages(issue) {
@@ -1395,23 +1424,9 @@ function reviewCargoTitle(cargo, index) {
   return `${index + 1}. ${label} · ${cargo.lengthCm || "-"} × ${cargo.widthCm || "-"} × ${cargo.heightCm || "-"} cm`;
 }
 
-function recognitionReviewOriginalRows(finding) {
+function recognitionReviewSourceText(finding) {
   const issue = finding?.issue || {};
-  const rows = [];
-  if (issue.rowNumber != null) {
-    rows.push({ label: ui("excel.reviewRowNumber"), value: issue.rowNumber });
-  }
-  const sourceText = issue.text || issue.rawText || finding?.source || "";
-  if (sourceText) {
-    rows.push({ label: ui("excel.reviewSourceText"), value: sourceText });
-  }
-  if (finding?.cargo?.packageInfo) {
-    rows.push({ label: ui("excel.reviewPackageInfo"), value: reviewValue(finding.cargo.packageInfo) });
-  }
-  if (!rows.length && finding?.cargo?.remark) {
-    rows.push({ label: ui("common.remark"), value: finding.cargo.remark });
-  }
-  return rows.length ? rows : [{ label: ui("excel.reviewSourceText"), value: "-" }];
+  return issue.text || issue.rawText || finding?.source || finding?.cargo?.remark || "-";
 }
 
 function recognitionReviewSuggestionRows(finding) {
@@ -1435,7 +1450,6 @@ function recognitionReviewCargoRows(cargo) {
     { label: ui("common.type"), value: typeText(cargo.type) }
   ];
   if (cargo.remark) rows.push({ label: ui("common.remark"), value: cargo.remark });
-  if (cargo.packageInfo) rows.push({ label: ui("excel.reviewPackageInfo"), value: reviewValue(cargo.packageInfo) });
   return rows;
 }
 
@@ -1528,8 +1542,11 @@ function normalizeImportedCargo(cargo, index) {
   };
 }
 
-function openRecognitionEdit(cargo, index) {
+function openRecognitionEdit(cargo, index, options = {}) {
   recognitionEditIndex.value = index;
+  recognitionEditAppendMode.value = Boolean(options.append);
+  recognitionEditPackageInfo.value = cargo.packageInfo || null;
+  recognitionEditFindingId.value = options.findingId || "";
   Object.assign(recognitionEditForm, {
     name: cargo.name || "",
     model: cargo.model || "",
@@ -1548,6 +1565,9 @@ function openRecognitionEdit(cargo, index) {
 
 function closeRecognitionEdit() {
   recognitionEditIndex.value = -1;
+  recognitionEditAppendMode.value = false;
+  recognitionEditPackageInfo.value = null;
+  recognitionEditFindingId.value = "";
   recognitionEditErrors.value = [];
 }
 
@@ -1559,9 +1579,17 @@ function applyRecognitionEdit() {
     recognitionEditErrors.value = errors;
     return;
   }
-  const rows = recognitionRows.value.map((item, index) =>
-    index === recognitionEditIndex.value ? { ...item, ...cargo } : item
-  );
+  const rows = recognitionEditAppendMode.value
+    ? [...recognitionRows.value, cargo]
+    : recognitionRows.value.map((item, index) =>
+        index === recognitionEditIndex.value ? { ...item, ...cargo } : item
+      );
+  if (recognitionEditFindingId.value) {
+    recognitionReviewIndexOverrides.value = {
+      ...recognitionReviewIndexOverrides.value,
+      [recognitionEditFindingId.value]: recognitionEditIndex.value
+    };
+  }
   recognitionAgentTask.value = { ...recognitionAgentTask.value, cleanedRows: rows };
   recognitionMessageType.value = "ok";
   recognitionMessage.value = `已修改第 ${recognitionEditIndex.value + 1} 条识别结果，可继续编辑或直接导入。`;
@@ -1581,7 +1609,7 @@ function normalizeRecognitionEditCargo() {
     color: recognitionEditForm.color || "",
     sku: recognitionEditForm.sku || "",
     remark: String(recognitionEditForm.remark || "").trim(),
-    packageInfo: recognitionRows.value[recognitionEditIndex.value]?.packageInfo || null
+    packageInfo: recognitionEditPackageInfo.value
   };
 }
 
