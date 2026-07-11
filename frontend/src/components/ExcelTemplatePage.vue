@@ -820,7 +820,7 @@ import { buildPreviewInWorker, readWorkbookInWorker } from "../services/excelImp
 import {
   createTextRecognitionTask,
   downloadTextRecognitionExcel,
-  fetchTextRecognitionTask
+  waitForTextRecognitionTask
 } from "../services/excelAgentApi";
 import { currentLocale, t } from "../i18n";
 import { translateLegacyText } from "../i18n/legacyText";
@@ -1366,7 +1366,7 @@ async function submitTextRecognitionTask(options = {}) {
       mode: "agent",
       languageHint: "auto"
     });
-    recognitionAgentTask.value = task?.id ? await fetchTextRecognitionTask(task.id) : task;
+    recognitionAgentTask.value = task?.id ? await waitForTextRecognitionTask(task.id) : task;
     closeRecognitionEdit();
     recognitionMessageType.value = recognitionAgentTask.value.status === "FAILED" ? "error" : "ok";
     recognitionMessage.value =
@@ -1384,7 +1384,9 @@ async function submitTextRecognitionTask(options = {}) {
     }
   } catch (error) {
     recognitionMessageType.value = "error";
-    recognitionMessage.value = `智能识别接口不可用：${error.message}`;
+    recognitionMessage.value = error?.code === "TEXT_RECOGNITION_TIMEOUT"
+      ? ui("excel.recognitionTimeout")
+      : ui("excel.recognitionUnavailable", { message: error.message });
     closeRecognitionReviewDialog();
   } finally {
     recognitionAgentBusy.value = false;

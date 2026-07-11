@@ -827,7 +827,7 @@ import { exportPackingReportsZip, exportPackingReport } from "./services/exportR
 import { assignCargoModels } from "./services/excelImport";
 import { buildPreviewInWorker, readWorkbookInWorker } from "./services/excelImportClient";
 import { calculatePacking, estimatePackingWorkload } from "./services/packingClient";
-import { cloneDefaultContainers, defaultContainerForId, isDefaultContainerId, mergeDefaultContainers, restoreDefaultContainer, restoreDefaultContainerPrice } from "./services/localData";
+import { cloneDefaultContainers, defaultContainerForId, effectiveContainerHeight, isDefaultContainerId, mergeDefaultContainers, normalizeContainerHeightFields, restoreDefaultContainer, restoreDefaultContainerPrice } from "./services/localData";
 import { fetchAdminMe, logoutAdmin } from "./services/adminApi";
 import { clearSession, isSessionExpired, storedExpiresAt, storedToken, storedUser } from "./services/authSession";
 import { currentLocale, elementPlusLocale, t } from "./i18n";
@@ -2020,7 +2020,7 @@ function compareEvaluationForUi(a, b) {
   if (freightDiff) return freightDiff;
   const boxDiff = normalizedEvaluationBoxes(a) - normalizedEvaluationBoxes(b);
   if (boxDiff) return boxDiff;
-  const fillDiff = Math.abs(evaluationAverageFill(a) - 72) - Math.abs(evaluationAverageFill(b) - 72);
+  const fillDiff = evaluationAverageFill(b) - evaluationAverageFill(a);
   if (fillDiff) return fillDiff;
   const scoreA = Number(a?.recommendation?.score);
   const scoreB = Number(b?.recommendation?.score);
@@ -2137,15 +2137,16 @@ function openContainerModal(container = null) {
 }
 
 function saveContainer(container) {
-  const existingIndex = containers.value.findIndex((item) => item.id === container.id);
-  const defaultContainer = defaultContainerForId(container.id);
+  const heightNormalizedContainer = normalizeContainerHeightFields(container);
+  const existingIndex = containers.value.findIndex((item) => item.id === heightNormalizedContainer.id);
+  const defaultContainer = defaultContainerForId(heightNormalizedContainer.id);
   const isDefault = Boolean(defaultContainer);
-  const dimensionEdited = isDefault && containerDimensionsEdited(container, defaultContainer);
-  const referencePrice = Number(container.referencePrice || 0);
+  const dimensionEdited = isDefault && containerDimensionsEdited(heightNormalizedContainer, defaultContainer);
+  const referencePrice = Number(heightNormalizedContainer.referencePrice || 0);
   const defaultReferencePrice = Number(defaultContainer?.referencePrice || 0);
   const priceEdited = isDefault && referencePrice > 0 && Math.abs(referencePrice - defaultReferencePrice) >= 0.01;
   const normalized = {
-    ...container,
+    ...heightNormalizedContainer,
     dimensionEdited,
     priceEdited
   };
@@ -2180,7 +2181,7 @@ function saveContainer(container) {
     containers.value.push(normalized);
     priorityContainerIds.value = normalizePriorityContainerIds([...priorityContainerIds.value, normalized.id]);
   }
-  selectedContainerId.value = container.id;
+  selectedContainerId.value = heightNormalizedContainer.id;
   closeContainerModal();
   showToast(existingIndex >= 0 ? ui("container.parametersUpdated") : ui("container.customAdded"));
 }
@@ -2550,17 +2551,7 @@ function containerIcon(name) {
 }
 
 function containerDimensionText(container: any) {
-  const heightLimit = Number(container?.heightLimitCm || 0);
-  const isFlatRack = container?.ignoreHeightLimit || /fr|flat|\u5e73\u677f/i.test(`${container?.id || ""} ${container?.name || ""} ${container?.visualKind || ""} ${container?.equipmentClass || ""}`);
-  const displayHeight = isFlatRack && heightLimit > 0 ? heightLimit : Number(container?.heightCm || 0);
-  const base = `${formatDimensionNumber(container?.lengthCm)} × ${formatDimensionNumber(container?.widthCm)} × ${formatDimensionNumber(displayHeight)}`;
-  if (isFlatRack && heightLimit > 0 && Math.abs(heightLimit - Number(container?.heightCm || 0)) > 0.1) {
-    return `${base} / ${ui("container.frameHeightShort")} ${formatDimensionNumber(container?.heightCm)}`;
-  }
-  if (isFlatRack && heightLimit > 0) {
-    return `${base} / ${ui("container.heightLimitShort")} ${formatDimensionNumber(heightLimit)}`;
-  }
-  return base;
+  return `${formatDimensionNumber(container?.lengthCm)} × ${formatDimensionNumber(container?.widthCm)} × ${formatDimensionNumber(effectiveContainerHeight(container))}`;
 }
 
 function containerPayloadText(container: any) {

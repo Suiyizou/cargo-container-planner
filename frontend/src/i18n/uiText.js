@@ -222,6 +222,7 @@ const uiText = {
   "container.flatRackHeightIgnored": { zh: "平板不计高度", en: "Flat rack height ignored" },
   "container.flatRackHeightLimitTag": { zh: "装载高限 {value} cm", en: "Load height limit {value} cm" },
   "container.heightLimitCm": { zh: "装载高度上限 cm", en: "Load Height Limit cm" },
+  "container.heightCm": { zh: "高 cm", en: "Height cm" },
   "container.heightLimitShort": { zh: "高限", en: "Height Limit" },
   "container.frameHeightShort": { zh: "设备高", en: "Frame Height" },
   "container.useCustomHeightLimit": { zh: "平板/超限设备使用自定义装载高度上限", en: "Use custom load height limit for flat-rack/OOG equipment" },
@@ -324,6 +325,14 @@ const uiText = {
   "excel.recognitionCompleteMessage": {
     zh: "智能识别完成：{types} 类货物，{pieces} 件；{review} 条硬性问题需确认。低风险提示已自动放行，导入后请检查当前货物清单。",
     en: "Smart recognition complete: {types} cargo types, {pieces} pcs; {review} hard issues need confirmation. Low-risk hints were auto-approved; review the current cargo list after importing."
+  },
+  "excel.recognitionTimeout": {
+    zh: "智能识别仍在后台处理中，请稍后重新进入当前任务查看结果。",
+    en: "Recognition is still running in the background. Reopen the current task later to view the result."
+  },
+  "excel.recognitionUnavailable": {
+    zh: "智能识别接口不可用：{message}",
+    en: "Smart recognition API unavailable: {message}"
   },
   "excel.textItems": { zh: "文本条目", en: "Text Items" },
   "excel.validItems": { zh: "有效条目", en: "Valid Items" },

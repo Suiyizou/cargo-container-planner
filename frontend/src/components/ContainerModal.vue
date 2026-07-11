@@ -23,11 +23,8 @@
       <el-form-item label="宽 cm" required>
         <el-input-number v-model="model.widthCm" :min="1" :step="0.1" :precision="1" controls-position="right" />
       </el-form-item>
-      <el-form-item label="高 cm" required>
-        <el-input-number v-model="model.heightCm" :min="1" :step="0.1" :precision="1" controls-position="right" />
-      </el-form-item>
-      <el-form-item v-if="model.ignoreHeightLimit" :label="ui('container.heightLimitCm')" required>
-        <el-input-number v-model="model.heightLimitCm" :min="1" :step="1" :precision="0" controls-position="right" />
+      <el-form-item :label="usesLoadHeightLimit ? ui('container.heightLimitCm') : ui('container.heightCm')" required>
+        <el-input-number v-model="model.heightCm" :min="1" :step="usesLoadHeightLimit ? 1 : 0.1" :precision="usesLoadHeightLimit ? 0 : 1" controls-position="right" />
       </el-form-item>
       <el-form-item label="载重 kg" required>
         <el-input-number v-model="model.payloadKg" :min="1" :step="1" :precision="0" controls-position="right" />
@@ -48,7 +45,7 @@
           <el-option label="特殊设备" value="special" />
         </el-select>
       </el-form-item>
-      <el-form-item class="span-2">
+      <el-form-item v-if="!flatRackModel" class="span-2">
         <el-checkbox v-model="model.ignoreHeightLimit">{{ ui('container.useCustomHeightLimit') }}</el-checkbox>
         <small class="form-help">{{ ui('container.heightLimitHelp') }}</small>
       </el-form-item>
@@ -64,7 +61,7 @@
 import { computed, reactive } from "vue";
 import { currentLocale } from "../i18n";
 import { translateUiText } from "../i18n/uiText";
-import { defaultContainerForId } from "../services/localData";
+import { defaultContainerForId, effectiveContainerHeight, isFlatRackContainer } from "../services/localData";
 import { uid } from "../utils/format";
 
 const emit = defineEmits(["close", "save"]);
@@ -73,6 +70,8 @@ const props = defineProps({
 });
 const isEdit = computed(() => Boolean(props.container?.id));
 const defaultContainer = computed(() => defaultContainerForId(model.id));
+const flatRackModel = computed(() => isFlatRackContainer({ ...model, ignoreHeightLimit: false }));
+const usesLoadHeightLimit = computed(() => flatRackModel.value || model.ignoreHeightLimit);
 const priceIsDefault = computed(() => {
   const current = Number(model.referencePrice || 0);
   const fallback = Number(defaultContainer.value?.referencePrice || 0);
@@ -90,12 +89,12 @@ const model = reactive({
   name: props.container?.name || "",
   lengthCm: Number(props.container?.lengthCm || 590),
   widthCm: Number(props.container?.widthCm || 235),
-  heightCm: Number(props.container?.heightCm || 239),
-  heightLimitCm: Number(props.container?.heightLimitCm || props.container?.heightCm || 239),
+  heightCm: Number(effectiveContainerHeight(props.container || {}) || 239),
+  heightLimitCm: Number(effectiveContainerHeight(props.container || {}) || 239),
   payloadKg: Number(props.container?.payloadKg || 28000),
   usagePriority: props.container?.usagePriority || "common",
   visualKind: props.container?.visualKind || "",
-  ignoreHeightLimit: Boolean(props.container?.ignoreHeightLimit),
+  ignoreHeightLimit: Boolean(props.container?.ignoreHeightLimit) || isFlatRackContainer(props.container || {}),
   costFactor: props.container?.costFactor,
   referencePrice: props.container?.referencePrice ?? null,
   referenceCurrency: props.container?.referenceCurrency || "USD",
@@ -129,13 +128,14 @@ function submit() {
   const referencePrice = Number(model.referencePrice || 0);
   const defaultPrice = Number(defaultContainer.value?.referencePrice || 0);
   const priceEdited = Boolean(defaultContainer.value) && Number.isFinite(referencePrice) && referencePrice > 0 && Math.abs(referencePrice - defaultPrice) >= 0.01;
-  const heightLimitCm = model.ignoreHeightLimit
-    ? Math.max(1, Number(model.heightLimitCm || model.heightCm || 1))
-    : Number(model.heightCm || 0);
+  const heightCm = Math.max(1, Number(model.heightCm || 1));
+  const ignoreHeightLimit = flatRackModel.value || Boolean(model.ignoreHeightLimit);
   emit("save", {
     ...model,
     id: model.id || uid("container"),
-    heightLimitCm,
+    heightCm,
+    heightLimitCm: heightCm,
+    ignoreHeightLimit,
     referencePrice: Number.isFinite(referencePrice) && referencePrice > 0 ? referencePrice : undefined,
     referenceCurrency: "USD",
     priceEdited

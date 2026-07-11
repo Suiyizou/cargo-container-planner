@@ -1,3 +1,5 @@
+import { normalizeContainerHeightFields } from "../services/localData.js";
+
 const TYPE_RULES = {
   normal: { rotatable: true, nonStack: false, extraGapCm: 0 },
   upright: { rotatable: false, nonStack: false, extraGapCm: 1 },
@@ -218,7 +220,7 @@ export function calculate(request = {}, options = {}) {
   const balanceSettings = normalizeBalanceSettings(request.balanceSettings);
   const supportSettings = normalizeSupportSettings(request);
   const evaluations = [];
-  const orderedContainers = orderContainersForCalculation(request.containers || []);
+  const orderedContainers = orderContainersForCalculation((request.containers || []).map(normalizeContainerHeightFields));
   const primaryCount = orderedContainers.filter(isPrimaryCalculationContainer).length;
   traceProgress({
     phase: "start",
@@ -843,6 +845,7 @@ function mixedBoxCandidateScore(container, packed, remaining, utilizationPercent
   const usableCapacity = Math.max(EPS, usageCapacity(container, utilizationPercent));
   const fillPercent = usageUsedCapacity(container, packed.placed) / usableCapacity * 100;
   const meta = equipmentMeta(container);
+  const priceScore = meta.referencePrice / REFERENCE_PRICE_BASE;
   const placedRatio = placedQuantity / totalQuantity;
   const completesAll = placedQuantity >= totalQuantity;
   const underfillPenalty = completesAll ? Math.max(0, 60 - fillPercent) * 0.12 : Math.max(0, 48 - fillPercent) * 0.05;
@@ -850,12 +853,12 @@ function mixedBoxCandidateScore(container, packed, remaining, utilizationPercent
   const blockedPenalty = fitStatus === FIT_STATUS.BALANCE_BLOCKED ? 500 : 0;
   const fillReward = Math.min(fillPercent, 88) / 100 * 1.4;
   return blockedPenalty
-    + meta.costFactor
+    + priceScore
     + specialPenalty
     + underfillPenalty
     - fillReward
     - placedRatio * 1.25
-    - placedVolume / Math.max(EPS, meta.costFactor) * 0.02;
+    - placedVolume / Math.max(EPS, priceScore) * 0.02;
 }
 
 function mixedPlanCost(packedBoxes) {
@@ -3329,6 +3332,10 @@ function lowerGapSwapSupportRatio(container, unit) {
 }
 
 function validatePlacement(container, placed, unit, placement, supportRatio = DEFAULT_SUPPORT_RATIO) {
+  if (Number(container?.payloadKg || 0) > 0
+    && placedWeightKg(placed) + Math.max(0, Number(unit?.weightKg || 0)) > Number(container.payloadKg) + EPS) {
+    return { valid: false, reason: "payload-exceeded" };
+  }
   if (!fitsContainerDims(container, placement)) return { valid: false, reason: "out-of-bounds" };
   if (placed.some((box) => intersects(placement, box))) return { valid: false, reason: "intersects" };
   if (!hasSupport(placement, placed, supportRatio)) return { valid: false, reason: "unsupported" };
@@ -3341,6 +3348,9 @@ function validateAllPlacements(container, placed) {
 }
 
 function validateAllPlacementsDetailed(container, placed) {
+  if (Number(container?.payloadKg || 0) > 0 && placedWeightKg(placed) > Number(container.payloadKg) + EPS) {
+    return { valid: false, reason: "payload-exceeded" };
+  }
   for (let i = 0; i < placed.length; i += 1) {
     const current = placed[i];
     if (!fitsContainerDims(container, current)) return { valid: false, reason: "out-of-bounds", unit: current.unitKey };
@@ -3746,14 +3756,14 @@ function comparePackAttempt(container) {
   return (a, b) => {
     const balanceRankDiff = balanceSeverityRank(a.balanceValidation) - balanceSeverityRank(b.balanceValidation);
     if (balanceRankDiff) return balanceRankDiff;
-    const balanceScoreDiff = Number(a.balanceValidation?.score || 0) - Number(b.balanceValidation?.score || 0);
-    if (Math.abs(balanceScoreDiff) > EPS) return balanceScoreDiff;
     if (isFlatRackUsage(container)) {
       const aPlacedCount = sumUnitQuantity(a.placed);
       const bPlacedCount = sumUnitQuantity(b.placed);
       if (aPlacedCount !== bPlacedCount) return bPlacedCount - aPlacedCount;
       const deckDiff = placementDeckAreaM2(b.placed) - placementDeckAreaM2(a.placed);
       if (Math.abs(deckDiff) > EPS) return deckDiff;
+      const balanceScoreDiff = Number(a.balanceValidation?.score || 0) - Number(b.balanceValidation?.score || 0);
+      if (Math.abs(balanceScoreDiff) > EPS) return balanceScoreDiff;
       const topDiff = maxTop(a.placed) - maxTop(b.placed);
       if (Math.abs(topDiff) > EPS) return topDiff;
       const lengthDiff = lengthUtilizationPercent(container, b.placed) - lengthUtilizationPercent(container, a.placed);
@@ -3766,6 +3776,8 @@ function comparePackAttempt(container) {
     const aPlacedCount = sumUnitQuantity(a.placed);
     const bPlacedCount = sumUnitQuantity(b.placed);
     if (aPlacedCount !== bPlacedCount) return bPlacedCount - aPlacedCount;
+    const balanceScoreDiff = Number(a.balanceValidation?.score || 0) - Number(b.balanceValidation?.score || 0);
+    if (Math.abs(balanceScoreDiff) > EPS) return balanceScoreDiff;
     const supportDiff = supportSurfaceScore(b.placed, container) - supportSurfaceScore(a.placed, container);
     if (Math.abs(supportDiff) > EPS) return supportDiff;
     const topDiff = maxTop(a.placed) - maxTop(b.placed);
@@ -4490,8 +4502,8 @@ function compareEvaluation(a, b) {
   if (Math.abs(costDiff) > EPS) return costDiff;
   const boxDiff = normalizedBoxCount(a) - normalizedBoxCount(b);
   if (boxDiff) return boxDiff;
-  const targetDiff = Math.abs(recommendationFillPercent(a) - RECOMMENDATION_TARGET_FILL_PERCENT) - Math.abs(recommendationFillPercent(b) - RECOMMENDATION_TARGET_FILL_PERCENT);
-  if (Math.abs(targetDiff) > EPS) return targetDiff;
+  const fillDiff = recommendationFillPercent(b) - recommendationFillPercent(a);
+  if (Math.abs(fillDiff) > EPS) return fillDiff;
   const scoreDiff = recommendationScoreValue(a) - recommendationScoreValue(b);
   if (Math.abs(scoreDiff) > EPS) return scoreDiff;
   return volumeM3(a.container) - volumeM3(b.container);

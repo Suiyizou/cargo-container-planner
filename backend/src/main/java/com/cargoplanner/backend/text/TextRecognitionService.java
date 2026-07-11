@@ -6,6 +6,7 @@ import com.cargoplanner.backend.common.ApiException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PreDestroy;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
@@ -21,6 +22,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.apache.poi.ss.usermodel.Row;
@@ -36,7 +40,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
@@ -75,11 +78,22 @@ public class TextRecognitionService {
   private static final Pattern FLEX_WEIGHT_PATTERN = Pattern.compile(
       "(?i)(?:单重|每件|单箱毛重|毛重|净重|unit\\s*weight|each|weight|wt)?\\s*([0-9][0-9.,]*)\\s*(kg|kgs|公斤|千克|g|克|t|吨)"
   );
+  private static final Pattern EXCEL_ROW_PATTERN = Pattern.compile("^R(\\d+):\\s.*$");
+  private static final Pattern EXCEL_HEADER_ROW_PATTERN = Pattern.compile("^DETECTED_HEADER_ROW:\\s*(\\d+).*$");
+  private static final int EXCEL_AGENT_BATCH_MAX_ROWS = 18;
+  private static final int EXCEL_AGENT_BATCH_MAX_TARGET_CHARS = 12_000;
+  private static final int EXCEL_AGENT_PREVIOUS_CONTEXT_ROWS = 2;
+  private static final int EXCEL_AGENT_NEXT_CONTEXT_ROWS = 1;
 
   private final JdbcTemplate jdbcTemplate;
   private final ObjectMapper objectMapper;
   private final LlmSettingsService llmSettingsService;
   private final RestTemplate restTemplate = new RestTemplate();
+  private final ExecutorService recognitionExecutor = Executors.newFixedThreadPool(2, runnable -> {
+    Thread thread = new Thread(runnable, "text-recognition-agent");
+    thread.setDaemon(true);
+    return thread;
+  });
   private volatile boolean tableReady = false;
 
   public TextRecognitionService(
@@ -92,7 +106,6 @@ public class TextRecognitionService {
     this.llmSettingsService = llmSettingsService;
   }
 
-  @Transactional
   public Map<String, Object> createTask(TextRecognitionRequest request) {
     ensureTable();
     String text = cleanCell(request == null ? "" : request.text());
@@ -101,9 +114,28 @@ public class TextRecognitionService {
     }
 
     long taskId = insertTask(request);
-    jdbcTemplate.update("UPDATE cp_text_recognition_tasks SET status = 'RUNNING' WHERE id = ?", taskId);
+    String languageHint = request == null ? "" : request.languageHint();
+    jdbcTemplate.update(
+        "UPDATE cp_text_recognition_tasks SET status = 'RUNNING', agent_notes = ? WHERE id = ?",
+        isFormattedExcelAgentInput(text) ? "正在自动拆分 Excel 并分批调用 Agent。" : "正在调用 Agent 识别。",
+        taskId
+    );
     try {
-      RecognitionResult result = recognize(text, request == null ? "" : request.languageHint());
+      recognitionExecutor.submit(() -> processTask(taskId, text, languageHint));
+    } catch (RejectedExecutionException error) {
+      jdbcTemplate.update(
+          "UPDATE cp_text_recognition_tasks SET status = 'FAILED', error_message = ?, finished_at = ? WHERE id = ?",
+          "识别任务队列当前不可用，请稍后重试。",
+          Timestamp.from(Instant.now()),
+          taskId
+      );
+    }
+    return getTask(taskId);
+  }
+
+  private void processTask(long taskId, String text, String languageHint) {
+    try {
+      RecognitionResult result = recognize(text, languageHint);
       String cleanedJson = objectMapper.writeValueAsString(result.cleanedRows());
       String issuesJson = objectMapper.writeValueAsString(result.issues());
       jdbcTemplate.update(
@@ -143,8 +175,11 @@ public class TextRecognitionService {
           taskId
       );
     }
+  }
 
-    return getTask(taskId);
+  @PreDestroy
+  public void shutdownRecognitionExecutor() {
+    recognitionExecutor.shutdownNow();
   }
 
   public List<Map<String, Object>> listTasks() {
@@ -298,7 +333,9 @@ public class TextRecognitionService {
     if (settings.enabled()) {
       if (settings.hasApiKey()) {
         try {
-          return recognizeWithOpenAiCompatible(settings, text, languageHint);
+          return formattedExcelAgentInput
+              ? recognizeFormattedExcelInBatches(settings, text, languageHint)
+              : recognizeWithOpenAiCompatible(settings, text, languageHint);
         } catch (Exception error) {
           if (formattedExcelAgentInput) {
             throw new IllegalStateException("Excel 格式化识别必须走 Agent，当前调用失败：" + trim(error.getMessage(), 180), error);
@@ -324,13 +361,168 @@ public class TextRecognitionService {
     return String.valueOf(text == null ? "" : text).contains("EXCEL_FORMATTED_TABLE_FOR_AGENT");
   }
 
+  private RecognitionResult recognizeFormattedExcelInBatches(
+      LlmRuntimeSettings settings,
+      String text,
+      String languageHint
+  ) {
+    List<ExcelAgentBatch> batches = buildExcelAgentBatches(text);
+    if (batches.isEmpty()) {
+      return recognizeWithOpenAiCompatible(settings, text, languageHint);
+    }
+
+    List<RecognitionResult> results = new ArrayList<>();
+    int requestCount = 0;
+    for (ExcelAgentBatch batch : batches) {
+      BatchRecognitionResult batchResult = recognizeExcelBatchWithAdaptiveSplit(settings, batch, languageHint);
+      results.addAll(batchResult.results());
+      requestCount += batchResult.requestCount();
+    }
+    return mergeExcelBatchResults(results, countFormattedExcelRows(text), requestCount, settings.model());
+  }
+
+  private BatchRecognitionResult recognizeExcelBatchWithAdaptiveSplit(
+      LlmRuntimeSettings settings,
+      ExcelAgentBatch batch,
+      String languageHint
+  ) {
+    try {
+      return new BatchRecognitionResult(
+          List.of(recognizeWithOpenAiCompatible(settings, renderExcelAgentBatch(batch), languageHint)),
+          1
+      );
+    } catch (RetryableAgentOutputException error) {
+      if (batch.targetRows().size() <= 1) throw error;
+      int midpoint = Math.max(1, batch.targetRows().size() / 2);
+      ExcelAgentBatch left = batch.withTargetRows(new ArrayList<>(batch.targetRows().subList(0, midpoint)));
+      ExcelAgentBatch right = batch.withTargetRows(new ArrayList<>(batch.targetRows().subList(midpoint, batch.targetRows().size())));
+      BatchRecognitionResult leftResult = recognizeExcelBatchWithAdaptiveSplit(settings, left, languageHint);
+      BatchRecognitionResult rightResult = recognizeExcelBatchWithAdaptiveSplit(settings, right, languageHint);
+      List<RecognitionResult> merged = new ArrayList<>(leftResult.results());
+      merged.addAll(rightResult.results());
+      return new BatchRecognitionResult(merged, 1 + leftResult.requestCount() + rightResult.requestCount());
+    }
+  }
+
+  private RecognitionResult mergeExcelBatchResults(
+      List<RecognitionResult> results,
+      int sourceRowCount,
+      int requestCount,
+      String model
+  ) {
+    List<Map<String, Object>> cleanedRows = new ArrayList<>();
+    List<Map<String, Object>> issues = new ArrayList<>();
+    int validCount = 0;
+    for (RecognitionResult result : results) {
+      cleanedRows.addAll(result.cleanedRows());
+      issues.addAll(result.issues());
+      validCount += result.validCount();
+    }
+    List<Map<String, Object>> aggregatedRows = aggregateCargos(cleanedRows);
+    String notes = requestCount > 1
+        ? "Excel 已拆分为 " + requestCount + " 个 Agent 请求并合并校验，避免单次输出超限（模型：" + model + "）。"
+        : "Excel 已完成 Agent 识别与合并校验（模型：" + model + "）。";
+    return new RecognitionResult(sourceRowCount, validCount, issues.size(), aggregatedRows, issues, notes);
+  }
+
+  private List<ExcelAgentBatch> buildExcelAgentBatches(String text) {
+    List<String> preamble = new ArrayList<>();
+    List<ExcelSheetSection> sections = new ArrayList<>();
+    ExcelSheetSectionBuilder current = null;
+    for (String rawLine : String.valueOf(text == null ? "" : text).lines().toList()) {
+      String line = cleanCell(rawLine);
+      if (line.startsWith("SHEET ")) {
+        if (current != null) sections.add(current.build());
+        current = new ExcelSheetSectionBuilder(line);
+        continue;
+      }
+      if (current == null) {
+        if (!line.isBlank()) preamble.add(line);
+        continue;
+      }
+      Matcher rowMatcher = EXCEL_ROW_PATTERN.matcher(line);
+      if (rowMatcher.matches()) {
+        current.rows.add(new ExcelAgentRow(intValue(rowMatcher.group(1), 0), line));
+      } else if (!line.isBlank() && !line.startsWith("TRUNCATED:")) {
+        current.metadata.add(line);
+        Matcher headerMatcher = EXCEL_HEADER_ROW_PATTERN.matcher(line);
+        if (headerMatcher.matches()) current.headerRowNumber = intValue(headerMatcher.group(1), 1);
+      }
+    }
+    if (current != null) sections.add(current.build());
+
+    List<ExcelAgentBatch> batches = new ArrayList<>();
+    for (ExcelSheetSection section : sections) {
+      int start = 0;
+      while (start < section.rows().size()) {
+        int end = start;
+        int targetChars = 0;
+        while (end < section.rows().size() && end - start < EXCEL_AGENT_BATCH_MAX_ROWS) {
+          int nextChars = targetChars + section.rows().get(end).line().length();
+          if (end > start && nextChars > EXCEL_AGENT_BATCH_MAX_TARGET_CHARS) break;
+          targetChars = nextChars;
+          end += 1;
+        }
+        if (end <= start) end = start + 1;
+        batches.add(new ExcelAgentBatch(
+            List.copyOf(preamble),
+            section,
+            new ArrayList<>(section.rows().subList(start, end))
+        ));
+        start = end;
+      }
+    }
+    return batches;
+  }
+
+  private String renderExcelAgentBatch(ExcelAgentBatch batch) {
+    List<ExcelAgentRow> allRows = batch.section().rows();
+    List<ExcelAgentRow> targetRows = batch.targetRows();
+    int firstTargetIndex = allRows.indexOf(targetRows.get(0));
+    int lastTargetIndex = allRows.indexOf(targetRows.get(targetRows.size() - 1));
+    List<ExcelAgentRow> contextRows = new ArrayList<>();
+    int headerContextEnd = Math.max(1, batch.section().headerRowNumber() + 2);
+    for (ExcelAgentRow row : allRows) {
+      if (row.rowNumber() <= headerContextEnd && !targetRows.contains(row)) contextRows.add(row);
+    }
+    for (int index = Math.max(0, firstTargetIndex - EXCEL_AGENT_PREVIOUS_CONTEXT_ROWS); index < firstTargetIndex; index++) {
+      ExcelAgentRow row = allRows.get(index);
+      if (!targetRows.contains(row) && !contextRows.contains(row)) contextRows.add(row);
+    }
+    for (int index = lastTargetIndex + 1; index <= Math.min(allRows.size() - 1, lastTargetIndex + EXCEL_AGENT_NEXT_CONTEXT_ROWS); index++) {
+      ExcelAgentRow row = allRows.get(index);
+      if (!targetRows.contains(row) && !contextRows.contains(row)) contextRows.add(row);
+    }
+
+    List<String> lines = new ArrayList<>(batch.preamble());
+    lines.add("EXCEL_AGENT_BATCH");
+    lines.add("BATCH_RULE: Extract and emit cargo only for BATCH_TARGET_ROWS. BATCH_CONTEXT_ONLY rows are layout/header context; never emit cargo or issues for context-only rows.");
+    lines.add("BATCH_RULE: Keep JSON compact. Do not repeat full source rows in remarks or notes. Omit optional packageInfo when it is not needed.");
+    lines.add(batch.section().sheetLine());
+    lines.addAll(batch.section().metadata());
+    if (!contextRows.isEmpty()) {
+      lines.add("BATCH_CONTEXT_ONLY:");
+      contextRows.forEach(row -> lines.add(row.line()));
+    }
+    lines.add("BATCH_TARGET_ROWS:");
+    targetRows.forEach(row -> lines.add(row.line()));
+    return String.join("\n", lines);
+  }
+
+  private int countFormattedExcelRows(String text) {
+    return (int) String.valueOf(text == null ? "" : text).lines()
+        .map(this::cleanCell)
+        .filter(line -> EXCEL_ROW_PATTERN.matcher(line).matches())
+        .count();
+  }
+
   private RecognitionResult recognizeWithOpenAiCompatible(LlmRuntimeSettings settings, String text, String languageHint) {
     String content = callOpenAiCompatibleChat(settings, text, languageHint);
     Map<String, Object> payload;
     try {
       payload = objectMapper.readValue(extractJsonObject(content), new TypeReference<Map<String, Object>>() {});
     } catch (JsonProcessingException error) {
-      throw new IllegalStateException(
+      throw new RetryableAgentOutputException(
           "Agent 返回的 JSON 不完整或格式错误，请重试；如果是大表，请减少无关工作表或空白行。详情：" + trim(error.getOriginalMessage(), 160),
           error
       );
@@ -446,7 +638,7 @@ public class TextRecognitionService {
       if (first instanceof Map<?, ?> choice) {
         String finishReason = cleanCell(choice.get("finish_reason"));
         if ("length".equalsIgnoreCase(finishReason)) {
-          throw new IllegalStateException("Agent 输出达到长度上限，返回结果被截断。请重试或减少无关工作表、空白行。");
+          throw new RetryableAgentOutputException("Agent 输出达到长度上限，返回结果被截断。正在缩小批次重试。");
         }
         String content = contentText(choice.get("message"));
         if (content.isBlank()) content = contentText(choice.get("delta"));
@@ -1167,6 +1359,8 @@ public class TextRecognitionService {
         - The algorithm fields lengthCm,widthCm,heightCm,quantity,weightKg must always describe the final handled package unit: pallet, carton, crate, wooden case, or box. Never put loose-piece dimensions into these fields when the goods are shipped inside cartons/pallets.
         - If loose-piece/order details exist, store them only in packageInfo.innerCargo and/or remark. packageInfo is optional but recommended for packing-list rows.
         - For input beginning with EXCEL_FORMATTED_TABLE_FOR_AGENT, use the Excel coordinates, merged ranges, and neighboring rows/columns to understand the table layout. Do not blindly parse the first recognizable table.
+        - If the input contains EXCEL_AGENT_BATCH, emit rows and issues only for lines under BATCH_TARGET_ROWS. Lines under BATCH_CONTEXT_ONLY are read-only layout/header context and must never be emitted or counted.
+        - Keep the JSON compact. Do not copy full Excel source rows into remark or notes. Omit optional packageInfo when it adds no information needed for final package weight or review.
         - If a sheet has product/carton details on the left and pallet/final-package columns on the right, output the right-side final pallet/package rows as the algorithm cargo. The left-side product/carton rows become inner contents only.
         - Chinese packing sheets with right-side headers such as 免熏蒸木托盘体积, 免熏蒸木托盘重量KG, 数量, 总体积m3, 重量KG, 托盘拼装 are final pallet-unit lists. Extract those pallets, not the left-side cartons.
         - For final pallet or wooden-package rows, weightKg must be the gross weight of one final handled unit. When the sheet gives pallet/wooden-package tare weight plus product gross weights, calculate: weightKg = (palletTareWeightKg * palletQuantity + containedCargoTotalGrossWeightKg) / palletQuantity. If the sheet gives a final gross total that clearly already includes pallet plus cargo, use finalGrossTotal / palletQuantity instead and mention it. Never use the bare pallet tare as weightKg when contained cargo weights are available.
@@ -1510,6 +1704,52 @@ public class TextRecognitionService {
     Timestamp timestamp = rs.getTimestamp(column);
     return timestamp == null ? null : timestamp.toInstant().toString();
   }
+
+  private static final class RetryableAgentOutputException extends IllegalStateException {
+    private RetryableAgentOutputException(String message) {
+      super(message);
+    }
+
+    private RetryableAgentOutputException(String message, Throwable cause) {
+      super(message, cause);
+    }
+  }
+
+  private record ExcelAgentRow(int rowNumber, String line) {}
+
+  private record ExcelSheetSection(
+      String sheetLine,
+      List<String> metadata,
+      List<ExcelAgentRow> rows,
+      int headerRowNumber
+  ) {}
+
+  private static final class ExcelSheetSectionBuilder {
+    private final String sheetLine;
+    private final List<String> metadata = new ArrayList<>();
+    private final List<ExcelAgentRow> rows = new ArrayList<>();
+    private int headerRowNumber = 1;
+
+    private ExcelSheetSectionBuilder(String sheetLine) {
+      this.sheetLine = sheetLine;
+    }
+
+    private ExcelSheetSection build() {
+      return new ExcelSheetSection(sheetLine, List.copyOf(metadata), List.copyOf(rows), headerRowNumber);
+    }
+  }
+
+  private record ExcelAgentBatch(
+      List<String> preamble,
+      ExcelSheetSection section,
+      List<ExcelAgentRow> targetRows
+  ) {
+    private ExcelAgentBatch withTargetRows(List<ExcelAgentRow> rows) {
+      return new ExcelAgentBatch(preamble, section, rows);
+    }
+  }
+
+  private record BatchRecognitionResult(List<RecognitionResult> results, int requestCount) {}
 
   private record ParsedCargo(
       boolean matched,

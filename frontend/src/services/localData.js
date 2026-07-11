@@ -36,11 +36,11 @@ export const defaultContainers = [
     name: "20FR 平板柜",
     lengthCm: 563.8,
     widthCm: 243.8,
-    heightCm: 223.3,
+    heightCm: 300,
     payloadKg: 42100,
     dimensionSource: "Hapag-Lloyd 20' Flatrack",
     dimensionSourceUrl: "https://www.hapag-lloyd.com/en/services-information/cargo-fleet/container/20-flatrack.html",
-    dimensionBasis: "Inside Dimension / Min. Width",
+    dimensionBasis: "Deck Length / Min. Width / User Load Height Limit",
     dimensionNote: "\u5e73\u677f\u67dc\u4e3a\u5f00\u653e\u8bbe\u5907\uff1b\u7cfb\u7edf\u9ed8\u8ba4\u6309 300cm \u88c5\u8f7d\u9ad8\u5ea6\u4e0a\u9650\u53c2\u4e0e\u8ba1\u7b97\uff0c\u7528\u6237\u53ef\u6309 OOG\u3001\u573a\u7ad9\u3001\u7ed1\u624e\u548c\u8fd0\u8f93\u65b9\u6848\u81ea\u5b9a\u4e49\u3002",
     usagePriority: "special",
     visualKind: "flat-rack",
@@ -84,11 +84,11 @@ export const defaultContainers = [
     name: "40FR 平板柜",
     lengthCm: 1165.2,
     widthCm: 234.7,
-    heightCm: 226.5,
+    heightCm: 300,
     payloadKg: 49100,
     dimensionSource: "Hapag-Lloyd 40' Flatrack High Cube",
     dimensionSourceUrl: "https://www.hapag-lloyd.com/en/services-information/cargo-fleet/container/40-flatrack-high-cube.html",
-    dimensionBasis: "Inside Dimension / Min. Width",
+    dimensionBasis: "Deck Length / Min. Width / User Load Height Limit",
     dimensionNote: "\u5e73\u677f\u67dc\u4e3a\u5f00\u653e\u8bbe\u5907\uff1b\u7cfb\u7edf\u9ed8\u8ba4\u6309 300cm \u88c5\u8f7d\u9ad8\u5ea6\u4e0a\u9650\u53c2\u4e0e\u8ba1\u7b97\uff0c\u7528\u6237\u53ef\u6309 OOG\u3001\u573a\u7ad9\u3001\u7ed1\u624e\u548c\u8fd0\u8f93\u65b9\u6848\u81ea\u5b9a\u4e49\u3002",
     usagePriority: "special",
     visualKind: "flat-rack",
@@ -212,7 +212,29 @@ function withDefaultProfile(container, options = {}) {
       next[field] = defaultContainer[field];
     });
   }
-  return next;
+  return normalizeContainerHeightFields(next);
+}
+
+export function isFlatRackContainer(container = {}) {
+  const text = `${container?.id || ""} ${container?.name || ""} ${container?.visualKind || ""} ${container?.equipmentClass || ""}`.toLowerCase();
+  return Boolean(container?.ignoreHeightLimit) || /fr|flat\s*rack|flatrack|flat|\u5e73\u677f/.test(text);
+}
+
+export function effectiveContainerHeight(container = {}) {
+  const height = Number(container?.heightCm || 0);
+  const legacyLimit = Number(container?.heightLimitCm ?? container?.oogHeightLimitCm);
+  if (isFlatRackContainer(container) && Number.isFinite(legacyLimit) && legacyLimit > 0) return legacyLimit;
+  return Number.isFinite(height) && height > 0 ? height : 0;
+}
+
+export function normalizeContainerHeightFields(container = {}) {
+  const heightCm = Math.max(1, effectiveContainerHeight(container));
+  return {
+    ...container,
+    heightCm,
+    heightLimitCm: heightCm,
+    ignoreHeightLimit: isFlatRackContainer(container)
+  };
 }
 
 export function cloneDefaultContainers() {
@@ -221,7 +243,9 @@ export function cloneDefaultContainers() {
 
 export function mergeDefaultContainers(containers = []) {
   const existing = Array.isArray(containers)
-    ? containers.filter((item) => item && !removedDefaultContainerIds.has(item.id))
+    ? containers
+        .filter((item) => item && !removedDefaultContainerIds.has(item.id))
+        .map((item) => normalizeContainerHeightFields(item))
     : [];
   if (!existing.length) return cloneDefaultContainers();
   const defaultIds = new Set(defaultContainers.map((item) => item.id));

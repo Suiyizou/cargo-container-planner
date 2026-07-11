@@ -62,6 +62,20 @@ export function fetchTextRecognitionTask(id) {
   return request(`/text-recognition/tasks/${id}`);
 }
 
+export async function waitForTextRecognitionTask(id, options = {}) {
+  const intervalMs = Math.max(500, Number(options.intervalMs || 1200));
+  const timeoutMs = Math.max(30000, Number(options.timeoutMs || 10 * 60 * 1000));
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const task = await fetchTextRecognitionTask(id);
+    if (["SUCCEEDED", "FAILED"].includes(task?.status)) return task;
+    await new Promise((resolve) => window.setTimeout(resolve, intervalMs));
+  }
+  const error = new Error("TEXT_RECOGNITION_TIMEOUT");
+  error.code = "TEXT_RECOGNITION_TIMEOUT";
+  throw error;
+}
+
 export async function downloadTextRecognitionExcel(id, fileName = "text-recognition-cargos.xlsx") {
   const response = await fetchWithApiFallback(`/text-recognition/tasks/${id}/cleaned-excel`, {}, configuredBase);
   const blob = await response.blob();

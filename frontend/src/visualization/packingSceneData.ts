@@ -1,4 +1,5 @@
 import type { ContainerLike, PlacementLike, SceneCargo, SceneData, SceneLegendItem, SceneStats } from "./packingSceneTypes";
+import { effectiveContainerHeight } from "../services/localData";
 
 const FALLBACK_COLORS = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3", "#ca8a04", "#475569"];
 
@@ -38,7 +39,7 @@ export function formatDimension(value = 0) {
 
 function normalizeContainer(container: ContainerLike | null): ContainerLike | null {
   if (!container) return null;
-  const heightCm = visualHeightLimit(container);
+  const heightCm = effectiveContainerHeight(container);
   return {
     ...container,
     lengthCm: Number(container.lengthCm || 0),
@@ -47,12 +48,6 @@ function normalizeContainer(container: ContainerLike | null): ContainerLike | nu
     heightLimitCm: Number(container.heightLimitCm || heightCm),
     payloadKg: Number(container.payloadKg || 0)
   };
-}
-
-function visualHeightLimit(container: ContainerLike) {
-  const heightLimit = Number(container.heightLimitCm || 0);
-  if ((isFlatRack(container, null) || heightLimit > Number(container.heightCm || 0)) && heightLimit > 0) return heightLimit;
-  return Number(container.heightCm || 0);
 }
 
 function normalizeCargo(placement: PlacementLike, index: number, colorMap: Map<string, string>): SceneCargo {
