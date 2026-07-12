@@ -530,6 +530,16 @@
           {{ ui('excel.recognitionReviewNotice') }}
         </p>
 
+        <el-alert
+          v-if="recognitionMissingPalletDimensionIssues.length"
+          class="recognition-pallet-dimensions-alert"
+          type="error"
+          show-icon
+          :closable="false"
+          :title="ui('excel.reviewPalletDimensionsMissingTitle', { count: recognitionMissingPalletDimensionIssues.length })"
+          :description="ui('excel.reviewPalletDimensionsMissingDescription')"
+        />
+
         <div class="excel-summary-grid recognition-review-metrics">
           <div>
             <span>{{ ui('excel.validItems') }}</span>
@@ -559,7 +569,12 @@
             </template>
 
             <div v-if="recognitionReviewFindings.length" class="recognition-review-issue-list">
-              <article v-for="finding in recognitionReviewFindings" :key="finding.id" class="recognition-review-issue">
+              <article
+                v-for="finding in recognitionReviewFindings"
+                :key="finding.id"
+                class="recognition-review-issue"
+                :class="{ 'is-pallet-dimensions-missing': isPalletDimensionsMissingFinding(finding) }"
+              >
                 <header>
                   <strong>{{ finding.title }}</strong>
                   <span class="recognition-review-status">{{ ui('excel.reviewNeedsConfirm') }}</span>
@@ -613,7 +628,7 @@
                       <p v-else class="recognition-review-card-empty">{{ ui('excel.reviewNotImportedYet') }}</p>
                     </div>
                     <el-button v-if="finding.canEdit" type="primary" plain :icon="EditPen" @click="editRecognitionReviewCargo(finding)">
-                      {{ ui('excel.reviewEditImport') }}
+                      {{ isPalletDimensionsMissingFinding(finding) ? ui('excel.reviewEnterPalletDimensions') : ui('excel.reviewEditImport') }}
                     </el-button>
                   </li>
                 </ol>
@@ -782,7 +797,10 @@
             <el-input-number v-model="recognitionEditForm.weightKg" :min="0" :step="0.01" :precision="2" controls-position="right" />
           </el-form-item>
           <el-form-item :label="ui('common.type')">
-            <el-select v-model="recognitionEditForm.type">
+            <el-select
+              v-model="recognitionEditForm.type"
+              :disabled="recognitionEditIssueCode === 'PALLET_DIMENSIONS_MISSING'"
+            >
               <el-option :label="ui('cargo.normal')" value="normal" />
               <el-option :label="ui('cargo.upright')" value="upright" />
               <el-option :label="ui('cargo.nonstack')" value="nonstack" />
@@ -870,6 +888,7 @@ const recognitionEditIndex = ref(-1);
 const recognitionEditAppendMode = ref(false);
 const recognitionEditPackageInfo = ref(null);
 const recognitionEditFindingId = ref("");
+const recognitionEditIssueCode = ref("");
 const recognitionEditErrors = ref([]);
 const recognitionReviewDialogOpen = ref(false);
 const recognitionReviewActiveNames = ref(["needsReview", "normal"]);
@@ -946,13 +965,22 @@ const recognitionQuantity = computed(() =>
 const recognitionTotalRows = computed(() => recognitionAgentTask.value?.rowCount ?? 0);
 const recognitionValidCount = computed(() => recognitionAgentTask.value?.validCount ?? 0);
 const recognitionHasResult = computed(() => recognitionAgentTask.value?.status === "SUCCEEDED");
-const recognitionBlockingIssueCodes = new Set(["AGENT_OUTPUT_LIMIT", "AGENT_ROW_COVERAGE", "AGENT_REQUEST_BUDGET", "INPUT_TRUNCATED"]);
+const recognitionBlockingIssueCodes = new Set([
+  "AGENT_OUTPUT_LIMIT",
+  "AGENT_ROW_COVERAGE",
+  "AGENT_REQUEST_BUDGET",
+  "INPUT_TRUNCATED",
+  "PALLET_DIMENSIONS_MISSING"
+]);
 const recognitionBlockingIssues = computed(() => recognitionIssues.value.filter((issue, index) => {
   const code = String(issue?.code || "");
   if (!recognitionBlockingIssueCodes.has(code)) return false;
   if (code === "INPUT_TRUNCATED") return true;
-  return !Number.isInteger(recognitionReviewIndexOverrides.value[recognitionIssueFindingId(issue, index)]);
+  return !isRecognitionIssueOverrideResolved(issue, index);
 }));
+const recognitionMissingPalletDimensionIssues = computed(() =>
+  recognitionBlockingIssues.value.filter((issue) => String(issue?.code || "") === "PALLET_DIMENSIONS_MISSING")
+);
 const recognitionElapsedText = computed(() => formatElapsedTime(recognitionElapsedSeconds.value));
 const sourceWorkbookFileSize = computed(() => formatFileSize(sourceWorkbookFile.value?.size || 0));
 const sourcePreviewSheet = computed(() =>
@@ -982,6 +1010,8 @@ const recognitionReviewFindings = computed(() => {
       && overriddenIndex < recognitionRows.value.length
       ? overriddenIndex
       : (cargo ? findRecognitionCargoIndex(cargo) : -1);
+    if (String(issue?.code || "") === "PALLET_DIMENSIONS_MISSING"
+      && isRecognitionIssueOverrideResolved(issue, index)) return;
     if (cargoIndex >= 0) issueCargoKeys.add(cargoReviewKey(recognitionRows.value[cargoIndex]));
     findings.push({
       id: findingId,
@@ -1387,7 +1417,7 @@ async function submitTextRecognitionTask(options = {}) {
       recognitionAgentTask.value.status === "FAILED"
         ? recognitionTaskFailureMessage(recognitionAgentTask.value)
         : recognitionPartial
-          ? ui("excel.recognitionPartial", { count: recognitionBlockingIssues.value.length })
+          ? recognitionBlockingMessage()
         : ui("excel.recognitionCompleteMessage", {
             types: recognitionRows.value.length,
             pieces: recognitionQuantity.value,
@@ -1413,7 +1443,6 @@ async function submitTextRecognitionTask(options = {}) {
 }
 
 async function assertExcelAgentBackendReady(text) {
-  if (!String(text || "").includes("EXCEL_FORMATTED_TABLE_FOR_AGENT")) return;
   let capabilities;
   try {
     capabilities = await fetchTextRecognitionCapabilities();
@@ -1424,7 +1453,7 @@ async function assertExcelAgentBackendReady(text) {
     throw error;
   }
   const versionMatch = /^excel-agent-batch-v(\d+)$/.exec(String(capabilities?.engineVersion || ""));
-  if (capabilities?.adaptiveBatching !== true || Number(versionMatch?.[1] || 0) < 3) {
+  if (capabilities?.adaptiveBatching !== true || Number(versionMatch?.[1] || 0) < 4) {
     throw textRecognitionBackendOutdatedError();
   }
 }
@@ -1436,9 +1465,8 @@ function textRecognitionBackendOutdatedError() {
 }
 
 function assertCreatedExcelTaskEngine(task, text) {
-  if (!String(text || "").includes("EXCEL_FORMATTED_TABLE_FOR_AGENT")) return;
   const versionMatch = /^excel-agent-batch-v(\d+)$/.exec(String(task?.serverEngineVersion || ""));
-  if (task?.serverAdaptiveBatching !== true || Number(versionMatch?.[1] || 0) < 3) {
+  if (task?.serverAdaptiveBatching !== true || Number(versionMatch?.[1] || 0) < 4) {
     throw textRecognitionBackendOutdatedError();
   }
 }
@@ -1539,11 +1567,12 @@ function importRecognitionRows() {
   if (!recognitionRows.value.length) return;
   if (recognitionBlockingIssues.value.length) {
     recognitionMessageType.value = "error";
-    recognitionMessage.value = ui("excel.recognitionPartial", { count: recognitionBlockingIssues.value.length });
+    recognitionMessage.value = recognitionBlockingMessage();
     openRecognitionReviewDialog();
     return;
   }
-  const cargos = recognitionRows.value.map((cargo, index) => normalizeImportedCargo(cargo, index));
+  const cargos = aggregateCargos(recognitionRows.value)
+    .map((cargo, index) => normalizeImportedCargo(cargo, index));
   emit("import-cargos", { cargos, mode: importMode.value, skippedRows: recognitionSkippedIssueCount.value });
 }
 
@@ -1558,21 +1587,35 @@ function closeRecognitionReviewDialog() {
 
 function editRecognitionReviewCargo(finding) {
   if (!finding) return;
-  const cargo = finding.cargo || finding.suggestion?.cargo || {
+  let cargo = finding.cargo || finding.suggestion?.cargo || {
     name: ui("excel.reviewUnknownItem"),
     model: "",
     lengthCm: 0,
     widthCm: 0,
     heightCm: 0,
-    quantity: 1,
+    quantity: 0,
     weightKg: 0,
     type: "normal",
     remark: recognitionReviewSourceText(finding)
   };
+  if (isPalletDimensionsMissingFinding(finding)) {
+    const cargoType = String(cargo.type || "").trim().toLowerCase();
+    cargo = {
+      ...cargo,
+      lengthCm: 0,
+      widthCm: 0,
+      heightCm: 0,
+      type: ["pallet", "nonstack", "upright"].includes(cargoType) ? cargoType : "pallet"
+    };
+  }
   const append = finding.index < 0;
   const index = append ? recognitionRows.value.length : finding.index;
   closeRecognitionReviewDialog();
-  openRecognitionEdit(cargo, index, { append, findingId: finding.id });
+  openRecognitionEdit(cargo, index, {
+    append,
+    findingId: finding.id,
+    issueCode: finding.issue?.code || ""
+  });
 }
 
 function issueMessages(issue) {
@@ -1580,13 +1623,50 @@ function issueMessages(issue) {
     AGENT_OUTPUT_LIMIT: "excel.recognitionIssueOutputLimit",
     AGENT_ROW_COVERAGE: "excel.recognitionIssueRowCoverage",
     AGENT_REQUEST_BUDGET: "excel.recognitionIssueRequestBudget",
-    INPUT_TRUNCATED: "excel.recognitionIssueInputTruncated"
+    INPUT_TRUNCATED: "excel.recognitionIssueInputTruncated",
+    PALLET_DIMENSIONS_MISSING: "excel.recognitionIssuePalletDimensionsMissing"
   }[String(issue?.code || "")];
   if (codedMessageKey) return [ui(codedMessageKey)];
   const errors = Array.isArray(issue?.errors) ? issue.errors.filter(Boolean) : [];
   if (errors.length) return errors;
   const message = String(issue?.message || "").trim();
   return message ? [message] : [ui("excel.reviewUnknownReason")];
+}
+
+function isPalletDimensionsMissingFinding(finding) {
+  return String(finding?.issue?.code || "") === "PALLET_DIMENSIONS_MISSING";
+}
+
+function isRecognitionIssueOverrideResolved(issue, issueIndex) {
+  const findingId = recognitionIssueFindingId(issue, issueIndex);
+  const cargoIndex = recognitionReviewIndexOverrides.value[findingId];
+  if (!Number.isInteger(cargoIndex)
+    || cargoIndex < 0
+    || cargoIndex >= recognitionRows.value.length) return false;
+  if (String(issue?.code || "") !== "PALLET_DIMENSIONS_MISSING") return true;
+  return isUserConfirmedPalletDimensions(recognitionRows.value[cargoIndex]);
+}
+
+function isUserConfirmedPalletDimensions(cargo) {
+  const packageInfo = cargo?.packageInfo || {};
+  const cargoType = String(cargo?.type || "").trim().toLowerCase();
+  return Number(cargo?.lengthCm) > 0
+    && Number(cargo?.widthCm) > 0
+    && Number(cargo?.heightCm) > 0
+    && ["pallet", "nonstack", "upright"].includes(cargoType)
+    && String(packageInfo.handlingUnitType || "").trim().toLowerCase() === "pallet"
+    && String(packageInfo.packageUnit || "").trim().toLowerCase() === "pallet"
+    && String(packageInfo.dimensionSource || "").trim().toLowerCase() === "user"
+    && packageInfo.handlingUnitDimensionsExplicit === true;
+}
+
+function recognitionBlockingMessage() {
+  if (recognitionMissingPalletDimensionIssues.value.length) {
+    return ui("excel.recognitionPalletDimensionsBlocking", {
+      count: recognitionMissingPalletDimensionIssues.value.length
+    });
+  }
+  return ui("excel.recognitionPartial", { count: recognitionBlockingIssues.value.length });
 }
 
 function isSoftRecognitionIssue(issue, messages = []) {
@@ -1610,12 +1690,18 @@ function isSoftRecognitionIssue(issue, messages = []) {
 }
 
 function cargoReviewReasons(cargo) {
-  const text = reviewSearchText(cargo);
   const reasons = [];
-  if (cargo?.type === "pallet" && Number(cargo?.weightKg || 0) <= 0) {
+  if (isPalletRecognitionCargo(cargo) && Number(cargo?.weightKg || 0) <= 0) {
     reasons.push(ui("excel.reviewReasonPalletWeight"));
   }
   return [...new Set(reasons)];
+}
+
+function isPalletRecognitionCargo(cargo) {
+  const packageInfo = cargo?.packageInfo || {};
+  return String(cargo?.type || "").trim().toLowerCase() === "pallet"
+    || String(packageInfo.handlingUnitType || "").trim().toLowerCase() === "pallet"
+    || String(packageInfo.packageUnit || "").trim().toLowerCase() === "pallet";
 }
 
 function containsReviewKeyword(text, keywords) {
@@ -1766,13 +1852,14 @@ function openRecognitionEdit(cargo, index, options = {}) {
   recognitionEditAppendMode.value = Boolean(options.append);
   recognitionEditPackageInfo.value = cargo.packageInfo || null;
   recognitionEditFindingId.value = options.findingId || "";
+  recognitionEditIssueCode.value = options.issueCode || "";
   Object.assign(recognitionEditForm, {
     name: cargo.name || "",
     model: cargo.model || "",
     lengthCm: cargo.lengthCm || "",
     widthCm: cargo.widthCm || "",
     heightCm: cargo.heightCm || "",
-    quantity: cargo.quantity || 1,
+    quantity: Number(cargo.quantity) > 0 ? Number(cargo.quantity) : null,
     weightKg: cargo.weightKg || 0,
     type: cargo.type || "normal",
     color: cargo.color || "",
@@ -1787,6 +1874,7 @@ function closeRecognitionEdit() {
   recognitionEditAppendMode.value = false;
   recognitionEditPackageInfo.value = null;
   recognitionEditFindingId.value = "";
+  recognitionEditIssueCode.value = "";
   recognitionEditErrors.value = [];
 }
 
@@ -1804,15 +1892,19 @@ function applyRecognitionEdit() {
         index === recognitionEditIndex.value ? { ...item, ...cargo } : item
       );
   if (recognitionEditFindingId.value) {
-    recognitionReviewIndexOverrides.value = {
-      ...recognitionReviewIndexOverrides.value,
-      [recognitionEditFindingId.value]: recognitionEditIndex.value
-    };
+    const nextOverrides = { ...recognitionReviewIndexOverrides.value };
+    if (recognitionEditIssueCode.value !== "PALLET_DIMENSIONS_MISSING"
+      || isUserConfirmedPalletDimensions(cargo)) {
+      nextOverrides[recognitionEditFindingId.value] = recognitionEditIndex.value;
+    } else {
+      delete nextOverrides[recognitionEditFindingId.value];
+    }
+    recognitionReviewIndexOverrides.value = nextOverrides;
   }
   recognitionAgentTask.value = { ...recognitionAgentTask.value, cleanedRows: rows };
   if (recognitionBlockingIssues.value.length) {
     recognitionMessageType.value = "error";
-    recognitionMessage.value = ui("excel.recognitionPartial", { count: recognitionBlockingIssues.value.length });
+    recognitionMessage.value = recognitionBlockingMessage();
   } else {
     recognitionMessageType.value = "ok";
     recognitionMessage.value = ui("excel.recognitionEditSaved", { index: recognitionEditIndex.value + 1 });
@@ -1821,19 +1913,36 @@ function applyRecognitionEdit() {
 }
 
 function normalizeRecognitionEditCargo() {
+  const lengthCm = round2(recognitionEditForm.lengthCm);
+  const widthCm = round2(recognitionEditForm.widthCm);
+  const heightCm = round2(recognitionEditForm.heightCm);
+  let packageInfo = recognitionEditPackageInfo.value;
+  if (recognitionEditIssueCode.value === "PALLET_DIMENSIONS_MISSING"
+    && lengthCm > 0
+    && widthCm > 0
+    && heightCm > 0) {
+    packageInfo = {
+      ...(packageInfo || {}),
+      handlingUnitType: "pallet",
+      packageUnit: "pallet",
+      dimensionSource: "user",
+      handlingUnitDimensionsExplicit: true,
+      packageDimensionsCm: { lengthCm, widthCm, heightCm }
+    };
+  }
   return {
     name: String(recognitionEditForm.name || "").trim(),
     model: String(recognitionEditForm.model || "").trim(),
-    lengthCm: round2(recognitionEditForm.lengthCm),
-    widthCm: round2(recognitionEditForm.widthCm),
-    heightCm: round2(recognitionEditForm.heightCm),
+    lengthCm,
+    widthCm,
+    heightCm,
     quantity: Math.round(Number(recognitionEditForm.quantity || 0)),
     weightKg: round2(recognitionEditForm.weightKg),
     type: recognitionEditForm.type || "normal",
     color: recognitionEditForm.color || "",
     sku: recognitionEditForm.sku || "",
     remark: String(recognitionEditForm.remark || "").trim(),
-    packageInfo: recognitionEditPackageInfo.value
+    packageInfo
   };
 }
 

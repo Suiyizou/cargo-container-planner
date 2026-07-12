@@ -348,8 +348,8 @@ const uiText = {
     en: "Smart recognition API unavailable: {message}"
   },
   "excel.recognitionBackendOutdated": {
-    zh: "智能识别后端仍在运行旧版本，尚未启用自动拆批。请在服务器重新构建并重启 backend 容器，同时确认前端连接的是新 API 地址后再试。",
-    en: "The recognition backend is still running an old build without adaptive batching. Rebuild and restart the backend container, and verify that the frontend points to the new API endpoint before retrying."
+    zh: "智能识别后端仍在运行旧版本，尚未启用 v4 自动拆批与包装层级校验。请在服务器重新构建并重启 backend 容器，同时确认前端连接的是新 API 地址后再试。",
+    en: "The recognition backend is still running an old build without the v4 adaptive batching and packaging-hierarchy checks. Rebuild and restart the backend container, and verify that the frontend points to the new API endpoint before retrying."
   },
   "excel.recognitionFailed": {
     zh: "智能识别失败：{message}",
@@ -378,6 +378,14 @@ const uiText = {
   "excel.recognitionIssueInputTruncated": {
     zh: "工作簿的行、列、合并区域或单元格内容已被截断，当前结果不是完整清单。请精简工作表并重新识别。",
     en: "Workbook rows, columns, merged ranges, or cell content were truncated, so this is not a complete list. Reduce the workbook and run recognition again."
+  },
+  "excel.recognitionIssuePalletDimensionsMissing": {
+    zh: "原文件没有提供装货完成后的最终托盘外廓长、宽、高。系统不会用单箱尺寸、总体积或层数代替托盘尺寸；请决定是否逐条手工补录，未补全前禁止导入。",
+    en: "The source does not provide the final outer length, width, and height of the loaded pallet. Carton dimensions, total volume, and layer counts will not be substituted. Decide whether to enter the dimensions manually for this item; import remains blocked until completed."
+  },
+  "excel.recognitionPalletDimensionsBlocking": {
+    zh: "有 {count} 项缺少最终托盘外廓尺寸。请打开“查看审查结果”，逐条输入托盘长、宽、高；未补全前不能导入。",
+    en: "{count} item(s) are missing final pallet outer dimensions. Open Review Results and enter the pallet length, width, and height for each item; import is blocked until they are complete."
   },
   "excel.recognitionEditSaved": {
     zh: "已修改第 {index} 条识别结果，可继续编辑或直接导入。",
@@ -453,6 +461,14 @@ const uiText = {
     zh: "每条待确认信息按“原文 → Agent 识别 → 最终导入格式”展示。请重点检查第三行；如尺寸、数量、重量或类型不正确，点击“编辑导入格式”后再导入。",
     en: "Each item is shown as Source → Agent Recognition → Final Import Format. Check the third line carefully; if dimensions, quantity, weight, or type are incorrect, select Edit Import Format before importing."
   },
+  "excel.reviewPalletDimensionsMissingTitle": {
+    zh: "缺少最终托盘外廓尺寸（{count} 项）",
+    en: "Final pallet outer dimensions missing ({count})"
+  },
+  "excel.reviewPalletDimensionsMissingDescription": {
+    zh: "系统只能确认这些货物以托盘为最终搬运单元，但原文件没有给出装货完成后的托盘长、宽、高。若要导入，请点击对应条目的“输入托盘尺寸”逐条补全；暂不输入可关闭复核窗口，当前结果不会被导入。",
+    en: "These items were identified as palletized handling units, but the source does not provide the loaded pallet's final length, width, and height. To import them, select Enter Pallet Dimensions on each item and complete the fields. You may close the review without entering them; the current result will not be imported."
+  },
   "excel.reviewNormalItems": { zh: "正常识别项", en: "Normal Items" },
   "excel.reviewNeedsConfirmItems": { zh: "需确认项", en: "Items to Confirm" },
   "excel.reviewNeedsConfirm": { zh: "需人工确认", en: "Needs Manual Confirmation" },
@@ -462,6 +478,7 @@ const uiText = {
   "excel.reviewSystemJudgement": { zh: "需确认原因", en: "Reason to Confirm" },
   "excel.reviewImportedCandidate": { zh: "将以以下格式导入", en: "Will Be Imported As" },
   "excel.reviewEditImport": { zh: "编辑导入格式", en: "Edit Import Format" },
+  "excel.reviewEnterPalletDimensions": { zh: "输入托盘尺寸", en: "Enter Pallet Dimensions" },
   "excel.reviewNotImportedYet": { zh: "当前没有可导入数据，请点击右侧按钮补全。", en: "No importable data yet. Use the button on the right to complete it." },
   "excel.reviewNoSuggestion": { zh: "Agent 没有生成完整字段，请结合原文检查最终导入格式。", en: "The Agent did not produce complete fields. Compare the source with the final import format." },
   "excel.reviewSourceText": { zh: "来源原文", en: "Source Text" },

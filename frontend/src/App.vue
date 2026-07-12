@@ -1377,12 +1377,38 @@ function cloneForCache(value) {
 }
 
 function rememberPackingResult(key, nextResult) {
-  if (!key || !nextResult) return;
-  packingResultCache.delete(key);
-  packingResultCache.set(key, cloneForCache(nextResult));
-  while (packingResultCache.size > PACKING_RESULT_CACHE_LIMIT) {
-    const oldestKey = packingResultCache.keys().next().value;
-    packingResultCache.delete(oldestKey);
+  if (!key || !nextResult) return false;
+  try {
+    // Clone before Vue turns the result into a reactive Proxy. Some browsers
+    // reject Proxy instances in structuredClone even though the packing result
+    // itself only contains serializable data.
+    const cachedResult = cloneForCache(nextResult);
+    packingResultCache.delete(key);
+    packingResultCache.set(key, cachedResult);
+    while (packingResultCache.size > PACKING_RESULT_CACHE_LIMIT) {
+      const oldestKey = packingResultCache.keys().next().value;
+      packingResultCache.delete(oldestKey);
+    }
+    return true;
+  } catch (error) {
+    // A cache is only an optimization. Never turn a completed packing run into
+    // a calculation failure because the browser could not clone a large result.
+    packingResultCache.delete(key);
+    console.warn("Packing result cache skipped because cloning failed.", error);
+    return false;
+  }
+}
+
+function restorePackingResult(key) {
+  if (!key) return null;
+  const cachedResult = packingResultCache.get(key);
+  if (!cachedResult) return null;
+  try {
+    return normalizeResult(cloneForCache(cachedResult));
+  } catch (error) {
+    packingResultCache.delete(key);
+    console.warn("Packing result cache was discarded because restoring failed.", error);
+    return null;
   }
 }
 
@@ -1454,9 +1480,9 @@ async function recalculate(force = false) {
   const seq = ++calcSeq;
   const payload = buildPackingPayload(activeContainers);
   const cacheKey = packingCacheKey(payload);
-  const cachedResult = force ? null : packingResultCache.get(cacheKey);
+  const cachedResult = force ? null : restorePackingResult(cacheKey);
   if (cachedResult) {
-    result.value = normalizeResult(cloneForCache(cachedResult));
+    result.value = cachedResult;
     apiStatus.value = ui("result.cacheHit");
     selectedContainerId.value = result.value.bestContainerId || result.value.evaluations[0]?.container.id || selectedContainerId.value;
     selectedBoxIndex.value = 1;
@@ -1496,8 +1522,9 @@ async function recalculate(force = false) {
       }
     });
     if (seq !== calcSeq) return;
-    result.value = normalizeResult(nextResult);
-    rememberPackingResult(cacheKey, result.value);
+    const normalizedResult = normalizeResult(nextResult);
+    rememberPackingResult(cacheKey, normalizedResult);
+    result.value = normalizedResult;
     apiStatus.value = "本机计算";
     selectedContainerId.value = result.value.bestContainerId || result.value.evaluations[0]?.container.id || selectedContainerId.value;
     selectedBoxIndex.value = 1;

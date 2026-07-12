@@ -73,7 +73,7 @@ docker compose up -d --force-recreate backend
 docker compose logs --tail=100 backend
 ```
 
-登录后访问 `/api/text-recognition/capabilities`，新识别引擎应返回 `adaptiveBatching: true` 和 `engineVersion: excel-agent-batch-v3`。如果前端配置了 `VITE_API_BASE_URL`，还要在浏览器 Network 面板确认识别请求实际发往新后端地址，而不是旧 API 实例。
+登录后访问 `/api/text-recognition/capabilities`，新识别引擎应返回 `adaptiveBatching: true` 和 `engineVersion: excel-agent-batch-v4`。如果前端配置了 `VITE_API_BASE_URL`，还要在浏览器 Network 面板确认识别请求实际发往新后端地址，而不是旧 API 实例。
 
 ## 本地开发
 

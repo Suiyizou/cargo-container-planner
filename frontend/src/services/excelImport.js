@@ -82,6 +82,9 @@ export function formatWorkbookForRecognition(workbook, options = {}) {
     "EXCEL_FORMATTED_TABLE_FOR_AGENT",
     `FILE: ${cleanCell(workbook?.fileName || options.fileName || "")}`,
     "TASK: Extract final handled shipping units for container packing. Prefer final pallet/carton/crate package units over loose product rows.",
+    "HIERARCHY_RULE: Infer product -> carton -> pallet/crate relationships semantically from any headers, values, sheet/file names, notes, merged cells, and neighboring rows; customer header names are not fixed.",
+    "PALLET_RULE: When the source describes loaded pallets, algorithm quantity means pallet count. Carton count, carton dimensions, cartons per pallet, layers, and cartons per layer are innerCargo only.",
+    "PALLET_DIMENSION_RULE: Use pallet L/W/H only when the loaded-pallet outer dimensions are explicitly present. If absent, never substitute carton dimensions or infer dimensions from volume/layers; return a pallet candidate with zero dimensions and mark palletDimensionsMissing for user input.",
     "WEIGHT_RULE: If a final pallet/wooden package has pallet tare/wood-package weight and contains product rows, calculate unit weight as (pallet tare total + contained product gross total) / pallet quantity. If a final gross-weight column clearly already includes pallet plus cargo, do not double count; explain the basis in remark/packageInfo.",
     "STRUCTURE_RULE: In sheets with left product/carton details and right pallet/final-package columns, output the right-side final pallet/package rows as algorithm cargo. Store left-side loose/carton details only in packageInfo.innerCargo or remark."
   ];
@@ -688,25 +691,44 @@ export function aggregateCargos(cargos) {
 
 function mergePackageInfo(left, right, packageQuantity) {
   if (!left && !right) return undefined;
-  const base = { ...(left || right || {}) };
+  const base = { ...(right || {}), ...(left || {}) };
   base.packageQuantity = packageQuantity;
   const leftInner = left?.innerCargo || {};
   const rightInner = right?.innerCargo || {};
-  const totalQuantity = Number(leftInner.totalQuantity || 0) + Number(rightInner.totalQuantity || 0);
-  const leftTotalWeight = Number(left?.packageTotalGrossWeightKg || 0);
-  const rightTotalWeight = Number(right?.packageTotalGrossWeightKg || 0);
-  if (totalQuantity > 0) {
-    base.innerCargo = {
-      ...leftInner,
-      ...rightInner,
-      totalQuantity: Math.round(totalQuantity),
-      quantityUnit: leftInner.quantityUnit || rightInner.quantityUnit || "pcs"
-    };
-  }
-  if (leftTotalWeight > 0 || rightTotalWeight > 0) {
-    base.packageTotalGrossWeightKg = round2(leftTotalWeight + rightTotalWeight);
-  }
+  const innerCargo = { ...rightInner, ...leftInner };
+
+  ["cartonCount", "totalCartons", "totalQuantity"].forEach((field) => {
+    const total = sumNumericField(leftInner, rightInner, field);
+    if (total != null) innerCargo[field] = Math.round(total);
+  });
+  ["cartonTotalGrossWeightKg", "totalGrossWeightKg", "totalWeightKg", "cargoTotalWeightKg"].forEach((field) => {
+    const total = sumNumericField(leftInner, rightInner, field);
+    if (total != null) innerCargo[field] = round2(total);
+  });
+
+  if (Object.keys(innerCargo).length) base.innerCargo = compactObject(innerCargo);
+  [
+    "packageTotalGrossWeightKg",
+    "palletTotalGrossWeightKg",
+    "handlingUnitTotalGrossWeightKg",
+    "cargoTotalWeightKg",
+    "containedCargoTotalGrossWeightKg",
+    "totalGrossWeightKg",
+    "totalWeightKg"
+  ].forEach((field) => {
+    const total = sumNumericField(left || {}, right || {}, field);
+    if (total != null) base[field] = round2(total);
+  });
   return compactObject(base);
+}
+
+function sumNumericField(left, right, field) {
+  const leftValue = Number(left?.[field]);
+  const rightValue = Number(right?.[field]);
+  const hasLeft = Number.isFinite(leftValue) && left?.[field] !== "" && left?.[field] != null;
+  const hasRight = Number.isFinite(rightValue) && right?.[field] !== "" && right?.[field] != null;
+  if (!hasLeft && !hasRight) return null;
+  return (hasLeft ? leftValue : 0) + (hasRight ? rightValue : 0);
 }
 
 export function assignCargoModels(cargos) {

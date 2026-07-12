@@ -50,7 +50,7 @@ import org.springframework.web.client.RestTemplate;
 
 @Service
 public class TextRecognitionService {
-  private static final String TEXT_RECOGNITION_ENGINE_VERSION = "excel-agent-batch-v3";
+  private static final String TEXT_RECOGNITION_ENGINE_VERSION = "excel-agent-batch-v4";
   private static final List<String> OUTPUT_HEADERS = List.of(
       "name", "model", "lengthCm", "widthCm", "heightCm", "quantity", "weightKg", "type", "color", "sku", "remark"
   );
@@ -68,6 +68,7 @@ public class TextRecognitionService {
   private static final Pattern QUANTITY_PATTERN = Pattern.compile("(?i)(?:数量|qty|quantity)?\\s*(\\d+)\\s*(?:件|个|箱|pcs?|pieces?|cartons?|boxes?)");
   private static final Pattern WEIGHT_PATTERN = Pattern.compile("(?i)(?:单重|每件|unit\\s*weight|each|weight|wt)?\\s*([0-9][0-9.,]*)\\s*(kg|kgs|公斤|千克|g|克|t|吨)");
   private static final Pattern THOUSAND_KG_PATTERN = Pattern.compile("(?i)(?<!\\d)([0-9]{1,3}\\.[0-9]{3}(?:\\.[0-9]{3})*)\\s*(?:kgs?|kg|公斤|千克)");
+  private static final Pattern KG_WEIGHT_TOKEN_PATTERN = Pattern.compile("(?i)(?<!\\d)([0-9][0-9.,]*)\\s*(?:kgs?|kg|公斤|千克)");
   private static final Pattern MODEL_PATTERN = Pattern.compile("(?i)(?:型号|model|spec)\\s*[:：]?\\s*([A-Za-z0-9._\\-\\/]+)");
   private static final Pattern HAS_DATA_PATTERN = Pattern.compile("(?i)(\\d+\\s*[x×*]\\s*\\d+)|(kg|kgs|cm|mm|skid|pallet|pcs|件|箱|尺寸|长|宽|高)");
   private static final Pattern HAS_LETTER_OR_HAN = Pattern.compile(".*[\\p{IsHan}A-Za-z].*");
@@ -356,12 +357,7 @@ public class TextRecognitionService {
 
   private RecognitionResult recognize(String text, String languageHint) {
     boolean formattedExcelAgentInput = isFormattedExcelAgentInput(text);
-    if (!formattedExcelAgentInput) {
-      RecognitionResult packingListResult = recognizePackingListTable(text);
-      if (packingListResult != null) {
-        return packingListResult;
-      }
-    }
+    boolean requiresPackagingSemantics = hasPalletSemanticSignals(text);
 
     LlmRuntimeSettings settings = llmSettingsService.runtimeSettings();
     if (settings.enabled()) {
@@ -374,21 +370,44 @@ public class TextRecognitionService {
           if (formattedExcelAgentInput) {
             throw new IllegalStateException("Excel 格式化识别必须走 Agent，当前调用失败：" + trim(error.getMessage(), 180), error);
           }
-          RecognitionResult fallback = recognizeWithRules(text);
+          if (requiresPackagingSemantics) {
+            throw new IllegalStateException("输入包含托盘/层级包装语义，禁止降级为固定规则解析；当前 Agent 调用失败：" + trim(error.getMessage(), 180), error);
+          }
+          RecognitionResult fallback = recognizeLocally(text);
           return fallback.withNotes("LLM 识别失败，已自动切换到规则兜底：" + trim(error.getMessage(), 160));
         }
       }
       if (formattedExcelAgentInput) {
         throw new IllegalStateException("Excel 格式化识别必须走 Agent，请先在后台配置 LLM API Key。");
       }
-      RecognitionResult fallback = recognizeWithRules(text);
+      if (requiresPackagingSemantics) {
+        throw new IllegalStateException("输入包含托盘/层级包装语义，必须使用 Agent 识别，请先在后台配置 LLM API Key。");
+      }
+      RecognitionResult fallback = recognizeLocally(text);
       return fallback.withNotes("LLM 默认启用，但管理员尚未配置 API Key，已使用规则兜底。");
     }
     if (formattedExcelAgentInput) {
       throw new IllegalStateException("Excel 格式化识别必须走 Agent，请先在后台启用 LLM 识别。");
     }
-    RecognitionResult fallback = recognizeWithRules(text);
+    if (requiresPackagingSemantics) {
+      throw new IllegalStateException("输入包含托盘/层级包装语义，必须使用 Agent 识别，请先在后台启用 LLM 识别。");
+    }
+    RecognitionResult fallback = recognizeLocally(text);
     return fallback.withNotes("管理员已关闭 LLM 识别，当前使用规则兜底。");
+  }
+
+  private RecognitionResult recognizeLocally(String text) {
+    RecognitionResult packingListResult = recognizePackingListTable(text);
+    return packingListResult == null ? recognizeWithRules(text) : packingListResult;
+  }
+
+  private boolean hasPalletSemanticSignals(String text) {
+    String lower = cleanCell(text).toLowerCase(Locale.ROOT);
+    return containsAny(
+        lower,
+        "托盘", "栈板", "木托", "每托", "每个托", "托盘尺寸", "托盘总重", "每层", "层码放",
+        "pallet", "skid", "per pallet", "cartons/pallet", "ctns/pallet", "packages/pallet", "layers"
+    );
   }
 
   private boolean isFormattedExcelAgentInput(String text) {
@@ -817,17 +836,52 @@ public class TextRecognitionService {
     Set<Integer> coveredSourceRows = new LinkedHashSet<>();
     Set<Integer> cargoSourceRows = new LinkedHashSet<>();
     Set<Integer> issueSourceRows = new LinkedHashSet<>();
+    Set<Integer> palletMissingReliableSourceRows = new LinkedHashSet<>();
+    Set<String> palletMissingSourceTexts = new LinkedHashSet<>();
+    Set<String> palletMissingUnreliableSourceTexts = new LinkedHashSet<>();
+    int correctedWeightCount = 0;
 
     int rowNumber = 0;
     for (Map<String, Object> rawRow : rawRows) {
-      int sourceRowNumber = targetSourceRows.isEmpty()
-          ? ++rowNumber
-          : modelSourceRowNumber(rawRow);
+      int modelRowNumber = modelSourceRowNumber(rawRow);
+      int sourceRowNumber;
+      if (targetSourceRows.isEmpty()) {
+        sourceRowNumber = modelRowNumber > 0 ? modelRowNumber : ++rowNumber;
+        rowNumber = Math.max(rowNumber, sourceRowNumber);
+      } else {
+        sourceRowNumber = modelRowNumber;
+      }
       if (!targetSourceRows.isEmpty() && !targetSourceRows.contains(sourceRowNumber)) continue;
       if (!targetSourceRows.isEmpty() && !cargoSourceRows.add(sourceRowNumber)) continue;
+      if (targetSourceRows.isEmpty()) cargoSourceRows.add(sourceRowNumber);
       if (!targetSourceRows.isEmpty()) coveredSourceRows.add(sourceRowNumber);
+      Map<Long, Double> rowWeightCorrections = thousandSeparatedWeightCorrections(
+          weightCorrectionSourceText(rawRow, sourceRowNumber, text)
+      );
+      if (applyThousandSeparatedWeightCorrection(rawRow, rowWeightCorrections)) correctedWeightCount++;
       ParsedCargo parsed = normalizeCargo(rawRow, sourceRowNumber, cleanCell(rawRow.get("sourceText")));
-      if (parsed.errors().isEmpty()) {
+      if (palletDimensionsMissing(rawRow, parsed.cargo())) {
+        List<String> palletErrors = new ArrayList<>();
+        palletErrors.add("最终搬运单元被识别为托盘，但原始资料未提供明确的托盘装货后外廓长、宽、高。请由用户补录最终托盘尺寸后再导入。");
+        parsed.errors().stream()
+            .filter(error -> !palletErrors.contains(error))
+            .forEach(palletErrors::add);
+        Map<String, Object> issue = new LinkedHashMap<>(buildIssue(
+            sourceRowNumber,
+            parsed.text(),
+            palletErrors,
+            parsed.cargo()
+        ));
+        issue.put("code", "PALLET_DIMENSIONS_MISSING");
+        issues.add(issue);
+        String sourceSignature = normalizedSourceSignature(parsed.text());
+        if (modelRowNumber > 0) {
+          palletMissingReliableSourceRows.add(sourceRowNumber);
+        } else if (!sourceSignature.isBlank()) {
+          palletMissingUnreliableSourceTexts.add(sourceSignature);
+        }
+        if (!sourceSignature.isBlank()) palletMissingSourceTexts.add(sourceSignature);
+      } else if (parsed.errors().isEmpty()) {
         validRows.add(parsed.cargo());
         List<String> reviewWarnings = reviewWarnings(parsed.cargo(), parsed.text());
         if (!reviewWarnings.isEmpty()) {
@@ -839,16 +893,63 @@ public class TextRecognitionService {
     }
 
     for (Map<String, Object> modelIssue : modelIssues) {
-      int issueRowNumber = targetSourceRows.isEmpty()
-          ? intValue(firstNonBlank(modelIssue.get("sourceRowNumber"), modelIssue.get("rowNumber")), ++rowNumber)
-          : modelSourceRowNumber(modelIssue);
+      int modelIssueRowNumber = modelSourceRowNumber(modelIssue);
+      int issueRowNumber;
+      if (targetSourceRows.isEmpty()) {
+        issueRowNumber = modelIssueRowNumber > 0 ? modelIssueRowNumber : ++rowNumber;
+        rowNumber = Math.max(rowNumber, issueRowNumber);
+      } else {
+        issueRowNumber = modelIssueRowNumber;
+      }
       if (!targetSourceRows.isEmpty() && !targetSourceRows.contains(issueRowNumber)) continue;
-      if (!targetSourceRows.isEmpty() && !issueSourceRows.add(issueRowNumber)) continue;
-      if (!targetSourceRows.isEmpty()) coveredSourceRows.add(issueRowNumber);
+      String issueCode = cleanCell(modelIssue.get("code"));
       String issueText = cleanCell(firstNonBlank(modelIssue.get("text"), modelIssue.get("sourceText")));
+      String issueSourceSignature = normalizedSourceSignature(issueText);
+      boolean issueHasReliableSourceRow = modelIssueRowNumber > 0;
+      boolean sameReliableSourceRow = issueHasReliableSourceRow
+          && palletMissingReliableSourceRows.contains(issueRowNumber);
+      boolean signatureFallbackMatch = !issueSourceSignature.isBlank()
+          && palletMissingSourceTexts.contains(issueSourceSignature)
+          && (!issueHasReliableSourceRow || palletMissingUnreliableSourceTexts.contains(issueSourceSignature));
+      if ("PALLET_DIMENSIONS_MISSING".equals(issueCode)
+          && (sameReliableSourceRow || signatureFallbackMatch)) {
+        continue;
+      }
+      if (!targetSourceRows.isEmpty() && !issueSourceRows.add(issueRowNumber)) continue;
+      if (targetSourceRows.isEmpty()) issueSourceRows.add(issueRowNumber);
+      if (!targetSourceRows.isEmpty()) coveredSourceRows.add(issueRowNumber);
       List<String> errors = stringList(modelIssue.get("errors"));
       if (errors.isEmpty()) errors = List.of(cleanCell(modelIssue.get("message")).isBlank() ? "模型未能确认该行货物规格" : cleanCell(modelIssue.get("message")));
-      issues.add(buildIssue(issueRowNumber, issueText, errors, Map.of()));
+      Map<String, Object> issueCargoInput = modelIssueCargo(modelIssue);
+      if ("PALLET_DIMENSIONS_MISSING".equals(issueCode)) {
+        if (issueCargoInput.isEmpty()) {
+          throw new RetryableAgentOutputException("Agent 仅返回托盘尺寸缺失问题，但没有返回可补录的托盘数量、重量和包装层级。正在重试该批次。");
+        }
+        issueCargoInput.put("palletDimensionsMissing", true);
+        if (cleanCell(issueCargoInput.get("type")).isBlank()) issueCargoInput.put("type", "pallet");
+      }
+      Map<Long, Double> issueWeightCorrections = thousandSeparatedWeightCorrections(
+          weightCorrectionSourceText(modelIssue, issueRowNumber, text)
+      );
+      if (applyThousandSeparatedWeightCorrection(issueCargoInput, issueWeightCorrections)) correctedWeightCount++;
+      Map<String, Object> issueCargo = issueCargoInput.isEmpty()
+          ? Map.of()
+          : normalizeCargo(issueCargoInput, issueRowNumber, issueText).cargo();
+      if ("PALLET_DIMENSIONS_MISSING".equals(issueCode)
+          && (cleanCell(issueCargo.get("name")).isBlank() || intValue(issueCargo.get("quantity"), 0) <= 0)) {
+        throw new RetryableAgentOutputException("Agent 返回的缺尺寸托盘候选缺少货物名称或托盘数量。正在重试该批次。");
+      }
+      Map<String, Object> issue = new LinkedHashMap<>(buildIssue(issueRowNumber, issueText, errors, issueCargo));
+      if (!issueCode.isBlank()) issue.put("code", issueCode);
+      issues.add(issue);
+      if ("PALLET_DIMENSIONS_MISSING".equals(issueCode)) {
+        if (issueHasReliableSourceRow) {
+          palletMissingReliableSourceRows.add(issueRowNumber);
+        } else if (!issueSourceSignature.isBlank()) {
+          palletMissingUnreliableSourceTexts.add(issueSourceSignature);
+        }
+        if (!issueSourceSignature.isBlank()) palletMissingSourceTexts.add(issueSourceSignature);
+      }
     }
 
     if (!targetSourceRows.isEmpty()) {
@@ -863,7 +964,6 @@ public class TextRecognitionService {
       throw new AgentProtocolException("Agent returned no recognizable rows or issues");
     }
 
-    int correctedWeightCount = applyThousandSeparatedWeightCorrections(validRows, text);
     List<Map<String, Object>> cleanedRows = aggregateCargos(validRows);
     String notes = cleanCell(payload.get("notes"));
     if (notes.isBlank()) {
@@ -1249,6 +1349,7 @@ public class TextRecognitionService {
     List<Map<String, Object>> validRows = new ArrayList<>();
     List<Map<String, Object>> issues = new ArrayList<>();
     String currentName = "";
+    int correctedWeightCount = 0;
 
     for (int index = 0; index < lines.size(); index++) {
       String line = lines.get(index);
@@ -1259,6 +1360,9 @@ public class TextRecognitionService {
 
       ParsedCargo parsed = parseLine(line, currentName, rowNumber);
       if (parsed.matched()) {
+        if (applyThousandSeparatedWeightCorrection(parsed.cargo(), thousandSeparatedWeightCorrections(line))) {
+          correctedWeightCount++;
+        }
         if (parsed.errors().isEmpty()) {
           validRows.add(parsed.cargo());
           currentName = cleanCell(parsed.cargo().get("name"));
@@ -1275,7 +1379,6 @@ public class TextRecognitionService {
       }
     }
 
-    int correctedWeightCount = applyThousandSeparatedWeightCorrections(validRows, text);
     List<Map<String, Object>> cleanedRows = aggregateCargos(validRows);
     String notes = "规则兜底已完成：支持中英文尺寸、skids/pallets/pcs、每件重量、总重换算和同名多尺寸自动型号。";
     if (correctedWeightCount > 0) {
@@ -1472,9 +1575,177 @@ public class TextRecognitionService {
     if (row.get("packageInfo") instanceof Map<?, ?> packageInfo) {
       cargo.put("packageInfo", new LinkedHashMap<>(packageInfo));
     }
+    if (booleanValue(row.get("palletDimensionsMissing"))) {
+      @SuppressWarnings("unchecked")
+      Map<String, Object> packageInfo = cargo.get("packageInfo") instanceof Map<?, ?> packageInfoRaw
+          ? new LinkedHashMap<>((Map<String, Object>) packageInfoRaw)
+          : new LinkedHashMap<>();
+      packageInfo.putIfAbsent("handlingUnitType", "pallet");
+      packageInfo.putIfAbsent("packageUnit", "pallet");
+      packageInfo.put("dimensionSource", "missing");
+      packageInfo.put("handlingUnitDimensionsExplicit", false);
+      cargo.put("packageInfo", compactObject(packageInfo));
+    }
+    applyPackageHierarchyFormula(cargo);
     applyPackageWeightFormula(cargo);
     List<String> errors = validateCargo(cargo);
     return new ParsedCargo(true, sourceText.isBlank() ? "AI row " + rowNumber : sourceText, cargo, errors);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void applyPackageHierarchyFormula(Map<String, Object> cargo) {
+    if (!isPalletHandlingUnit(cargo)) return;
+    String cargoType = cleanCell(cargo.get("type"));
+    if (!Set.of("nonstack", "upright").contains(cargoType)) cargo.put("type", "pallet");
+    Object packageInfoValue = cargo.get("packageInfo");
+    Map<String, Object> packageInfo = packageInfoValue instanceof Map<?, ?> packageInfoRaw
+        ? new LinkedHashMap<>((Map<String, Object>) packageInfoRaw)
+        : new LinkedHashMap<>();
+    packageInfo.put("packageUnit", "pallet");
+    packageInfo.putIfAbsent("handlingUnitType", "pallet");
+    Map<String, Object> innerCargo = packageInfo.get("innerCargo") instanceof Map<?, ?> innerRaw
+        ? new LinkedHashMap<>((Map<String, Object>) innerRaw)
+        : new LinkedHashMap<>();
+    int cartonCount = firstPositiveInt(
+        innerCargo.get("cartonCount"),
+        innerCargo.get("totalCartons"),
+        packageInfo.get("cartonCount"),
+        packageInfo.get("totalCartons")
+    );
+    String innerQuantityUnit = cleanCell(innerCargo.get("quantityUnit")).toLowerCase(Locale.ROOT);
+    if (cartonCount <= 0 && containsAny(innerQuantityUnit, "carton", "ctn", "箱")) {
+      cartonCount = intValue(innerCargo.get("totalQuantity"), 0);
+    }
+    int cartonsPerPallet = firstPositiveInt(
+        innerCargo.get("cartonsPerPallet"),
+        packageInfo.get("cartonsPerPallet"),
+        packageInfo.get("packagesPerPallet")
+    );
+    int layers = firstPositiveInt(innerCargo.get("layers"), packageInfo.get("layers"));
+    int cartonsPerLayer = firstPositiveInt(
+        innerCargo.get("cartonsPerLayer"),
+        innerCargo.get("packagesPerLayer"),
+        packageInfo.get("cartonsPerLayer"),
+        packageInfo.get("packagesPerLayer")
+    );
+    if (cartonsPerPallet <= 0 && layers > 0 && cartonsPerLayer > 0) {
+      cartonsPerPallet = layers * cartonsPerLayer;
+      packageInfo.put("cartonsPerPalletFormula", "layers * cartonsPerLayer");
+    }
+
+    int sourceQuantity = intValue(cargo.get("quantity"), 0);
+    int declaredPalletQuantity = firstPositiveInt(packageInfo.get("packageQuantity"));
+    if (cartonCount > 0) innerCargo.put("cartonCount", cartonCount);
+    if (cartonsPerPallet > 0) innerCargo.put("cartonsPerPallet", cartonsPerPallet);
+    if (layers > 0) innerCargo.put("layers", layers);
+    if (cartonsPerLayer > 0) innerCargo.put("cartonsPerLayer", cartonsPerLayer);
+    if (!innerCargo.isEmpty()) packageInfo.put("innerCargo", compactObject(innerCargo));
+
+    int palletQuantity = declaredPalletQuantity > 0 ? declaredPalletQuantity : sourceQuantity;
+    if (cartonCount > 0 && cartonsPerPallet > 0) {
+      palletQuantity = Math.max(1, (int) Math.ceil((double) cartonCount / cartonsPerPallet));
+      packageInfo.put("quantityFormula", "ceil(cartonCount / cartonsPerPallet)");
+    }
+    cargo.put("quantity", palletQuantity);
+    if (palletQuantity > 0) packageInfo.put("packageQuantity", palletQuantity);
+
+    double palletGrossWeight = firstPositiveNumber(
+        packageInfo.get("packageGrossWeightKg"),
+        packageInfo.get("palletGrossWeightKg"),
+        packageInfo.get("handlingUnitGrossWeightKg")
+    );
+    double palletTotalGrossWeight = firstPositiveNumber(
+        packageInfo.get("packageTotalGrossWeightKg"),
+        packageInfo.get("palletTotalGrossWeightKg"),
+        packageInfo.get("handlingUnitTotalGrossWeightKg")
+    );
+    double cartonGrossWeight = firstPositiveNumber(
+        innerCargo.get("cartonGrossWeightKg"),
+        innerCargo.get("unitGrossWeightKg")
+    );
+    double containedCargoTotalWeight = firstPositiveNumber(
+        packageInfo.get("cargoTotalWeightKg"),
+        packageInfo.get("containedCargoTotalGrossWeightKg"),
+        innerCargo.get("totalGrossWeightKg"),
+        innerCargo.get("cargoTotalWeightKg"),
+        innerCargo.get("totalWeightKg")
+    );
+    if (containedCargoTotalWeight <= 0 && cartonCount > 0 && cartonGrossWeight > 0) {
+      containedCargoTotalWeight = cartonCount * cartonGrossWeight;
+      packageInfo.put("weightSource", "cartonCount * cartonGrossWeightKg");
+    }
+    if (containedCargoTotalWeight > 0) {
+      packageInfo.put("cargoTotalWeightKg", round2(containedCargoTotalWeight));
+      innerCargo.put("totalGrossWeightKg", round2(containedCargoTotalWeight));
+      packageInfo.put("innerCargo", compactObject(innerCargo));
+    }
+
+    if (palletGrossWeight > 0) {
+      cargo.put("weightKg", round2(palletGrossWeight));
+      packageInfo.put("packageGrossWeightKg", round2(palletGrossWeight));
+      if (palletQuantity > 0) packageInfo.putIfAbsent("packageTotalGrossWeightKg", round2(palletGrossWeight * palletQuantity));
+    } else if (palletTotalGrossWeight > 0 && palletQuantity > 0) {
+      cargo.put("weightKg", round2(palletTotalGrossWeight / palletQuantity));
+      packageInfo.put("packageGrossWeightKg", round2(palletTotalGrossWeight / palletQuantity));
+      packageInfo.put("packageTotalGrossWeightKg", round2(palletTotalGrossWeight));
+    } else if (containedCargoTotalWeight > 0 && palletQuantity > 0
+        && firstPositiveNumber(
+            packageInfo.get("palletTareWeightKg"),
+            packageInfo.get("packageTareWeightKg"),
+            packageInfo.get("palletTotalTareWeightKg"),
+            packageInfo.get("packageTotalTareWeightKg")
+        ) <= 0) {
+      cargo.put("weightKg", round2(containedCargoTotalWeight / palletQuantity));
+      packageInfo.put("weightSource", "contained cargo gross weight only; pallet tare not confirmed");
+      String remark = cleanCell(cargo.get("remark"));
+      String warning = "托盘重量按内装纸箱毛重合计，托盘皮重未确认";
+      if (!remark.contains(warning)) cargo.put("remark", remark.isBlank() ? warning : remark + "；" + warning);
+    }
+    cargo.put("packageInfo", compactObject(packageInfo));
+  }
+
+  @SuppressWarnings("unchecked")
+  private boolean palletDimensionsMissing(Map<String, Object> modelRow, Map<String, Object> cargo) {
+    if (booleanValue(modelRow.get("palletDimensionsMissing"))) return true;
+    if (!isPalletHandlingUnit(cargo)) return false;
+    if (numberValue(cargo.get("lengthCm")) <= 0
+        || numberValue(cargo.get("widthCm")) <= 0
+        || numberValue(cargo.get("heightCm")) <= 0) {
+      return true;
+    }
+    Object packageInfoValue = cargo.get("packageInfo");
+    if (!(packageInfoValue instanceof Map<?, ?> packageInfoRaw)) return true;
+    Map<String, Object> packageInfo = (Map<String, Object>) packageInfoRaw;
+    String dimensionSource = cleanCell(firstNonBlank(
+        packageInfo.get("dimensionSource"),
+        packageInfo.get("handlingUnitDimensionSource")
+    )).toLowerCase(Locale.ROOT);
+    if (Set.of("missing", "derived", "inferred", "estimated").contains(dimensionSource)) return true;
+    boolean explicitFlagPresent = packageInfo.containsKey("handlingUnitDimensionsExplicit");
+    boolean explicitFlag = explicitFlagPresent && booleanValue(packageInfo.get("handlingUnitDimensionsExplicit"));
+    if (explicitFlagPresent && !explicitFlag) return true;
+    return !(dimensionSource.equals("explicit") || explicitFlag);
+  }
+
+  @SuppressWarnings("unchecked")
+  private boolean isPalletHandlingUnit(Map<String, Object> cargo) {
+    Object packageInfoValue = cargo.get("packageInfo");
+    if (packageInfoValue instanceof Map<?, ?> packageInfoRaw) {
+      Map<String, Object> packageInfo = (Map<String, Object>) packageInfoRaw;
+      String unit = cleanCell(firstNonBlank(
+          packageInfo.get("handlingUnitType"),
+          packageInfo.get("packageUnit"),
+          packageInfo.get("finalHandlingUnit")
+      )).toLowerCase(Locale.ROOT);
+      if (!unit.isBlank()) return containsAny(unit, "pallet", "skid", "托盘", "栈板", "木托");
+    }
+    return "pallet".equals(cleanCell(cargo.get("type")));
+  }
+
+  private boolean booleanValue(Object value) {
+    if (value instanceof Boolean bool) return bool;
+    String text = cleanCell(value).toLowerCase(Locale.ROOT);
+    return text.equals("true") || text.equals("1") || text.equals("yes") || text.equals("y");
   }
 
   @SuppressWarnings("unchecked")
@@ -1488,25 +1759,48 @@ public class TextRecognitionService {
     int quantity = intValue(cargo.get("quantity"), 0);
     if (quantity <= 0) return;
 
-    double palletTarePerUnit = numberValue(firstNonBlank(
+    double explicitPackageGrossWeight = firstPositiveNumber(
+        packageInfo.get("packageGrossWeightKg"),
+        packageInfo.get("palletGrossWeightKg"),
+        packageInfo.get("handlingUnitGrossWeightKg")
+    );
+    double explicitPackageTotalGrossWeight = firstPositiveNumber(
+        packageInfo.get("packageTotalGrossWeightKg"),
+        packageInfo.get("palletTotalGrossWeightKg"),
+        packageInfo.get("handlingUnitTotalGrossWeightKg")
+    );
+    if (explicitPackageGrossWeight > 0 || explicitPackageTotalGrossWeight > 0) {
+      double unitGrossWeight = explicitPackageGrossWeight > 0
+          ? explicitPackageGrossWeight
+          : explicitPackageTotalGrossWeight / quantity;
+      cargo.put("weightKg", round2(unitGrossWeight));
+      packageInfo.put("packageGrossWeightKg", round2(unitGrossWeight));
+      packageInfo.put("packageTotalGrossWeightKg", round2(
+          explicitPackageTotalGrossWeight > 0 ? explicitPackageTotalGrossWeight : unitGrossWeight * quantity
+      ));
+      cargo.put("packageInfo", compactObject(packageInfo));
+      return;
+    }
+
+    double palletTarePerUnit = firstPositiveNumber(
         packageInfo.get("palletTareWeightKg"),
         packageInfo.get("packageTareWeightKg"),
         packageInfo.get("woodenPackageWeightKg"),
         packageInfo.get("tareWeightKg")
-    ));
-    double palletTareTotal = numberValue(firstNonBlank(
+    );
+    double palletTareTotal = firstPositiveNumber(
         packageInfo.get("palletTotalTareWeightKg"),
         packageInfo.get("packageTotalTareWeightKg"),
         packageInfo.get("woodenPackageTotalWeightKg"),
         packageInfo.get("tareTotalWeightKg")
-    ));
-    double cargoTotalWeight = numberValue(firstNonBlank(
+    );
+    double cargoTotalWeight = firstPositiveNumber(
         packageInfo.get("cargoTotalWeightKg"),
         packageInfo.get("containedCargoTotalGrossWeightKg"),
         innerCargo.get("totalGrossWeightKg"),
         innerCargo.get("cargoTotalWeightKg"),
         innerCargo.get("totalWeightKg")
-    ));
+    );
 
     if (cargoTotalWeight <= 0 || (palletTarePerUnit <= 0 && palletTareTotal <= 0)) return;
     double tareTotal = palletTareTotal > 0 ? palletTareTotal : palletTarePerUnit * quantity;
@@ -1544,13 +1838,13 @@ public class TextRecognitionService {
     if (containsAny(text, "可能", "不确定", "未确认", "疑似", "人工确认", "重复", "复核", "uncertain", "maybe", "possible", "duplicate")) {
       warnings.add("复核：识别内容带有可能、不确定、重复或人工确认信号，请对照原文核对后再导入。");
     }
-    if ("pallet".equals(cleanCell(cargo.get("type")))
+    if (isPalletHandlingUnit(cargo)
         && containsAny(text, "单独", "独立", "单个", "separate", "standalone", "alone")
         && containsAny(text, "托盘", "木托", "栈板", "pallet", "skid")) {
       warnings.add("复核：疑似单独托盘，请确认不是承托其他货物的空托盘，也不是重复计算的托盘行。");
     }
-    if ("pallet".equals(cleanCell(cargo.get("type"))) && numberValue(cargo.get("weightKg")) <= 0) {
-      warnings.add("复核：托盘/木箱单重为空或为 0，装箱计算会低估重量，请补全单重。");
+    if (isPalletHandlingUnit(cargo) && numberValue(cargo.get("weightKg")) <= 0) {
+      warnings.add("复核：托盘单重为空或为 0，装箱计算会低估重量，请补全单重。");
     }
     return warnings.stream().distinct().toList();
   }
@@ -1645,18 +1939,40 @@ public class TextRecognitionService {
 
     Map<String, Object> leftInner = left.get("innerCargo") instanceof Map<?, ?> map ? new LinkedHashMap<>((Map<String, Object>) map) : new LinkedHashMap<>();
     Map<String, Object> rightInner = right.get("innerCargo") instanceof Map<?, ?> map ? new LinkedHashMap<>((Map<String, Object>) map) : new LinkedHashMap<>();
-    double totalInnerQuantity = numberValue(leftInner.get("totalQuantity")) + numberValue(rightInner.get("totalQuantity"));
-    if (totalInnerQuantity > 0) {
+    if (!leftInner.isEmpty() || !rightInner.isEmpty()) {
       Map<String, Object> inner = new LinkedHashMap<>(leftInner);
       inner.putAll(rightInner);
-      inner.put("totalQuantity", Math.round(totalInnerQuantity));
-      inner.putIfAbsent("quantityUnit", "pcs");
-      base.put("innerCargo", inner);
+      sumPackageField(inner, leftInner, rightInner, "totalQuantity", true);
+      sumPackageField(inner, leftInner, rightInner, "cartonCount", true);
+      sumPackageField(inner, leftInner, rightInner, "totalCartons", true);
+      sumPackageField(inner, leftInner, rightInner, "totalGrossWeightKg", false);
+      sumPackageField(inner, leftInner, rightInner, "cargoTotalWeightKg", false);
+      sumPackageField(inner, leftInner, rightInner, "totalWeightKg", false);
+      String defaultQuantityUnit = firstPositiveInt(inner.get("cartonCount"), inner.get("totalCartons")) > 0 ? "cartons" : "pcs";
+      inner.putIfAbsent("quantityUnit", firstNonBlank(leftInner.get("quantityUnit"), rightInner.get("quantityUnit"), defaultQuantityUnit));
+      base.put("innerCargo", compactObject(inner));
     }
 
-    double totalWeight = numberValue(left.get("packageTotalGrossWeightKg")) + numberValue(right.get("packageTotalGrossWeightKg"));
-    if (totalWeight > 0) base.put("packageTotalGrossWeightKg", round2(totalWeight));
+    sumPackageField(base, left, right, "packageTotalGrossWeightKg", false);
+    sumPackageField(base, left, right, "palletTotalGrossWeightKg", false);
+    sumPackageField(base, left, right, "handlingUnitTotalGrossWeightKg", false);
+    sumPackageField(base, left, right, "cargoTotalWeightKg", false);
+    sumPackageField(base, left, right, "containedCargoTotalGrossWeightKg", false);
+    sumPackageField(base, left, right, "palletTotalTareWeightKg", false);
+    sumPackageField(base, left, right, "packageTotalTareWeightKg", false);
     return compactObject(base);
+  }
+
+  private void sumPackageField(
+      Map<String, Object> target,
+      Map<String, Object> left,
+      Map<String, Object> right,
+      String field,
+      boolean integer
+  ) {
+    double total = numberValue(left.get(field)) + numberValue(right.get(field));
+    if (total <= 0) return;
+    target.put(field, integer ? Math.round(total) : round2(total));
   }
 
   private List<Map<String, Object>> assignCargoModels(List<Map<String, Object>> cargos) {
@@ -1712,23 +2028,27 @@ public class TextRecognitionService {
               "quantity": 1,
               "weightKg": 0,
               "type": "normal|pallet|upright|nonstack",
+              "palletDimensionsMissing": false,
               "remark": "short note",
               "packageInfo": {
                 "algorithmBasis": "package-unit",
+                "handlingUnitType": "carton|pallet|crate",
                 "packageUnit": "carton|pallet|crate",
                 "packageQuantity": 1,
+                "dimensionSource": "explicit|missing",
+                "handlingUnitDimensionsExplicit": true,
                 "packageDimensionsCm": {"lengthCm": 0, "widthCm": 0, "heightCm": 0},
                 "packageGrossWeightKg": 0,
                 "packageTotalGrossWeightKg": 0,
                 "palletTareWeightKg": 0,
                 "cargoTotalWeightKg": 0,
                 "weightFormula": "pallet tare total + contained cargo gross total, divided by pallet quantity",
-                "innerCargo": {"totalQuantity": 0, "piecesPerPackage": 0, "totalGrossWeightKg": 0, "quantityUnit": "pcs"}
+                "innerCargo": {"cartonCount": 0, "cartonsPerPallet": 0, "cartonDimensionsCm": {"lengthCm": 0, "widthCm": 0, "heightCm": 0}, "cartonGrossWeightKg": 0, "layers": 0, "cartonsPerLayer": 0, "totalQuantity": 0, "piecesPerPackage": 0, "totalGrossWeightKg": 0, "quantityUnit": "cartons|pcs"}
               }
             }
           ],
           "issues": [
-            {"sourceRowNumber": 12, "text": "raw text", "errors": ["missing dimension"]}
+            {"sourceRowNumber": 12, "text": "raw text", "code": "optional stable code", "errors": ["missing dimension"], "cargo": {"same fields as a row when a repair candidate is available"}}
           ],
           "skippedSourceRowNumbers": [1, 2],
           "notes": "short Chinese summary"
@@ -1737,7 +2057,15 @@ public class TextRecognitionService {
         - All dimensions must be centimeters.
         - All weights must be kilograms per single item.
         - The algorithm fields lengthCm,widthCm,heightCm,quantity,weightKg must always describe the final handled package unit: pallet, carton, crate, wooden case, or box. Never put loose-piece dimensions into these fields when the goods are shipped inside cartons/pallets.
-        - If loose-piece/order details exist, store them only in packageInfo.innerCargo and/or remark. packageInfo is optional but recommended for packing-list rows.
+        - Infer the packaging hierarchy from the meaning and relationships of headers, values, file/sheet names, notes, merged cells, and neighboring rows. Header wording is not fixed and may differ by customer or language; do not depend on exact column names.
+        - Signals that a row may represent a loaded pallet include cartons/packages per pallet, pallet/load total weight or volume, layer count, cartons per layer, pallet assembly notes, repeated one-pallet rows, or file/sheet names describing pallet loads. When these semantic signals exist, do not automatically fall back to carton-level cargo merely because carton dimensions and carton counts are present.
+        - Do not skip a repeated pallet row merely because its product name and dimensions match another row. Different source rows/SKUs can represent different physical pallets; emit each source row first and let the backend aggregate only after the final handling unit is validated.
+        - For a pallet final handling unit, quantity is the pallet count, not the number of cartons inside it. Store carton count, cartons per pallet, carton dimensions, carton weight, layers, and cartons per layer only in packageInfo.innerCargo. When cartonCount and cartonsPerPallet are both clear, pallet quantity is ceil(cartonCount / cartonsPerPallet).
+        - For every pallet candidate, packageInfo is mandatory and must include handlingUnitType="pallet", packageUnit="pallet", packageQuantity, dimensionSource, and handlingUnitDimensionsExplicit. packageInfo may be omitted only for non-pallet rows that have no packaging hierarchy.
+        - type expresses the packing/stacking constraint, while packageInfo.handlingUnitType expresses the physical package. For a fragile or non-stackable pallet use type="nonstack" with handlingUnitType="pallet"; for an upright-only pallet use type="upright" with handlingUnitType="pallet". Do not lose those constraints by changing type back to "pallet".
+        - Pallet algorithm dimensions must be the explicit loaded-pallet outer length, width, and height from the source. Total volume, carton dimensions, layer count, or a guessed grid cannot uniquely prove pallet outer dimensions. Never substitute carton dimensions or invent pallet dimensions.
+        - If the final handling unit is a pallet but explicit loaded-pallet L/W/H is absent, still emit one row candidate under rows (not only under issues) with the applicable constraint type, the best-known pallet quantity and gross weight, lengthCm=0,widthCm=0,heightCm=0, palletDimensionsMissing=true, packageInfo.dimensionSource="missing", packageInfo.handlingUnitDimensionsExplicit=false, and the carton details in packageInfo.innerCargo. The backend will block import and ask the user to enter the pallet dimensions.
+        - If loose-piece/order details exist, store them only in packageInfo.innerCargo and/or remark.
         - For input beginning with EXCEL_FORMATTED_TABLE_FOR_AGENT, use the Excel coordinates, merged ranges, and neighboring rows/columns to understand the table layout. Do not blindly parse the first recognizable table.
         - If the input contains EXCEL_AGENT_BATCH, emit rows and issues only for lines under BATCH_TARGET_ROWS. Lines under BATCH_CONTEXT_ONLY are read-only layout/header context and must never be emitted or counted.
         - For EXCEL_AGENT_BATCH, copy the R number into sourceRowNumber. Every number in BATCH_TARGET_SOURCE_ROWS must be covered by a row, an issue, or skippedSourceRowNumbers. A cargo row may also appear in issues when review is required. skippedSourceRowNumbers is mutually exclusive with rows/issues; use it only for headers, totals, blank/reference rows, and anything intentionally not cargo.
@@ -1749,14 +2077,14 @@ public class TextRecognitionService {
         - Put review-only warnings in "issues" even when the row is also returned in "rows". This includes empty/standalone pallets, mixed or assembled pallets, unclear pallet-to-product alignment, possible duplicated pallet weight, and any mapping that needs user confirmation. Prefix those messages with "复核：" and keep the usable cargo row in "rows".
         - English examples like "2 skids - each 31.200 kgs / 1080 x 200 x 340 cm" mean quantity=2, weightKg=31200, dimensions in cm.
         - Important: in English shipment weights, a dot followed by exactly three digits before kg/kgs is a thousands separator, not a decimal point. Output 29.200 kgs as 29200 kg, never 29.2 kg.
-        - For PL / packing-list tables with columns like Size, T.CTNS, PCS/CTN, Order Qty, N.W, G.W, CARTON SIZE(CM), PALLET SIZE(M), T.CBM:
+        - For a generic carton-only PL / packing-list with no semantic evidence of palletized final handling, columns like Size, T.CTNS, PCS/CTN, Order Qty, N.W, G.W and CARTON SIZE(CM) describe carton cargo:
           extract the carton packing unit, not loose product pieces and not pallet summary totals.
           Use Size as name/model text when no product name exists.
           Use T.CTNS / total cartons / 总箱数 as quantity.
           Use CARTON SIZE(CM) / 纸箱尺寸 as lengthCm,widthCm,heightCm.
           Use per-carton G.W / 单箱毛重 as weightKg. If only total gross weight exists, divide it by T.CTNS.
           PCS/CTN and Order Qty are loose-piece/product counts; keep them only in remark and never use Order Qty as quantity.
-          PALLET SIZE(M), T.CBM, "12 pallets" totals, and pallet gross totals are summary/reference fields only unless the text is explicitly a final pallet-by-pallet list.
+          Do not use this carton-only rule when the source semantically describes palletized final handling. Pallet totals, per-pallet counts, layer layouts, or pallet-by-pallet rows override the carton-only default and trigger the pallet rules above.
         - Do not calculate loose pieces / 散件 for container packing. Import the actual handled package unit: carton, crate, wooden case, or explicit final pallet unit.
         - If one product title is followed by multiple skid lines, use that title as the name for those rows.
         - If the same name has different dimensions and no model, leave model empty; the backend will assign 型号 A/B/C.
@@ -1839,20 +2167,117 @@ public class TextRecognitionService {
     return value;
   }
 
-  private int applyThousandSeparatedWeightCorrections(List<Map<String, Object>> cargos, String rawText) {
-    Map<Long, Double> corrections = thousandSeparatedWeightCorrections(rawText);
-    if (corrections.isEmpty()) return 0;
+  @SuppressWarnings("unchecked")
+  private boolean applyThousandSeparatedWeightCorrection(Map<String, Object> cargo, Map<Long, Double> corrections) {
+    if (cargo == null || cargo.isEmpty() || corrections == null || corrections.isEmpty()) return false;
+    Object packageInfoValue = cargo.get("packageInfo");
+    Map<String, Object> packageInfo = packageInfoValue instanceof Map<?, ?> packageInfoRaw
+        ? new LinkedHashMap<>((Map<String, Object>) packageInfoRaw)
+        : new LinkedHashMap<>();
+    Object innerCargoValue = packageInfo.get("innerCargo");
+    Map<String, Object> innerCargo = innerCargoValue instanceof Map<?, ?> innerCargoRaw
+        ? new LinkedHashMap<>((Map<String, Object>) innerCargoRaw)
+        : new LinkedHashMap<>();
 
-    int count = 0;
-    for (Map<String, Object> cargo : cargos) {
-      double weightKg = numberValue(cargo.get("weightKg"));
-      Double corrected = corrections.get(weightKey(weightKg));
-      if (corrected != null && corrected > weightKg + 0.001) {
-        cargo.put("weightKg", round2(corrected));
-        count++;
+    boolean cargoChanged = false;
+    boolean packageChanged = false;
+    boolean innerChanged = false;
+    for (Map.Entry<Long, Double> correction : corrections.entrySet()) {
+      long key = correction.getKey();
+      double correctedValue = correction.getValue();
+      boolean finalUnitMatch = hasCorrectableWeightField(cargo, key, correctedValue, "weightKg", "unitWeightKg")
+          || hasCorrectableWeightField(packageInfo, key, correctedValue, "packageGrossWeightKg", "palletGrossWeightKg", "handlingUnitGrossWeightKg");
+      boolean finalTotalMatch = hasCorrectableWeightField(packageInfo, key, correctedValue, "packageTotalGrossWeightKg", "palletTotalGrossWeightKg", "handlingUnitTotalGrossWeightKg");
+      boolean tareUnitMatch = hasCorrectableWeightField(packageInfo, key, correctedValue, "palletTareWeightKg", "packageTareWeightKg", "woodenPackageWeightKg", "tareWeightKg");
+      boolean tareTotalMatch = hasCorrectableWeightField(packageInfo, key, correctedValue, "palletTotalTareWeightKg", "packageTotalTareWeightKg", "woodenPackageTotalWeightKg", "tareTotalWeightKg");
+      boolean containedTotalMatch = hasCorrectableWeightField(packageInfo, key, correctedValue, "cargoTotalWeightKg", "containedCargoTotalGrossWeightKg")
+          || hasCorrectableWeightField(innerCargo, key, correctedValue, "totalGrossWeightKg", "cargoTotalWeightKg", "totalWeightKg");
+      boolean innerUnitMatch = hasCorrectableWeightField(innerCargo, key, correctedValue, "cartonGrossWeightKg", "unitGrossWeightKg");
+      int matchingRoles = (finalUnitMatch ? 1 : 0)
+          + (finalTotalMatch ? 1 : 0)
+          + (tareUnitMatch ? 1 : 0)
+          + (tareTotalMatch ? 1 : 0)
+          + (containedTotalMatch ? 1 : 0)
+          + (innerUnitMatch ? 1 : 0);
+      if (matchingRoles != 1) continue;
+
+      if (finalUnitMatch) {
+        cargoChanged |= correctWeightFields(cargo, key, correctedValue, "weightKg", "unitWeightKg");
+        packageChanged |= correctWeightFields(packageInfo, key, correctedValue, "packageGrossWeightKg", "palletGrossWeightKg", "handlingUnitGrossWeightKg");
+      } else if (finalTotalMatch) {
+        packageChanged |= correctWeightFields(packageInfo, key, correctedValue, "packageTotalGrossWeightKg", "palletTotalGrossWeightKg", "handlingUnitTotalGrossWeightKg");
+      } else if (tareUnitMatch) {
+        packageChanged |= correctWeightFields(packageInfo, key, correctedValue, "palletTareWeightKg", "packageTareWeightKg", "woodenPackageWeightKg", "tareWeightKg");
+      } else if (tareTotalMatch) {
+        packageChanged |= correctWeightFields(packageInfo, key, correctedValue, "palletTotalTareWeightKg", "packageTotalTareWeightKg", "woodenPackageTotalWeightKg", "tareTotalWeightKg");
+      } else if (containedTotalMatch) {
+        packageChanged |= correctWeightFields(packageInfo, key, correctedValue, "cargoTotalWeightKg", "containedCargoTotalGrossWeightKg");
+        innerChanged |= correctWeightFields(innerCargo, key, correctedValue, "totalGrossWeightKg", "cargoTotalWeightKg", "totalWeightKg");
+      } else {
+        innerChanged |= correctWeightFields(innerCargo, key, correctedValue, "cartonGrossWeightKg", "unitGrossWeightKg");
       }
     }
-    return count;
+    if (innerChanged) {
+      packageInfo.put("innerCargo", innerCargo);
+      packageChanged = true;
+    }
+    if (packageChanged) cargo.put("packageInfo", packageInfo);
+    return cargoChanged || packageChanged;
+  }
+
+  private boolean hasCorrectableWeightField(
+      Map<String, Object> target,
+      long correctionKey,
+      double correctedValue,
+      String... fields
+  ) {
+    for (String field : fields) {
+      if (!target.containsKey(field)) continue;
+      double current = numberValue(target.get(field));
+      if (weightKey(current) == correctionKey && correctedValue > current + 0.001) return true;
+    }
+    return false;
+  }
+
+  private boolean correctWeightFields(
+      Map<String, Object> target,
+      long correctionKey,
+      double correctedValue,
+      String... fields
+  ) {
+    boolean changed = false;
+    for (String field : fields) {
+      if (!target.containsKey(field)) continue;
+      double current = numberValue(target.get(field));
+      if (weightKey(current) == correctionKey && correctedValue > current + 0.001) {
+        target.put(field, round2(correctedValue));
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  private String weightCorrectionSourceText(Map<String, Object> modelItem, int sourceRowNumber, String rawText) {
+    String provided = cleanCell(firstNonBlank(modelItem.get("sourceText"), modelItem.get("text")));
+    if (String.valueOf(rawText).contains("EXCEL_AGENT_BATCH")) {
+      String originalBatchRow = sourceRowText(rawText, sourceRowNumber);
+      if (!originalBatchRow.isBlank()) return originalBatchRow;
+    }
+    return provided.isBlank() ? sourceRowText(rawText, sourceRowNumber) : provided;
+  }
+
+  private String sourceRowText(String rawText, int sourceRowNumber) {
+    if (sourceRowNumber <= 0) return "";
+    List<String> lines = textRows(rawText);
+    for (String line : lines) {
+      Matcher matcher = EXCEL_ROW_PATTERN.matcher(line);
+      if (matcher.matches() && intValue(matcher.group(1), 0) == sourceRowNumber) return line;
+    }
+    return sourceRowNumber <= lines.size() ? lines.get(sourceRowNumber - 1) : "";
+  }
+
+  private String normalizedSourceSignature(String value) {
+    return cleanCell(value).replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
   }
 
   private Map<Long, Double> thousandSeparatedWeightCorrections(String rawText) {
@@ -1862,9 +2287,32 @@ public class TextRecognitionService {
       String token = matcher.group(1);
       Double decimalValue = decimalInterpretation(token);
       if (decimalValue == null) continue;
+      if (hasAmbiguousDecimalWeightToken(rawText, token, decimalValue)) continue;
       corrections.put(weightKey(decimalValue), parseFlexibleNumber(token));
     }
     return corrections;
+  }
+
+  private boolean hasAmbiguousDecimalWeightToken(String rawText, String thousandToken, double decimalValue) {
+    Matcher matcher = KG_WEIGHT_TOKEN_PATTERN.matcher(String.valueOf(rawText == null ? "" : rawText));
+    String normalizedThousandToken = cleanCell(thousandToken).replace(" ", "");
+    while (matcher.find()) {
+      String candidate = cleanCell(matcher.group(1)).replace(" ", "");
+      if (candidate.equals(normalizedThousandToken)) continue;
+      Double candidateDecimal = ordinaryDecimalWeight(candidate);
+      if (candidateDecimal != null && weightKey(candidateDecimal) == weightKey(decimalValue)) return true;
+    }
+    return false;
+  }
+
+  private Double ordinaryDecimalWeight(String token) {
+    String text = cleanCell(token).replace(" ", "");
+    if (text.isBlank() || (text.contains(".") && text.contains(","))) return null;
+    try {
+      return Double.parseDouble(text.replace(',', '.'));
+    } catch (NumberFormatException error) {
+      return null;
+    }
   }
 
   private Double decimalInterpretation(String token) {
@@ -1921,12 +2369,12 @@ public class TextRecognitionService {
         || text.contains("nonstack") || text.contains("non-stack") || text.contains("no stack")) {
       return "nonstack";
     }
-    if (text.contains("托盘") || text.contains("木箱") || text.contains("pallet") || text.contains("skid")
-        || text.contains("crate") || text.contains("wood")) {
-      return "pallet";
-    }
     if (text.contains("朝上") || text.contains("向上") || text.contains("upright") || text.contains("this side up")) {
       return "upright";
+    }
+    if (text.contains("托盘") || text.contains("栈板") || text.contains("木托")
+        || text.contains("pallet") || text.contains("skid")) {
+      return "pallet";
     }
     return "normal";
   }
@@ -2012,6 +2460,22 @@ public class TextRecognitionService {
     return "";
   }
 
+  private int firstPositiveInt(Object... values) {
+    for (Object value : values) {
+      int number = intValue(value, 0);
+      if (number > 0) return number;
+    }
+    return 0;
+  }
+
+  private double firstPositiveNumber(Object... values) {
+    for (Object value : values) {
+      double number = numberValue(value);
+      if (number > 0) return number;
+    }
+    return 0;
+  }
+
   private String cleanCell(Object value) {
     if (value == null) return "";
     return String.valueOf(value).replace("\uFEFF", "").trim();
@@ -2024,6 +2488,28 @@ public class TextRecognitionService {
 
   private String normalizeSource(String mode) {
     return "local".equalsIgnoreCase(cleanCell(mode)) ? "LOCAL" : "AGENT";
+  }
+
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> modelIssueCargo(Map<String, Object> modelIssue) {
+    Object directCargo = modelIssue.get("cargo");
+    if (directCargo instanceof Map<?, ?> cargoRaw) {
+      return new LinkedHashMap<>((Map<String, Object>) cargoRaw);
+    }
+    Object suggestionValue = modelIssue.get("suggestion");
+    if (suggestionValue instanceof Map<?, ?> suggestionRaw) {
+      Object suggestionCargo = ((Map<String, Object>) suggestionRaw).get("cargo");
+      if (suggestionCargo instanceof Map<?, ?> cargoRaw) {
+        return new LinkedHashMap<>((Map<String, Object>) cargoRaw);
+      }
+    }
+    if (modelIssue.containsKey("name")
+        || modelIssue.containsKey("packageInfo")
+        || modelIssue.containsKey("lengthCm")
+        || modelIssue.containsKey("quantity")) {
+      return new LinkedHashMap<>(modelIssue);
+    }
+    return new LinkedHashMap<>();
   }
 
   private List<Map<String, Object>> mapList(Object value) {
@@ -2077,7 +2563,7 @@ public class TextRecognitionService {
   }
 
   private boolean isBlockingRecognitionIssueCode(Object code) {
-    return Set.of("AGENT_OUTPUT_LIMIT", "AGENT_ROW_COVERAGE", "AGENT_REQUEST_BUDGET", "INPUT_TRUNCATED")
+    return Set.of("AGENT_OUTPUT_LIMIT", "AGENT_ROW_COVERAGE", "AGENT_REQUEST_BUDGET", "INPUT_TRUNCATED", "PALLET_DIMENSIONS_MISSING")
         .contains(cleanCell(code));
   }
 
