@@ -1,3 +1,5 @@
+import { createRouteQuote, QUOTE_CHARGE_CATEGORIES, QUOTE_SOURCE_TYPES } from "./freightQuote.js";
+
 export const defaultContainers = [
   {
     id: "20gp",
@@ -132,6 +134,7 @@ export const defaultContainers = [
 const referenceFreightSource = "Freightos FBX01 China/East Asia to North America West Coast";
 const referenceFreightSourceUrl = "https://www.freightos.com/enterprise/terminal/fbx-01-china-to-north-america-west-coast/";
 const referenceFreightBasis = "USD per container, based on Freightos FBX01 40ft spot index; 20ft and special-equipment prices are planning estimates derived by equipment multipliers. Cross-check with Drewry WCI Shanghai-Los Angeles before booking.";
+const PLANNING_REFERENCE_QUOTE_ID = "planning-reference-fbx01";
 
 const defaultContainerProfiles = {
   "20gp": freightProfile(0.62, 4146, "economy", "GP"),
@@ -143,6 +146,33 @@ const defaultContainerProfiles = {
   "20fr": freightProfile(1.25, 8359, "special", "FR", "Flat-rack/OOG equipment estimate from dry-container FBX01 baseline."),
   "40fr": freightProfile(1.9, 12706, "special", "FR", "Flat-rack/OOG equipment estimate from dry-container FBX01 baseline.")
 };
+
+export const defaultRouteQuotes = [createRouteQuote({
+  id: PLANNING_REFERENCE_QUOTE_ID,
+  currency: "USD",
+  origin: { name: "China / East Asia index region" },
+  destination: { name: "North America West Coast index region" },
+  source: {
+    type: QUOTE_SOURCE_TYPES.INDEX_REFERENCE,
+    provider: referenceFreightSource,
+    sourceUrl: referenceFreightSourceUrl
+  },
+  rates: Object.entries(defaultContainerProfiles).map(([containerId, profile]) => ({
+    containerId,
+    equipmentCode: containerId.toUpperCase(),
+    baseFreight: profile.referencePrice,
+    currency: profile.referenceCurrency,
+    charges: QUOTE_CHARGE_CATEGORIES.map((category) => ({
+      category,
+      label: category,
+      amount: null,
+      basis: "PER_CONTAINER",
+      applicability: "UNKNOWN"
+    })),
+    availability: { status: "UNKNOWN" },
+    completeness: "BASE_ONLY"
+  }))
+})];
 
 const legacyDefaultReferencePrices = {
   "20gp": 1000,
@@ -163,6 +193,7 @@ function freightProfile(costFactor, referencePrice, priceTier, equipmentClass, n
     referencePriceSource: referenceFreightSource,
     referencePriceSourceUrl: referenceFreightSourceUrl,
     referencePriceBasis: note ? `${referenceFreightBasis} ${note}` : referenceFreightBasis,
+    routeQuoteId: PLANNING_REFERENCE_QUOTE_ID,
     priceTier,
     equipmentClass
   };
@@ -204,6 +235,7 @@ function withDefaultProfile(container, options = {}) {
     referencePriceSource: shouldUseDefaultPriceMeta ? profile.referencePriceSource : container?.referencePriceSource ?? profile.referencePriceSource,
     referencePriceSourceUrl: shouldUseDefaultPriceMeta ? profile.referencePriceSourceUrl : container?.referencePriceSourceUrl ?? profile.referencePriceSourceUrl,
     referencePriceBasis: shouldUseDefaultPriceMeta ? profile.referencePriceBasis : container?.referencePriceBasis ?? profile.referencePriceBasis,
+    routeQuoteId: shouldUseDefaultPriceMeta ? profile.routeQuoteId : container?.routeQuoteId ?? "",
     priceTier: container?.priceTier ?? profile.priceTier,
     equipmentClass: container?.equipmentClass ?? profile.equipmentClass
   };
@@ -283,6 +315,7 @@ export function restoreDefaultContainerPrice(container) {
     referencePriceSource: restored.referencePriceSource,
     referencePriceSourceUrl: restored.referencePriceSourceUrl,
     referencePriceBasis: restored.referencePriceBasis,
+    routeQuoteId: restored.routeQuoteId,
     priceTier: restored.priceTier,
     equipmentClass: restored.equipmentClass,
     priceEdited: false

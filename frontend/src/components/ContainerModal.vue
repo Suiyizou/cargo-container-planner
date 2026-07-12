@@ -37,6 +37,7 @@
           </el-button>
         </div>
         <small v-if="defaultContainer">{{ ui('container.defaultPriceHint', { value: defaultPriceText }) }}</small>
+        <small>{{ ui('container.priceOptionalHint') }}</small>
       </el-form-item>
       <el-form-item label="使用属性">
         <el-select v-model="model.usagePriority" placeholder="选择使用属性">
@@ -127,7 +128,8 @@ function submit() {
   if (!String(model.name || "").trim()) return;
   const referencePrice = Number(model.referencePrice || 0);
   const defaultPrice = Number(defaultContainer.value?.referencePrice || 0);
-  const priceEdited = Boolean(defaultContainer.value) && Number.isFinite(referencePrice) && referencePrice > 0 && Math.abs(referencePrice - defaultPrice) >= 0.01;
+  const priceEdited = Boolean(defaultContainer.value)
+    && (!(referencePrice > 0) || Math.abs(referencePrice - defaultPrice) >= 0.01);
   const heightCm = Math.max(1, Number(model.heightCm || 1));
   const ignoreHeightLimit = flatRackModel.value || Boolean(model.ignoreHeightLimit);
   emit("save", {
@@ -136,7 +138,7 @@ function submit() {
     heightCm,
     heightLimitCm: heightCm,
     ignoreHeightLimit,
-    referencePrice: Number.isFinite(referencePrice) && referencePrice > 0 ? referencePrice : undefined,
+    referencePrice: Number.isFinite(referencePrice) && referencePrice > 0 ? referencePrice : 0,
     referenceCurrency: "USD",
     priceEdited
   });

@@ -59,10 +59,11 @@ export const messages = {
       sampleLoadedMessage: "已填入示例文本，点击智能识别后会由后端流程提取中文和英文 skid 明细。"
     },
     planner: {
-      priorityContainers: "优先箱型",
-      priorityContainersHint: "本次只计算 {count} 个已选箱型，减少等待时间",
+      priorityContainers: "参与计算箱型",
+      priorityContainersHint: "本次搜索包含 {count} 个已选箱型；未设置价格的箱型只参与可装性计算",
       priorityCommon: "常用 GP/HQ",
       priorityAll: "全部箱型",
+      containerScopeNote: "默认选择常用普柜/高柜；冷藏和平板属于特殊设备，按实际运输需求加入计算。",
       supportRatio: "可承重支撑比例",
       nonStackSupportRatio: "不可重压支撑比例",
       supportRatioTrace: "可承重 / 不可重压支撑阈值",
@@ -82,8 +83,8 @@ export const messages = {
           text: "每个箱型先用 5 种确定性顺序跑 LAFF + 极点，不做昂贵降级。"
         },
         refine: {
-          title: "只精修最优",
-          text: "选出当前箱型最优基础解后，再做 4 件块到 2 件块、单件回填。"
+          title: "精修当前较优解",
+          text: "选出当前箱型搜索到的较优基础解后，再做 4 件块到 2 件块、单件回填。"
         },
         stage: {
           title: "分阶段输出",
@@ -136,7 +137,7 @@ export const messages = {
       renderKicker: "渲染中",
       renderMeta: "正在刷新可视化结果",
       renderText: "正在生成 3D 装箱视图...",
-      renderingText: "正在生成 3D 装箱视图，完成后会显示当前推荐箱型和货物坐标。",
+      renderingText: "正在生成 3D 装箱视图，完成后会显示当前搜索方案和货物坐标。",
       visualizing: "可视化视图",
       doneMeta: "本机计算已完成",
       doneText: "本机计算已完成，当前方案可以继续查看、导出或打印。",
@@ -165,12 +166,12 @@ export const messages = {
       customerSummaryTitle: "货舱结果汇总",
       customerHoldText: "正在汇总 {scope} 的第 {hold} 货舱结果：{detail}",
       customerBoxProgressText: "当前正在进行 {scope} 的第 {hold} 个货舱装箱计算，剩余 {remaining} 个搜索单元。",
-      customerRecommendationText: "正在生成推荐方案，按合规状态和总参考运价排序。",
+      customerRecommendationText: "正在汇总当前搜索候选；全部约束合规后按综合参考运价排序。",
       customerPrepareTitle: "装箱数据准备",
       customerPrepareText: "正在整理货物、箱型和装箱规则，准备开始本机计算。",
       customerDetailFallback: "持续计算中",
       partialReadyText: "{scope} 的阶段结果已可查看，其他箱型继续在后台计算。",
-      partialReadyMeta: "部分方案已可查看，最终推荐继续刷新中",
+      partialReadyMeta: "部分方案已可查看，当前搜索结果继续刷新中",
       status: {
         done: "已完成",
         active: "进行中",
@@ -206,8 +207,8 @@ export const messages = {
           description: "统计每个货舱装入件数和剩余货物"
         },
         recommendation: {
-          label: "推荐输出",
-          description: "按合规状态和总参考运价生成推荐"
+          label: "方案排序",
+          description: "全部约束合规后，按综合参考运价、箱数和利用率排序"
         }
       }
     },
@@ -225,7 +226,7 @@ export const messages = {
       decisionRecords: "决策记录",
       currentStatus: "当前状态",
       partialStatus: "部分结果可用",
-      noFinalStatus: "未生成最终推荐",
+      noFinalStatus: "未完成全部方案搜索",
       reasonTitle: "可能原因",
       reasonFallback: "本次货物或箱型组合较复杂，Worker 未能在前端等待时间内完成所有箱型和策略搜索。",
       lastDecisionTitle: "最后执行到",
@@ -295,10 +296,11 @@ export const messages = {
       sampleLoadedMessage: "Sample text inserted. Click Smart Recognition to let the backend extract the mixed cargo and skid details."
     },
     planner: {
-      priorityContainers: "Priority Containers",
-      priorityContainersHint: "Only {count} selected container types are calculated this run",
+      priorityContainers: "Containers Included in Calculation",
+      priorityContainersHint: "This search includes {count} selected types; unpriced types are evaluated for fit only",
       priorityCommon: "Common GP/HQ",
       priorityAll: "All Containers",
+      containerScopeNote: "Common dry and high-cube containers are selected by default; add reefer and flat-rack equipment only when the shipment requires them.",
       supportRatio: "Stackable Support Ratio",
       nonStackSupportRatio: "Non-stack Support Ratio",
       supportRatioTrace: "Stackable / Non-stack Support Thresholds",
@@ -318,8 +320,8 @@ export const messages = {
           text: "Each container first runs 5 deterministic LAFF + extreme-point orders without expensive downgrade."
         },
         refine: {
-          title: "Refine Only The Best",
-          text: "After the best base solution is selected, 4-piece blocks downgrade to 2-piece blocks and then single-piece backfill."
+          title: "Refine the Better Current Candidate",
+          text: "After a better base solution found for the current container is selected, 4-piece blocks downgrade to 2-piece blocks and then single-piece backfill."
         },
         stage: {
           title: "Stage Results",
@@ -372,7 +374,7 @@ export const messages = {
       renderKicker: "Rendering",
       renderMeta: "Refreshing visualization",
       renderText: "Generating the 3D packing scene...",
-      renderingText: "Generating the 3D packing scene. The current container and cargo coordinates will appear after rendering.",
+      renderingText: "Generating the 3D packing scene. The current search plan and cargo coordinates will appear after rendering.",
       visualizing: "Visualization",
       doneMeta: "Local calculation completed",
       doneText: "Local calculation is complete. The current plan is ready to inspect, export, or print.",
@@ -401,12 +403,12 @@ export const messages = {
       customerSummaryTitle: "Hold Result Summary",
       customerHoldText: "Summarizing hold {hold} for {scope}: {detail}",
       customerBoxProgressText: "Calculating hold {hold} for {scope}; {remaining} search units remain.",
-      customerRecommendationText: "Generating recommendations by compliance status and total reference freight.",
+      customerRecommendationText: "Summarizing current search candidates and ranking by composite reference freight after all constraints pass.",
       customerPrepareTitle: "Packing Data Preparation",
       customerPrepareText: "Preparing cargo, container types, and packing rules before local calculation starts.",
       customerDetailFallback: "Calculation is still running",
       partialReadyText: "The stage result for {scope} is ready to inspect while other container types continue in the background.",
-      partialReadyMeta: "Partial plan ready; final recommendation is still refreshing",
+      partialReadyMeta: "Partial plans are ready; the current search result keeps updating",
       status: {
         done: "Done",
         active: "Running",
@@ -442,8 +444,8 @@ export const messages = {
           description: "Summarize loaded pieces and remaining cargo by hold"
         },
         recommendation: {
-          label: "Recommendation",
-          description: "Rank by compliance status and total reference freight"
+          label: "Plan Ranking",
+          description: "After all constraints pass, rank by composite reference freight, container count, and utilization"
         }
       }
     },
@@ -461,7 +463,7 @@ export const messages = {
       decisionRecords: "Decision Records",
       currentStatus: "Current Status",
       partialStatus: "Partial results available",
-      noFinalStatus: "No final recommendation",
+      noFinalStatus: "Full plan search not completed",
       reasonTitle: "Likely Reason",
       reasonFallback: "This cargo/container combination is complex, and the Worker did not finish all container and strategy searches within the frontend wait limit.",
       lastDecisionTitle: "Last Reached Step",

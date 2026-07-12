@@ -31,12 +31,14 @@ const NON_STACK_DISPLACEMENT_MAX_SWAPS = 2;
 const NON_STACK_DISPLACEMENT_MAX_MOVERS = 2;
 const NON_STACK_DISPLACEMENT_MAX_RECEIVERS = 3;
 const MIXED_PLAN_MAX_SOLVER_UNITS = 120;
+const MIXED_REPLACEMENT_CANDIDATE_LIMIT = 3;
+const MIXED_COMBINATION_BEAM_WIDTH = 8;
 const BALANCE_GREEN_LIMIT_PERCENT = 2.5;
 const BALANCE_RED_LIMIT_PERCENT = 5;
 const FRONT_MAX_PERCENT = 60;
 const REAR_MIN_PERCENT_40FR = 30;
 const LATERAL_OFFSET_LIMIT_CM = 8;
-const BALANCE_SKIP_BELOW_WEIGHT_KG = 10000;
+const BALANCE_SKIP_BELOW_WEIGHT_KG = 18000;
 const HEAVY_TOP_FRACTION = 0.35;
 const BALANCE_SCORE_WEIGHT = 250000;
 const EARLY_BALANCE_SCORE_WEIGHT = 65000;
@@ -46,14 +48,13 @@ const LIGHT_ZONE_WEIGHT = 650;
 const BALANCE_ZONE_ORDER = ["frontLeft", "rearRight", "frontRight", "rearLeft"];
 const FIT_STATUS = {
   FIT: "fit",
+  ESTIMATED: "estimated",
   BALANCE_BLOCKED: "balance-blocked",
   OVERSIZE: "oversize"
 };
 const UTILIZATION_LOW_WARN_PERCENT = 55;
 const UTILIZATION_HIGH_WARN_PERCENT = 92;
-const RECOMMENDATION_TARGET_FILL_PERCENT = 72;
 const REFERENCE_PRICE_BASE = 1000;
-const RECOMMENDATION_FREIGHT_WEIGHT = 0.52;
 const RECOMMENDATION_BOX_WEIGHT = 110;
 const AXIS_LENGTH = "\u957f";
 const AXIS_WIDTH = "\u5bbd";
@@ -232,7 +233,7 @@ export function calculate(request = {}, options = {}) {
   traceDecision({
     phase: "start",
     level: "summary",
-    text: `开始本机装箱：${cargos.length} 类货物 / ${total.totalQuantity} 件，评估 ${(request.containers || []).length} 个箱型；轻载阈值 ${round(balanceSettings.skipBelowWeightKg / 1000)}t。`
+    text: `开始本机装箱：${cargos.length} 类货物 / ${total.totalQuantity} 件，${(request.containers || []).length} 个箱型参与计算；单箱总重不超过 ${round(balanceSettings.skipBelowWeightKg / 1000)}t 时跳过偏载拦截。`
   });
 
   for (let i = 0; i < orderedContainers.length; i += 1) {
@@ -300,7 +301,7 @@ export function calculate(request = {}, options = {}) {
     traceDecision({
       phase: "container",
       level: "summary",
-      text: `${container.name} · 计算完成：${evaluation.fitStatus === FIT_STATUS.FIT ? "可装" : evaluation.fitStatus === FIT_STATUS.BALANCE_BLOCKED ? "偏载拦截" : "不可装"}，${evaluation.boxes > 0 ? `${evaluation.boxes} 箱` : "未形成完整方案"}，首箱利用率 ${round(evaluation.firstBoxFillPercent)}%，平均利用率 ${round(evaluation.averageFillPercent)}%。`
+      text: `${container.name} · 计算完成：${evaluation.fitStatus === FIT_STATUS.FIT ? "可装" : evaluation.fitStatus === FIT_STATUS.ESTIMATED ? "估算候选，未完成全部逐箱验证" : evaluation.fitStatus === FIT_STATUS.BALANCE_BLOCKED ? "偏载拦截" : "不可装"}，${evaluation.boxes > 0 ? `${evaluation.boxes} 箱` : "未形成完整方案"}，首箱利用率 ${round(evaluation.firstBoxFillPercent)}%，平均利用率 ${round(evaluation.averageFillPercent)}%。`
     });
   }
 
@@ -312,28 +313,33 @@ export function calculate(request = {}, options = {}) {
     traceDecision({
       phase: "recommendation",
       level: "summary",
-      text: `智能组合候选：${mixedEvaluation.mixedPlan?.summary || "组合方案"}，${mixedEvaluation.boxes} 箱，平均利用率 ${round(mixedEvaluation.averageFillPercent)}%。`
+      text: `混合箱型候选：${mixedEvaluation.mixedPlan?.summary || "组合方案"}，${mixedEvaluation.boxes} 箱，平均利用率 ${round(mixedEvaluation.averageFillPercent)}%。`
     });
   }
 
+  applyGlobalPriceComparability(evaluations);
   evaluations.sort(compareEvaluation);
+  const bestEvaluation = evaluations.find((evaluation) => evaluation.fitStatus === FIT_STATUS.FIT) || null;
   traceDecision({
     phase: "recommendation",
     level: "summary",
-    text: evaluations[0]
-      ? `推荐结果：${evaluations[0].mixedPlan?.summary || evaluations[0].container.name}，${evaluations[0].boxes > 0 ? `${evaluations[0].boxes} 箱` : "暂无完整方案"}，参考运价 ${formatFreightCost(estimatedFreightCost(evaluations[0]))}。`
-      : "没有生成可推荐方案。"
+    text: bestEvaluation
+      ? `当前搜索最优方案：${bestEvaluation.mixedPlan?.summary || bestEvaluation.container.name}，${bestEvaluation.boxes > 0 ? `${bestEvaluation.boxes} 箱` : "暂无完整方案"}，${freightConclusionText(bestEvaluation)}。`
+      : evaluations.some((evaluation) => evaluation.fitStatus === FIT_STATUS.ESTIMATED)
+        ? "当前参与计算的箱型仅生成估算候选，尚未完成全部逐箱验证。"
+        : "当前参与计算的箱型未生成可行方案。"
   });
   return {
-    bestContainerId: evaluations[0]?.container.id || null,
+    bestContainerId: bestEvaluation?.container.id || null,
     evaluations
   };
 }
 
 function buildCalculationResult(evaluations, extra = {}) {
+  applyGlobalPriceComparability(evaluations);
   const sorted = [...evaluations].sort(compareEvaluation);
   return {
-    bestContainerId: sorted[0]?.container.id || null,
+    bestContainerId: sorted.find((evaluation) => evaluation.fitStatus === FIT_STATUS.FIT)?.container.id || null,
     evaluations: sorted,
     ...extra
   };
@@ -400,19 +406,22 @@ function buildEvaluation(container, units, total, utilizationPercent, globalGapC
   const rawFillPercent = usableVolume > 0 ? firstPackedRawVolume / usableVolume * 100 : 0;
   const remainingVolume = usableVolume - firstPackedOccupiedVolume;
   const weightBoxes = container.payloadKg > 0 ? Math.ceil(total.totalWeightKg / container.payloadKg) : 0;
-  const packedBoxBalances = multi.packedBoxes.map((box) => box.balanceValidation || validateWeightBalance(container, box.placed));
+  const packedBoxBalances = multi.packedBoxes.map((box) => box.balanceValidation || validateWeightBalance(box.container || container, box.placed));
+  const placementConstraintsBlocked = multi.packedBoxes.some((box) => !validateAllPlacements(box.container || container, box.placed || []));
   const balanceBlocked = Boolean(
     multi.balanceBlocked
     || packedBoxBalances.some((validation) => validation?.severity === "red")
     || multi.firstBox?.strategySummary?.complianceBlocked
   );
-  const geometryFeasible = multi.boxes > 0 && multi.firstBox?.placed?.length > 0;
+  const geometryFeasible = multi.boxes > 0 && multi.firstBox?.placed?.length > 0 && !placementConstraintsBlocked;
   const boxes = geometryFeasible ? Math.max(multi.boxes, weightBoxes) : -1;
   const fitStatus = !geometryFeasible
     ? FIT_STATUS.OVERSIZE
     : balanceBlocked
       ? FIT_STATUS.BALANCE_BLOCKED
-      : FIT_STATUS.FIT;
+      : multi.estimated
+        ? FIT_STATUS.ESTIMATED
+        : FIT_STATUS.FIT;
   const averageFillPercent = geometryFeasible && boxes > 0
     ? averageUsagePercentForBoxCount(container, multi.packedBoxes, utilizationPercent, boxes, total)
     : 0;
@@ -422,6 +431,7 @@ function buildEvaluation(container, units, total, utilizationPercent, globalGapC
     feasible: fitStatus === FIT_STATUS.FIT,
     geometryFeasible,
     complianceFeasible: fitStatus === FIT_STATUS.FIT,
+    placementConstraintsBlocked,
     balanceBlocked,
     fitStatus,
     fatalOversize: fitStatus === FIT_STATUS.OVERSIZE,
@@ -461,7 +471,7 @@ function buildEvaluation(container, units, total, utilizationPercent, globalGapC
       boxes
     }),
     packedBoxes: multi.packedBoxes.map((box, index) => {
-      const balanceValidation = packedBoxBalances[index] || validateWeightBalance(container, box.placed);
+      const balanceValidation = packedBoxBalances[index] || validateWeightBalance(box.container || container, box.placed);
       const placedForOutput = expandGroupedPlacements(box.placed);
       return {
         index: index + 1,
@@ -575,20 +585,23 @@ function shouldBuildMixedContainerEvaluation(containers, total) {
 function buildMixedContainerEvaluation(containers, cargos, total, utilizationPercent, globalGapCm, balanceSettings, supportSettings, baseEvaluations = []) {
   if (!Array.isArray(containers) || containers.length < 2 || !total.totalQuantity) return null;
   const runtimeContainers = containers.map((container) => ({ ...container, balanceSettings, supportSettings }));
+  const priceEligibleContainers = runtimeContainers.filter((container) => equipmentMeta(container).priceAvailable);
+  const priceCurrencies = new Set(priceEligibleContainers.map((container) => equipmentMeta(container).referenceCurrency));
+  if (!priceEligibleContainers.length || priceCurrencies.size > 1) return null;
   const upgradedFromSinglePlans = buildMixedContainerEvaluationFromSinglePlans(runtimeContainers, baseEvaluations, total, utilizationPercent, globalGapCm);
-  if (upgradedFromSinglePlans) return upgradedFromSinglePlans;
+  const mixedCandidates = upgradedFromSinglePlans ? [upgradedFromSinglePlans] : [];
 
-  const seedContainer = pickMixedSeedContainer(runtimeContainers);
+  const seedContainer = pickMixedSeedContainer(priceEligibleContainers);
   let remaining = buildUnits(cargos, globalGapCm, seedContainer, total).map(copyUnit);
-  if (remaining.length > MIXED_PLAN_MAX_SOLVER_UNITS) return null;
-  if (!remaining.length) return null;
+  if (remaining.length > MIXED_PLAN_MAX_SOLVER_UNITS) return mixedCandidates.sort(compareEvaluation)[0] || null;
+  if (!remaining.length) return mixedCandidates.sort(compareEvaluation)[0] || null;
 
   const packedBoxes = [];
   let balanceBlocked = false;
   let fatalOversize = false;
 
   for (let boxIndex = 0; remaining.length && boxIndex < MAX_DETAILED_BOXES; boxIndex += 1) {
-    const candidates = runtimeContainers
+    const candidates = priceEligibleContainers
       .map((container) => {
         const packed = packContainer(container, remaining);
         const placedQuantity = sumUnitQuantity(packed.placed);
@@ -623,9 +636,11 @@ function buildMixedContainerEvaluation(containers, cargos, total, utilizationPer
   }
 
   if (remaining.length) fatalOversize = true;
-  if (!packedBoxes.length) return null;
-  const distinctContainerIds = new Set(packedBoxes.map((box) => box.container?.id).filter(Boolean));
-  if (!fatalOversize && distinctContainerIds.size < 2) return null;
+  if (!packedBoxes.length) return mixedCandidates.sort(compareEvaluation)[0] || null;
+  if (fatalOversize || combinationDuplicatesBasePlan(packedBoxes, baseEvaluations)) {
+    return mixedCandidates.sort(compareEvaluation)[0] || null;
+  }
+  const mixedFreight = mixedPlanFreightCost(packedBoxes);
 
   const mixedContainer = {
     id: "mixed-plan",
@@ -637,7 +652,7 @@ function buildMixedContainerEvaluation(containers, cargos, total, utilizationPer
     equipmentClass: "MIX",
     priceTier: "mixed",
     costFactor: mixedPlanCost(packedBoxes),
-    referencePrice: mixedPlanFreightCost(packedBoxes),
+    referencePrice: Number.isFinite(mixedFreight) ? mixedFreight : undefined,
     mixedPlan: true
   };
   const multi = {
@@ -676,48 +691,86 @@ function buildMixedContainerEvaluation(containers, cargos, total, utilizationPer
     }))
   };
   evaluation.recommendation = buildRecommendation(evaluation);
-  return evaluation;
+  mixedCandidates.push(evaluation);
+  return mixedCandidates.sort(compareEvaluation)[0] || null;
 }
 
 function buildMixedContainerEvaluationFromSinglePlans(runtimeContainers, baseEvaluations, total, utilizationPercent, globalGapCm) {
   const candidates = [];
   const usableContainers = runtimeContainers
-    .filter((container) => isPrimaryCalculationContainer(container) || container?.usagePriority === "special")
+    .filter((container) => (isPrimaryCalculationContainer(container) || container?.usagePriority === "special") && equipmentMeta(container).priceAvailable)
     .sort((a, b) => {
       const priceDiff = equipmentMeta(a).referencePrice - equipmentMeta(b).referencePrice;
       if (Math.abs(priceDiff) > EPS) return priceDiff;
       return volumeM3(a) - volumeM3(b);
     });
-  if (usableContainers.length < 2) return null;
+  if (!usableContainers.length) return null;
 
   for (const baseEvaluation of baseEvaluations || []) {
     if (!canUseEvaluationAsMixedBase(baseEvaluation)) continue;
-    const replacementBoxes = [];
+    let beam = [{ boxes: [], freight: 0, currency: "" }];
     let failed = false;
     for (const sourceBox of baseEvaluation._sourcePackedBoxes || []) {
-      const replacement = cheapestContainerForPackedBox(usableContainers, sourceBox, utilizationPercent);
-      if (!replacement) {
+      const replacements = containerCandidatesForPackedBox(usableContainers, sourceBox, utilizationPercent);
+      if (!replacements.length) {
         failed = true;
         break;
       }
-      replacementBoxes.push(replacement);
+      const expanded = [];
+      for (const state of beam) {
+        for (const replacement of replacements) {
+          const meta = equipmentMeta(replacement.container);
+          if (state.currency && state.currency !== meta.referenceCurrency) continue;
+          expanded.push({
+            boxes: [...state.boxes, replacement],
+            freight: state.freight + meta.referencePrice,
+            currency: state.currency || meta.referenceCurrency
+          });
+        }
+      }
+      beam = retainMixedCombinationStates(expanded);
+      if (!beam.length) {
+        failed = true;
+        break;
+      }
     }
-    if (failed || !replacementBoxes.length) continue;
-    const distinctContainerIds = new Set(replacementBoxes.map((box) => box.container?.id).filter(Boolean));
-    if (distinctContainerIds.size < 2) continue;
-    const mixedFreight = mixedPlanFreightCost(replacementBoxes);
-    if (!(mixedFreight < estimatedFreightCost(baseEvaluation) - EPS)) continue;
-    const evaluation = buildMixedEvaluationFromPackedBoxes(replacementBoxes, total, utilizationPercent, globalGapCm);
-    evaluation.mixedPlan = {
-      ...evaluation.mixedPlan,
-      sourceContainerId: baseEvaluation.container?.id,
-      sourceContainerName: baseEvaluation.container?.name
-    };
-    evaluation.recommendation = buildRecommendation(evaluation);
-    candidates.push(evaluation);
+    if (failed || !beam.length) continue;
+    for (const state of beam) {
+      if (combinationDuplicatesBasePlan(state.boxes, baseEvaluations)) continue;
+      const mixedFreight = mixedPlanFreightCost(state.boxes);
+      if (!(mixedFreight < estimatedFreightCost(baseEvaluation) - EPS)) continue;
+      const evaluation = buildMixedEvaluationFromPackedBoxes(state.boxes, total, utilizationPercent, globalGapCm);
+      evaluation.mixedPlan = {
+        ...evaluation.mixedPlan,
+        sourceContainerId: baseEvaluation.container?.id,
+        sourceContainerName: baseEvaluation.container?.name,
+        searchMethod: "bounded-fixed-partition-beam",
+        retainedCandidatesPerBox: MIXED_REPLACEMENT_CANDIDATE_LIMIT,
+        beamWidth: MIXED_COMBINATION_BEAM_WIDTH,
+        distinctContainerCount: new Set(state.boxes.map((box) => box.container?.id).filter(Boolean)).size
+      };
+      evaluation.recommendation = buildRecommendation(evaluation);
+      candidates.push(evaluation);
+    }
   }
 
   return candidates.sort(compareEvaluation)[0] || null;
+}
+
+function combinationDuplicatesBasePlan(packedBoxes, baseEvaluations) {
+  const containerIds = [...new Set((packedBoxes || []).map((box) => box.container?.id).filter(Boolean))];
+  if (containerIds.length !== 1) return false;
+  const base = (baseEvaluations || []).find((evaluation) =>
+    evaluation?.container?.id === containerIds[0]
+    && evaluation.fitStatus === FIT_STATUS.FIT
+    && !evaluation.estimatedBoxes
+  );
+  if (!base || Number(base.boxes || 0) !== packedBoxes.length) return false;
+  const combinationFreight = mixedPlanFreightCost(packedBoxes);
+  const baseFreight = estimatedFreightCost(base);
+  return Number.isFinite(combinationFreight)
+    && Number.isFinite(baseFreight)
+    && Math.abs(combinationFreight - baseFreight) <= EPS;
 }
 
 function canUseEvaluationAsMixedBase(evaluation) {
@@ -733,7 +786,18 @@ function canUseEvaluationAsMixedBase(evaluation) {
     && !(sourceBoxes[sourceBoxes.length - 1]?.unplaced || []).length;
 }
 
-function cheapestContainerForPackedBox(containers, sourceBox, utilizationPercent) {
+function retainMixedCombinationStates(states) {
+  const unique = new Map();
+  [...states]
+    .sort((a, b) => a.freight - b.freight)
+    .forEach((state) => {
+      const signature = `${state.currency}:${state.boxes.map((box) => box.container?.id || "unknown").join("|")}`;
+      if (!unique.has(signature)) unique.set(signature, state);
+    });
+  return [...unique.values()].slice(0, MIXED_COMBINATION_BEAM_WIDTH);
+}
+
+function containerCandidatesForPackedBox(containers, sourceBox, utilizationPercent) {
   const sourceUnits = (sourceBox?.placed || []).map(stripPlacement);
   const sourceQuantity = sumUnitQuantity(sourceUnits);
   const candidates = [];
@@ -746,6 +810,7 @@ function cheapestContainerForPackedBox(containers, sourceBox, utilizationPercent
     if (!packed?.placed?.length || packed.unplaced?.length || sumUnitQuantity(packed.placed) < sourceQuantity) continue;
     if (packed.balanceValidation?.severity === "red" || packed.strategySummary?.complianceBlocked) continue;
     const meta = equipmentMeta(container);
+    if (!meta.priceAvailable) continue;
     const capacity = Math.max(EPS, usageCapacity(container, utilizationPercent));
     const fillPercent = usageUsedCapacity(container, packed.placed) / capacity * 100;
     candidates.push({
@@ -765,20 +830,20 @@ function cheapestContainerForPackedBox(containers, sourceBox, utilizationPercent
     const volumeDiff = a.volume - b.volume;
     if (Math.abs(volumeDiff) > EPS) return volumeDiff;
     return b.fillPercent - a.fillPercent;
-  })[0];
-  if (!selected) return null;
-  return {
-    ...selected.packed,
-    container: mixedPlanBoxContainer(selected.container),
+  }).slice(0, MIXED_REPLACEMENT_CANDIDATE_LIMIT);
+  return selected.map((candidate) => ({
+    ...candidate.packed,
+    container: mixedPlanBoxContainer(candidate.container),
     strategySummary: {
-      ...(selected.packed.strategySummary || {}),
+      ...(candidate.packed.strategySummary || {}),
       mixedReplacementFrom: sourceBox?.container?.name || "",
-      mixedReplacementFillPercent: round(selected.fillPercent)
+      mixedReplacementFillPercent: round(candidate.fillPercent)
     }
-  };
+  }));
 }
 
 function buildMixedEvaluationFromPackedBoxes(packedBoxes, total, utilizationPercent, globalGapCm, fatalOversize = false, balanceBlocked = false) {
+  const mixedFreight = mixedPlanFreightCost(packedBoxes);
   const mixedContainer = {
     id: "mixed-plan",
     name: "智能组合方案",
@@ -789,7 +854,7 @@ function buildMixedEvaluationFromPackedBoxes(packedBoxes, total, utilizationPerc
     equipmentClass: "MIX",
     priceTier: "mixed",
     costFactor: mixedPlanCost(packedBoxes),
-    referencePrice: mixedPlanFreightCost(packedBoxes),
+    referencePrice: Number.isFinite(mixedFreight) ? mixedFreight : undefined,
     mixedPlan: true
   };
   const multi = {
@@ -845,16 +910,14 @@ function mixedBoxCandidateScore(container, packed, remaining, utilizationPercent
   const usableCapacity = Math.max(EPS, usageCapacity(container, utilizationPercent));
   const fillPercent = usageUsedCapacity(container, packed.placed) / usableCapacity * 100;
   const meta = equipmentMeta(container);
-  const priceScore = meta.referencePrice / REFERENCE_PRICE_BASE;
+  const priceScore = meta.priceAvailable ? meta.referencePrice / REFERENCE_PRICE_BASE : 1000000;
   const placedRatio = placedQuantity / totalQuantity;
   const completesAll = placedQuantity >= totalQuantity;
   const underfillPenalty = completesAll ? Math.max(0, 60 - fillPercent) * 0.12 : Math.max(0, 48 - fillPercent) * 0.05;
-  const specialPenalty = meta.equipmentClass === "FR" ? 4.2 : meta.equipmentClass === "RF" ? 3.2 : meta.equipmentClass === "45HQ" ? 0.9 : 0;
   const blockedPenalty = fitStatus === FIT_STATUS.BALANCE_BLOCKED ? 500 : 0;
   const fillReward = Math.min(fillPercent, 88) / 100 * 1.4;
   return blockedPenalty
     + priceScore
-    + specialPenalty
     + underfillPenalty
     - fillReward
     - placedRatio * 1.25
@@ -866,7 +929,17 @@ function mixedPlanCost(packedBoxes) {
 }
 
 function mixedPlanFreightCost(packedBoxes) {
-  return packedBoxes.reduce((sum, box) => sum + equipmentMeta(box.container).referencePrice, 0);
+  if (!Array.isArray(packedBoxes) || !packedBoxes.length) return Number.POSITIVE_INFINITY;
+  let total = 0;
+  const currencies = new Set();
+  for (const box of packedBoxes) {
+    const meta = equipmentMeta(box.container);
+    if (!meta.priceAvailable) return Number.POSITIVE_INFINITY;
+    currencies.add(meta.referenceCurrency);
+    if (currencies.size > 1) return Number.POSITIVE_INFINITY;
+    total += meta.referencePrice;
+  }
+  return total;
 }
 
 function mixedPlanSummary(packedBoxes) {
@@ -3762,8 +3835,6 @@ function comparePackAttempt(container) {
       if (aPlacedCount !== bPlacedCount) return bPlacedCount - aPlacedCount;
       const deckDiff = placementDeckAreaM2(b.placed) - placementDeckAreaM2(a.placed);
       if (Math.abs(deckDiff) > EPS) return deckDiff;
-      const balanceScoreDiff = Number(a.balanceValidation?.score || 0) - Number(b.balanceValidation?.score || 0);
-      if (Math.abs(balanceScoreDiff) > EPS) return balanceScoreDiff;
       const topDiff = maxTop(a.placed) - maxTop(b.placed);
       if (Math.abs(topDiff) > EPS) return topDiff;
       const lengthDiff = lengthUtilizationPercent(container, b.placed) - lengthUtilizationPercent(container, a.placed);
@@ -3776,8 +3847,6 @@ function comparePackAttempt(container) {
     const aPlacedCount = sumUnitQuantity(a.placed);
     const bPlacedCount = sumUnitQuantity(b.placed);
     if (aPlacedCount !== bPlacedCount) return bPlacedCount - aPlacedCount;
-    const balanceScoreDiff = Number(a.balanceValidation?.score || 0) - Number(b.balanceValidation?.score || 0);
-    if (Math.abs(balanceScoreDiff) > EPS) return balanceScoreDiff;
     const supportDiff = supportSurfaceScore(b.placed, container) - supportSurfaceScore(a.placed, container);
     if (Math.abs(supportDiff) > EPS) return supportDiff;
     const topDiff = maxTop(a.placed) - maxTop(b.placed);
@@ -4076,9 +4145,7 @@ function emptyWeightBalance(container) {
 
 function balanceSeverityRank(validation) {
   if (!validation?.valid) return 0;
-  if (validation.severity === "green") return 0;
-  if (validation.severity === "yellow") return 1;
-  return 2;
+  return validation.severity === "red" ? 1 : 0;
 }
 
 function isFortyFootFlatRack(container) {
@@ -4498,8 +4565,16 @@ function cargoDisplayName(cargo) {
 function compareEvaluation(a, b) {
   const statusDiff = fitStatusRank(a.fitStatus) - fitStatusRank(b.fitStatus);
   if (statusDiff) return statusDiff;
-  const costDiff = estimatedFreightCost(a) - estimatedFreightCost(b);
-  if (Math.abs(costDiff) > EPS) return costDiff;
+  const priceStatusA = evaluationPriceStatus(a);
+  const priceStatusB = evaluationPriceStatus(b);
+  const priceComparableDiff = (priceStatusA.comparable ? 0 : 1) - (priceStatusB.comparable ? 0 : 1);
+  if (priceComparableDiff) return priceComparableDiff;
+  const priceAvailabilityDiff = (priceStatusA.configured ? 0 : 1) - (priceStatusB.configured ? 0 : 1);
+  if (priceAvailabilityDiff) return priceAvailabilityDiff;
+  if (priceStatusA.comparable && priceStatusB.comparable && priceStatusA.currency === priceStatusB.currency) {
+    const costDiff = estimatedFreightCost(a) - estimatedFreightCost(b);
+    if (Math.abs(costDiff) > EPS) return costDiff;
+  }
   const boxDiff = normalizedBoxCount(a) - normalizedBoxCount(b);
   if (boxDiff) return boxDiff;
   const fillDiff = recommendationFillPercent(b) - recommendationFillPercent(a);
@@ -4516,43 +4591,40 @@ function buildRecommendation(evaluation) {
   const cost = evaluation.isMixedPlan || evaluation.container?.mixedPlan
     ? Number(evaluation.container?.costFactor || 9999)
     : boxes >= 9999 ? 9999 : boxes * meta.costFactor;
-  const freightCost = evaluation.isMixedPlan || evaluation.container?.mixedPlan
-    ? mixedPlanFreightCost(evaluation.packedBoxes || []) || Number(evaluation.container?.referencePrice || 999999)
-    : boxes >= 9999 ? 999999 : boxes * meta.referencePrice;
+  const priceStatus = evaluationPriceStatus(evaluation);
+  const priceAvailable = priceStatus.configured;
+  const freightCost = !priceAvailable || boxes >= 9999
+    ? Number.POSITIVE_INFINITY
+    : evaluation.isMixedPlan || evaluation.container?.mixedPlan
+      ? mixedPlanFreightCost(evaluation.packedBoxes || [])
+      : boxes * meta.referencePrice;
   const fill = recommendationFillPercent(evaluation);
   const underusePenalty = Math.max(0, UTILIZATION_LOW_WARN_PERCENT - fill) * 42;
   const severeUnderusePenalty = Math.pow(Math.max(0, 45 - fill), 2) * 4;
   const tightPenalty = Math.max(0, fill - UTILIZATION_HIGH_WARN_PERCENT) * 8;
-  const targetPenalty = Math.abs(fill - RECOMMENDATION_TARGET_FILL_PERCENT) * 5;
-  const lowUseLargeBoxPenalty = fill < 60 && ["45HQ", "FR", "RF"].includes(meta.equipmentClass) ? (60 - fill) * 55 : 0;
-  const specialEquipmentPenalty = meta.equipmentClass === "MIX" ? 0 : meta.equipmentClass === "FR" ? 4200 : meta.equipmentClass === "RF" ? 3200 : meta.equipmentClass === "45HQ" ? 180 : 0;
-  const balancePenalty = evaluation.fitStatus === FIT_STATUS.BALANCE_BLOCKED
-    ? 50000
-    : evaluation.packedBoxes?.some((box) => box.balanceValidation?.severity === "yellow")
-      ? 120
-      : 0;
+  const balancePenalty = evaluation.fitStatus === FIT_STATUS.BALANCE_BLOCKED ? 50000 : 0;
   const oversizePenalty = evaluation.fitStatus === FIT_STATUS.OVERSIZE ? 1000000 : 0;
   const statusPenalty = statusRank * 1000;
   const volumePenalty = volumeM3(evaluation.container) * 1.5;
   const score = oversizePenalty
     + balancePenalty
     + statusPenalty
-    + freightCost * RECOMMENDATION_FREIGHT_WEIGHT
     + boxes * RECOMMENDATION_BOX_WEIGHT
-    + specialEquipmentPenalty
-    + lowUseLargeBoxPenalty
     + underusePenalty
     + severeUnderusePenalty
     + tightPenalty
-    + targetPenalty
     + volumePenalty;
 
   return {
     score: round(score),
     costFactor: round(meta.costFactor),
     estimatedCost: round(cost),
-    referencePrice: round(meta.referencePrice),
-    estimatedFreight: round(freightCost),
+    referencePrice: meta.priceAvailable ? round(meta.referencePrice) : null,
+    estimatedFreight: priceAvailable && Number.isFinite(freightCost) ? round(freightCost) : null,
+    priceAvailable,
+    priceComparisonEligible: priceStatus.comparable,
+    priceExclusionReason: priceStatus.reason,
+    referenceCurrency: priceStatus.currency,
     priceTier: meta.priceTier,
     equipmentClass: meta.equipmentClass,
     utilizationBand: utilizationBand(fill),
@@ -4575,8 +4647,9 @@ function recommendationFillPercent(evaluation) {
 
 function fitStatusRank(status) {
   if (status === FIT_STATUS.FIT) return 0;
-  if (status === FIT_STATUS.BALANCE_BLOCKED) return 1;
-  return 2;
+  if (status === FIT_STATUS.ESTIMATED) return 1;
+  if (status === FIT_STATUS.BALANCE_BLOCKED) return 2;
+  return 3;
 }
 
 function normalizedBoxCount(evaluation) {
@@ -4586,19 +4659,87 @@ function normalizedBoxCount(evaluation) {
 
 function estimatedFreightCost(evaluation) {
   const recommendation = evaluation?.recommendation;
-  if (Number.isFinite(Number(recommendation?.estimatedFreight))) return Number(recommendation.estimatedFreight);
+  if (recommendation?.priceAvailable === false) return Number.POSITIVE_INFINITY;
+  if (Number.isFinite(Number(recommendation?.estimatedFreight)) && Number(recommendation.estimatedFreight) > 0) return Number(recommendation.estimatedFreight);
   if (evaluation?.isMixedPlan || evaluation?.container?.mixedPlan) {
     const mixedFreight = mixedPlanFreightCost(evaluation?.packedBoxes || []);
-    if (mixedFreight > 0) return mixedFreight;
+    if (Number.isFinite(mixedFreight) && mixedFreight > 0) return mixedFreight;
   }
   const meta = equipmentMeta(evaluation?.container);
+  if (!meta.priceAvailable) return Number.POSITIVE_INFINITY;
   return normalizedBoxCount(evaluation) * meta.referencePrice;
 }
 
-function formatFreightCost(value) {
+function evaluationPriceStatus(evaluation) {
+  if (!evaluation) return { configured: false, comparable: false, reason: "missing-price", currency: "" };
+  if (evaluation.isMixedPlan || evaluation.container?.mixedPlan) {
+    const packedBoxes = evaluation.packedBoxes || [];
+    if (!packedBoxes.length) return { configured: false, comparable: false, reason: "missing-price", currency: "" };
+    const metas = packedBoxes.map((box) => equipmentMeta(box.container));
+    if (metas.some((meta) => !meta.priceAvailable)) {
+      return { configured: false, comparable: false, reason: "missing-price", currency: "" };
+    }
+    const currencies = [...new Set(metas.map((meta) => meta.referenceCurrency))];
+    if (currencies.length !== 1) {
+      return { configured: true, comparable: false, reason: "mixed-currency", currency: "" };
+    }
+    const status = evaluation.estimatedBoxes
+      ? { configured: true, comparable: false, reason: "estimated-boxes", currency: currencies[0] }
+      : { configured: true, comparable: true, reason: "", currency: currencies[0] };
+    return applyRecommendationPriceOverride(evaluation, status);
+  }
+  const meta = equipmentMeta(evaluation.container);
+  if (!meta.priceAvailable) return { configured: false, comparable: false, reason: "missing-price", currency: meta.referenceCurrency };
+  const status = evaluation.estimatedBoxes
+    ? { configured: true, comparable: false, reason: "estimated-boxes", currency: meta.referenceCurrency }
+    : { configured: true, comparable: true, reason: "", currency: meta.referenceCurrency };
+  return applyRecommendationPriceOverride(evaluation, status);
+}
+
+function applyRecommendationPriceOverride(evaluation, status) {
+  const recommendation = evaluation?.recommendation;
+  if (recommendation && recommendation.priceComparisonEligible === false && status.comparable) {
+    return {
+      ...status,
+      comparable: false,
+      reason: String(recommendation.priceExclusionReason || "comparison-disabled")
+    };
+  }
+  return status;
+}
+
+function applyGlobalPriceComparability(evaluations = []) {
+  const comparableRows = evaluations.filter((evaluation) => {
+    const recommendation = evaluation?.recommendation;
+    return evaluation?.fitStatus === FIT_STATUS.FIT
+      && recommendation?.priceAvailable
+      && !evaluation?.estimatedBoxes
+      && !["missing-price", "mixed-currency"].includes(String(recommendation.priceExclusionReason || ""));
+  });
+  const currencies = new Set(comparableRows.map((evaluation) => String(evaluation.recommendation?.referenceCurrency || "")).filter(Boolean));
+  if (currencies.size <= 1) return;
+  comparableRows.forEach((evaluation) => {
+    evaluation.recommendation.priceComparisonEligible = false;
+    evaluation.recommendation.priceExclusionReason = "currency-set-mismatch";
+  });
+}
+
+function freightConclusionText(evaluation) {
+  const recommendation = evaluation?.recommendation || {};
+  if (!recommendation.priceAvailable) return "未设置箱型价格，仅形成可装性结果";
+  if (recommendation.priceExclusionReason === "estimated-boxes") {
+    return `综合参考运价估算 ${formatFreightCost(estimatedFreightCost(evaluation), recommendation.referenceCurrency)}，未完成全部逐箱验证`;
+  }
+  if (["mixed-currency", "currency-set-mismatch"].includes(String(recommendation.priceExclusionReason || ""))) {
+    return "参与方案币种不一致，未形成最低运价比较结论";
+  }
+  return `当前搜索最低综合参考运价 ${formatFreightCost(estimatedFreightCost(evaluation), recommendation.referenceCurrency)}`;
+}
+
+function formatFreightCost(value, currency = "USD") {
   const numeric = Number(value || 0);
   if (!Number.isFinite(numeric) || numeric <= 0) return "-";
-  return `USD ${round(numeric)}`;
+  return `${String(currency || "USD").toUpperCase()} ${round(numeric)}`;
 }
 
 function equipmentMeta(container = {}) {
@@ -4607,6 +4748,7 @@ function equipmentMeta(container = {}) {
   const text = `${id} ${name}`;
   const explicitCost = Number(container.costFactor);
   const explicitReferencePrice = Number(container.referencePrice ?? container.price ?? container.freightPrice);
+  const referenceCurrency = String(container.referenceCurrency || container.currency || "USD").trim().toUpperCase() || "USD";
   let equipmentClass = String(container.equipmentClass || "").toUpperCase();
   if (!["GP", "HQ", "45HQ", "RF", "FR", "MIX"].includes(equipmentClass)) {
     equipmentClass = "GP";
@@ -4633,7 +4775,8 @@ function equipmentMeta(container = {}) {
     : inferredCosts[id] || inferredByClass;
   const referencePrice = Number.isFinite(explicitReferencePrice) && explicitReferencePrice > 0
     ? explicitReferencePrice
-    : costFactor * REFERENCE_PRICE_BASE;
+    : 0;
+  const priceAvailable = referencePrice > 0;
   const explicitTier = String(container.priceTier || "").trim();
   const priceTier = explicitTier || (
     costFactor <= 1.15
@@ -4645,7 +4788,7 @@ function equipmentMeta(container = {}) {
           : "special"
   );
 
-  return { costFactor, referencePrice, priceTier, equipmentClass };
+  return { costFactor, referencePrice, priceAvailable, referenceCurrency, priceTier, equipmentClass };
 }
 
 function utilizationBand(fillPercent) {
@@ -4674,7 +4817,7 @@ function buildTrace(container, units, total, multi, metrics) {
       "候选落位必须满足边界、不相交、底面支撑和不可重压货物不承载上层货物",
       "首轮失败时执行局部搜索，移出一小组已摆货物与剩余货物重排，而不是立刻开启第二箱",
       "同一箱型选择已摆数量更多、占用体积更高、承重支撑面更好的方案",
-      "所有箱型先按合规状态筛选，再按总参考运价、箱数和利用率辅助条件推荐"
+      "所有最终候选同时通过尺寸、支撑、载重和偏载门槛后，再按综合参考运价、箱数和利用率辅助条件排序；未设置价格的箱型不参与最低运价比较"
     ],
     strategies: SEARCH_STRATEGIES.map((strategy) => strategy.name),
     selectedStrategy: firstBox.strategyName || "",

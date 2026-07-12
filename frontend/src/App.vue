@@ -294,7 +294,7 @@
               <div class="compact-section-head">
                 <div>
                   <strong>箱型尺寸管理</strong>
-                  <small>默认优先推荐普柜/高柜，冷藏和平板为特殊设备</small>
+                  <small>{{ t("planner.containerScopeNote") }}</small>
                 </div>
                 <RouterLink to="/containers">
                   <el-button size="small" type="primary" plain :icon="DataAnalysis">资料库</el-button>
@@ -473,7 +473,7 @@
               <p>Calculation Summary</p>
               <h2>计算结论</h2>
             </div>
-            <el-tag :type="resultSummary.red ? 'danger' : resultSummary.yellow ? 'warning' : 'success'" effect="light">
+            <el-tag :type="resultSummary.red ? 'danger' : resultSummary.yellow || resultSummary.estimated ? 'warning' : 'success'" effect="light">
               {{ resultSummary.recommendationText }}
             </el-tag>
           </div>
@@ -488,6 +488,11 @@
               <b>{{ resultSummary.yellow }}</b>
               <small>{{ tr("允许微调") }}</small>
             </div>
+            <div class="summary-card warning">
+              <span>{{ ui("result.estimatedCandidates") }}</span>
+              <b>{{ resultSummary.estimated }}</b>
+              <small>{{ ui("result.verificationIncomplete") }}</small>
+            </div>
             <div class="summary-card danger">
               <span>{{ tr("红色拦截") }}</span>
               <b>{{ resultSummary.red }}</b>
@@ -499,12 +504,12 @@
               <small>{{ tr("尺寸/承载失败") }}</small>
             </div>
             <div class="summary-card primary">
-              <span>{{ tr("推荐箱数") }}</span>
+              <span>{{ ui("result.currentPlanBoxes") }}</span>
               <b>{{ resultSummary.boxesText }}</b>
               <small>{{ trPlanSummary(resultSummary.containerName) }}</small>
             </div>
             <div class="summary-card freight">
-              <span>{{ ui("result.bestFreight") }}</span>
+              <span>{{ resultSummary.freightLabel }}</span>
               <b>{{ resultSummary.freightText }}</b>
               <small>{{ ui("result.freightFormula") }}</small>
             </div>
@@ -535,7 +540,7 @@
           <div class="section-head">
             <div>
               <p>{{ tr("箱型选择") }}</p>
-              <h2>{{ tr("推荐箱型对比") }}</h2>
+              <h2>{{ ui("result.calculatedPlanComparison") }}</h2>
             </div>
             <div class="view-actions">
               <el-tag :type="loading ? 'warning' : 'primary'" effect="light">{{ tr(apiStatus) }}</el-tag>
@@ -559,7 +564,7 @@
               @click="selectContainer(evaluation.container.id)"
             >
               <span class="container-icon">{{ containerIcon(evaluation.container.name) }}</span>
-              <mark v-if="result?.bestContainerId === evaluation.container.id" class="container-recommend-mark">{{ tr("推荐") }}</mark>
+              <mark v-if="result?.bestContainerId === evaluation.container.id" class="container-recommend-mark">{{ ui("result.currentBestMark") }}</mark>
               <strong>{{ evaluationCardTitle(evaluation) }}</strong>
               <small>{{ evaluationCardSubtitle(evaluation) }}</small>
               <em class="freight-cost">{{ evaluationFreightText(evaluation) }}</em>
@@ -837,7 +842,6 @@ import { cargoLabel, fmt, shortType, uid } from "./utils/format";
 
 const STORAGE_KEY = "cargo-planner-vue-state";
 const TEMPLATE_STORAGE_KEY = "cargo-planner-cargo-templates";
-const REFERENCE_PRICE_BASE = 1000;
 const PACKING_RESULT_CACHE_LIMIT = 6;
 const packingResultCache = new Map<string, any>();
 const colors = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3", "#ca8a04", "#475569"];
@@ -847,7 +851,7 @@ const DEFAULT_BALANCE_SETTINGS = {
   frontMaxPercent: 60,
   rearMinPercent40FR: 30,
   lateralOffsetLimitCm: 8,
-  skipBelowWeightKg: 10000
+  skipBelowWeightKg: 18000
 };
 const BALANCE_PRESETS = {
   strict: {
@@ -856,7 +860,7 @@ const BALANCE_PRESETS = {
     frontMaxPercent: 58,
     rearMinPercent40FR: 35,
     lateralOffsetLimitCm: 6,
-    skipBelowWeightKg: 8000
+    skipBelowWeightKg: 12000
   },
   standard: DEFAULT_BALANCE_SETTINGS,
   loose: {
@@ -865,7 +869,7 @@ const BALANCE_PRESETS = {
     frontMaxPercent: 65,
     rearMinPercent40FR: 25,
     lateralOffsetLimitCm: 12,
-    skipBelowWeightKg: 18000
+    skipBelowWeightKg: 24000
   }
 };
 
@@ -999,21 +1003,22 @@ const resultSummary = computed(() => {
     const level = evaluationBalanceLevel(evaluation);
     acc[level] += 1;
     return acc;
-  }, { green: 0, yellow: 0, red: 0, oversize: 0 });
-  const best = evaluations[0] || null;
+  }, { green: 0, yellow: 0, estimated: 0, red: 0, oversize: 0 });
+  const best = evaluations.find((evaluation) => evaluation?.fitStatus === "fit") || null;
   const boxes = Number(best?.boxes || 0);
   return {
     ...counts,
     boxesText: boxes > 0 ? `${best?.estimatedBoxes ? "约 " : ""}${boxes} 箱` : "-",
-    containerName: best?.mixedPlan?.summary || best?.container?.name || "暂无推荐",
-    freightText: best ? formatCurrency(evaluationFreightValue(best), evaluationFreightCurrency(best)) : "-",
+    containerName: best?.mixedPlan?.summary || best?.container?.name || ui("result.noFeasiblePlan"),
+    freightLabel: best?.fitStatus === "fit" && evaluationPriceComparisonEligible(best) ? ui("result.bestFreight") : best ? evaluationFreightLabel(best) : ui("result.bestFreight"),
+    freightText: best ? evaluationFreightAmountText(best) : "-",
     recommendationText: best
       ? `${best.mixedPlan?.summary || best.container.name} / ${evaluationFitText(best)}`
-      : "暂无计算结果"
+      : evaluations.length ? ui("result.noFeasiblePlan") : "暂无计算结果"
   };
 });
 const resultOptimizationRows = computed(() => buildResultOptimizationRows(sortedEvaluations.value));
-const resultMixedHoldRows = computed(() => buildMixedHoldRows(sortedEvaluations.value[0]));
+const resultMixedHoldRows = computed(() => buildMixedHoldRows(sortedEvaluations.value.find((evaluation) => evaluation?.fitStatus === "fit")));
 const decisionFlowSteps = computed(() => {
   currentLocale.value;
   return buildDecisionFlow(decisionLogs.value, loading.value);
@@ -1237,7 +1242,10 @@ function restoreState() {
     globalGapCm.value = saved.globalGapCm ?? 1;
     supportRatioPercent.value = clampNumber(saved.supportRatioPercent, 50, 100, 80);
     nonStackSupportRatioPercent.value = clampNumber(saved.nonStackSupportRatioPercent, 80, 100, 98.5);
-    balanceSettings.value = normalizeBalanceSettings(saved.balanceSettings);
+    const savedBalanceSettings = (!saved.balancePreset || saved.balancePreset === "standard") && Number(saved.balanceSettings?.skipBelowWeightKg) === 10000
+      ? { ...saved.balanceSettings, skipBelowWeightKg: DEFAULT_BALANCE_SETTINGS.skipBelowWeightKg }
+      : saved.balanceSettings;
+    balanceSettings.value = normalizeBalanceSettings(savedBalanceSettings);
     activeBalancePreset.value = saved.balancePreset || detectBalancePreset(balanceSettings.value);
     showRemaining.value = saved.showRemaining ?? true;
     showMassBalance.value = saved.showMassBalance ?? true;
@@ -1379,7 +1387,7 @@ function rememberPackingResult(key, nextResult) {
 }
 
 function buildResultOptimizationRows(evaluations = []) {
-  const best = evaluations[0];
+  const best = evaluations.find((evaluation) => evaluation?.fitStatus === "fit");
   if (!best) return [];
   const rows = [{
     key: "best",
@@ -1387,8 +1395,11 @@ function buildResultOptimizationRows(evaluations = []) {
     value: evaluationPlanName(best),
     detail: `${evaluationFitText(best)} / ${evaluationFreightText(best)}`
   }];
-  const baseline = evaluations.find((item) => item && item !== best && !item.isMixedPlan && !item.container?.mixedPlan && item.fitStatus === "fit")
-    || evaluations.find((item) => item && item !== best && item.fitStatus === "fit");
+  const bestComparable = evaluationPriceComparisonEligible(best);
+  const baseline = bestComparable
+    ? evaluations.find((item) => item && item !== best && !item.isMixedPlan && !item.container?.mixedPlan && item.fitStatus === "fit" && evaluationPriceComparisonEligible(item))
+      || evaluations.find((item) => item && item !== best && item.fitStatus === "fit" && evaluationPriceComparisonEligible(item))
+    : null;
   if (baseline) {
     const saving = evaluationFreightValue(baseline) - evaluationFreightValue(best);
     rows.push({
@@ -2008,7 +2019,7 @@ function normalizeResult(nextResult) {
   const evaluations = [...(nextResult?.evaluations || [])].sort(compareEvaluationForUi);
   return {
     ...nextResult,
-    bestContainerId: evaluations[0]?.container?.id || nextResult?.bestContainerId || null,
+    bestContainerId: evaluations.find((evaluation) => evaluation?.fitStatus === "fit")?.container?.id || null,
     evaluations
   };
 }
@@ -2016,8 +2027,14 @@ function normalizeResult(nextResult) {
 function compareEvaluationForUi(a, b) {
   const statusDiff = evaluationStatusRank(a) - evaluationStatusRank(b);
   if (statusDiff) return statusDiff;
-  const freightDiff = compareFiniteNumbers(evaluationFreightValue(a), evaluationFreightValue(b));
-  if (freightDiff) return freightDiff;
+  const comparableDiff = (evaluationPriceComparisonEligible(a) ? 0 : 1) - (evaluationPriceComparisonEligible(b) ? 0 : 1);
+  if (comparableDiff) return comparableDiff;
+  const priceAvailabilityDiff = (evaluationPriceConfigured(a) ? 0 : 1) - (evaluationPriceConfigured(b) ? 0 : 1);
+  if (priceAvailabilityDiff) return priceAvailabilityDiff;
+  if (evaluationPriceComparisonEligible(a) && evaluationPriceComparisonEligible(b) && evaluationFreightCurrency(a) === evaluationFreightCurrency(b)) {
+    const freightDiff = compareFiniteNumbers(evaluationFreightValue(a), evaluationFreightValue(b));
+    if (freightDiff) return freightDiff;
+  }
   const boxDiff = normalizedEvaluationBoxes(a) - normalizedEvaluationBoxes(b);
   if (boxDiff) return boxDiff;
   const fillDiff = evaluationAverageFill(b) - evaluationAverageFill(a);
@@ -2144,7 +2161,8 @@ function saveContainer(container) {
   const dimensionEdited = isDefault && containerDimensionsEdited(heightNormalizedContainer, defaultContainer);
   const referencePrice = Number(heightNormalizedContainer.referencePrice || 0);
   const defaultReferencePrice = Number(defaultContainer?.referencePrice || 0);
-  const priceEdited = isDefault && referencePrice > 0 && Math.abs(referencePrice - defaultReferencePrice) >= 0.01;
+  const priceCleared = isDefault && Boolean(heightNormalizedContainer.priceEdited) && !(referencePrice > 0);
+  const priceEdited = isDefault && (priceCleared || (referencePrice > 0 && Math.abs(referencePrice - defaultReferencePrice) >= 0.01));
   const normalized = {
     ...heightNormalizedContainer,
     dimensionEdited,
@@ -2161,10 +2179,14 @@ function saveContainer(container) {
     normalized.dimensionNote = defaultContainer.dimensionNote;
   }
   if (priceEdited) {
+    normalized.referencePrice = referencePrice > 0 ? referencePrice : 0;
     normalized.referenceCurrency = "USD";
-    normalized.referencePriceSource = "\u7528\u6237\u7f16\u8f91\u53c2\u8003\u4ef7";
+    normalized.routeQuoteId = "";
+    normalized.referencePriceSource = referencePrice > 0 ? "\u7528\u6237\u7f16\u8f91\u53c2\u8003\u4ef7" : "\u672a\u8bbe\u7f6e\u4ef7\u683c";
     normalized.referencePriceSourceUrl = "";
-    normalized.referencePriceBasis = "\u7528\u6237\u81ea\u5b9a\u4e49\u53c2\u8003\u4ef7\uff1b\u5b9e\u9645\u8ba2\u8231\u524d\u8bf7\u6309\u5b9e\u65f6\u8be2\u4ef7\u590d\u6838\u3002";
+    normalized.referencePriceBasis = referencePrice > 0
+      ? "\u7528\u6237\u81ea\u5b9a\u4e49\u53c2\u8003\u4ef7\uff1b\u5b9e\u9645\u8ba2\u8231\u524d\u8bf7\u6309\u5b9e\u65f6\u8be2\u4ef7\u590d\u6838\u3002"
+      : "\u5f53\u524d\u7bb1\u578b\u4ec5\u53c2\u4e0e\u53ef\u88c5\u6027\u8ba1\u7b97\uff0c\u4e0d\u53c2\u4e0e\u6700\u4f4e\u8fd0\u4ef7\u6bd4\u8f83\u3002";
   } else if (isDefault) {
     normalized.costFactor = defaultContainer.costFactor;
     normalized.referencePrice = defaultContainer.referencePrice;
@@ -2172,6 +2194,7 @@ function saveContainer(container) {
     normalized.referencePriceSource = defaultContainer.referencePriceSource;
     normalized.referencePriceSourceUrl = defaultContainer.referencePriceSourceUrl;
     normalized.referencePriceBasis = defaultContainer.referencePriceBasis;
+    normalized.routeQuoteId = defaultContainer.routeQuoteId;
     normalized.priceTier = defaultContainer.priceTier;
     normalized.equipmentClass = defaultContainer.equipmentClass;
   }
@@ -2562,7 +2585,7 @@ function containerPayloadText(container: any) {
 
 function containerPriceText(container: any) {
   const value = Number(container?.referencePrice ?? container?.price ?? container?.freightPrice ?? 0);
-  if (!(value > 0)) return "-";
+  if (!(value > 0)) return ui("container.priceMissing");
   const formatted = new Intl.NumberFormat(currentLocale.value === "en-US" ? "en-US" : "zh-CN", {
     maximumFractionDigits: 0
   }).format(value);
@@ -2606,20 +2629,37 @@ function evaluationCardMetric(evaluation) {
 }
 
 function evaluationFreightText(evaluation) {
-  const value = evaluationFreightValue(evaluation);
-  return `${ui("result.referenceFreight")} ${formatCurrency(value, evaluationFreightCurrency(evaluation))}`;
+  return `${evaluationFreightLabel(evaluation)} ${evaluationFreightAmountText(evaluation)}`;
+}
+
+function evaluationFreightLabel(evaluation) {
+  const reason = String(evaluation?.recommendation?.priceExclusionReason || "");
+  if (!evaluationPriceConfigured(evaluation)) return ui("result.priceMissing");
+  if (reason === "mixed-currency") return ui("result.mixedCurrencyPrice");
+  if (reason === "currency-set-mismatch") return ui("result.currencySetMismatch");
+  if (reason === "estimated-boxes") return ui("result.estimatedFreight");
+  return ui("result.referenceFreight");
+}
+
+function evaluationFreightAmountText(evaluation) {
+  if (!evaluationPriceConfigured(evaluation) || evaluation?.recommendation?.priceExclusionReason === "mixed-currency") return "-";
+  return formatCurrency(evaluationFreightValue(evaluation), evaluationFreightCurrency(evaluation));
 }
 
 function evaluationFreightValue(evaluation) {
   const rawBoxes = Number(evaluation?.boxes || 0);
   if (!evaluation || evaluation?.fitStatus === "oversize" || rawBoxes <= 0) return Number.POSITIVE_INFINITY;
   const recommendation = evaluation?.recommendation || {};
+  if (recommendation.priceAvailable === false) return Number.POSITIVE_INFINITY;
+  if (recommendation.priceExclusionReason === "mixed-currency") return Number.POSITIVE_INFINITY;
   const estimatedFreight = Number(recommendation.estimatedFreight);
   if (Number.isFinite(estimatedFreight) && estimatedFreight > 0) return estimatedFreight;
   const packedBoxes = Array.isArray(evaluation?.packedBoxes) ? evaluation.packedBoxes : [];
   if (evaluation?.isMixedPlan || evaluation?.container?.mixedPlan) {
+    const currencies = new Set(packedBoxes.map((box) => containerReferenceCurrency(box.container)));
+    if (currencies.size !== 1) return Number.POSITIVE_INFINITY;
     const mixedFreight = packedBoxes.reduce((sum, box) => sum + containerReferencePrice(box.container), 0);
-    if (mixedFreight > 0) return mixedFreight;
+    if (Number.isFinite(mixedFreight) && mixedFreight > 0) return mixedFreight;
   }
   const boxes = normalizedEvaluationBoxes(evaluation);
   if (boxes >= 9999) return Number.POSITIVE_INFINITY;
@@ -2629,14 +2669,35 @@ function evaluationFreightValue(evaluation) {
 function containerReferencePrice(container) {
   const explicit = Number(container?.referencePrice ?? container?.price ?? container?.freightPrice);
   if (Number.isFinite(explicit) && explicit > 0) return explicit;
-  const costFactor = Number(container?.costFactor || 0);
-  return costFactor > 0 ? costFactor * REFERENCE_PRICE_BASE : REFERENCE_PRICE_BASE;
+  return Number.POSITIVE_INFINITY;
 }
 
 function evaluationFreightCurrency(evaluation) {
   const packedBoxes = Array.isArray(evaluation?.packedBoxes) ? evaluation.packedBoxes : [];
-  const boxCurrency = packedBoxes.map((box) => containerReferenceCurrency(box.container)).find(Boolean);
-  return boxCurrency || containerReferenceCurrency(evaluation?.container);
+  const boxCurrencies = [...new Set(packedBoxes.map((box) => containerReferenceCurrency(box.container)).filter(Boolean))];
+  if (boxCurrencies.length > 1) return "";
+  return boxCurrencies[0] || containerReferenceCurrency(evaluation?.container);
+}
+
+function evaluationPriceConfigured(evaluation) {
+  const explicit = evaluation?.recommendation?.priceAvailable;
+  if (typeof explicit === "boolean") return explicit;
+  if (evaluation?.isMixedPlan || evaluation?.container?.mixedPlan) {
+    const boxes = evaluation?.packedBoxes || [];
+    return boxes.length > 0 && boxes.every((box) => Number.isFinite(containerReferencePrice(box.container)));
+  }
+  return Number.isFinite(containerReferencePrice(evaluation?.container));
+}
+
+function evaluationPriceComparisonEligible(evaluation) {
+  const explicit = evaluation?.recommendation?.priceComparisonEligible;
+  if (typeof explicit === "boolean") return explicit;
+  if (!evaluationPriceConfigured(evaluation) || evaluation?.estimatedBoxes) return false;
+  if (evaluation?.isMixedPlan || evaluation?.container?.mixedPlan) {
+    const currencies = new Set((evaluation?.packedBoxes || []).map((box) => containerReferenceCurrency(box.container)));
+    return currencies.size === 1;
+  }
+  return true;
 }
 
 function containerReferenceCurrency(container) {
@@ -2664,6 +2725,7 @@ function compareFiniteNumbers(left, right) {
 
 function evaluationCardStatus(evaluation) {
   if (!evaluation || evaluation.fitStatus === "fit") return "";
+  if (evaluation.fitStatus === "estimated") return ui("result.estimatedCandidate");
   if (evaluation.fitStatus === "oversize") return tr("不可装");
   if (evaluation.fitStatus === "balance-blocked") return tr("偏载拦截");
   return "";
@@ -2717,6 +2779,7 @@ function evaluationFitText(evaluation) {
   const boxes = Number(evaluation?.boxes || 0);
   if (boxes <= 0 || evaluation?.fitStatus === "oversize") return "不可装";
   const boxText = `${evaluation?.estimatedBoxes ? "约 " : ""}${boxes} 箱`;
+  if (evaluation?.fitStatus === "estimated") return `${boxText} · ${ui("result.estimatedCandidate")}`;
   if (evaluation?.fitStatus === "balance-blocked") return `${boxText} · 偏载拦截`;
   return boxText;
 }
@@ -2727,7 +2790,9 @@ function evaluationCostText(evaluation) {
 
 function evaluationRecommendationText(evaluation) {
   const recommendation = evaluation?.recommendation || {};
-  const status = evaluation?.fitStatus === "balance-blocked"
+  const status = evaluation?.fitStatus === "estimated"
+    ? ui("result.estimatedCandidate")
+    : evaluation?.fitStatus === "balance-blocked"
     ? "几何可装，需调载"
     : evaluation?.fitStatus === "oversize"
       ? "尺寸/承载不可行"
@@ -2787,13 +2852,15 @@ function utilizationBandText(value) {
 
 function evaluationStatusRank(evaluation) {
   if (evaluation?.fitStatus === "fit") return 0;
-  if (evaluation?.fitStatus === "balance-blocked") return 1;
-  return 2;
+  if (evaluation?.fitStatus === "estimated") return 1;
+  if (evaluation?.fitStatus === "balance-blocked") return 2;
+  return 3;
 }
 
 function evaluationBalanceLevel(evaluation) {
   if (!evaluation || evaluation.fitStatus === "oversize") return "oversize";
   if (evaluation.fitStatus === "balance-blocked") return "red";
+  if (evaluation.fitStatus === "estimated") return "estimated";
   const severities = (evaluation.packedBoxes || []).map((box) => box.balanceValidation?.severity).filter(Boolean);
   if (severities.includes("red")) return "red";
   if (severities.includes("yellow")) return "yellow";
@@ -2806,7 +2873,7 @@ function normalizedEvaluationBoxes(evaluation) {
 }
 
 function isEvaluationExportable(evaluation) {
-  return Boolean(evaluation && evaluation.fitStatus !== "balance-blocked" && evaluation.fitStatus !== "oversize");
+  return Boolean(evaluation && evaluation.fitStatus === "fit");
 }
 
 function normalizeImportedCargo(cargo, index = 0) {

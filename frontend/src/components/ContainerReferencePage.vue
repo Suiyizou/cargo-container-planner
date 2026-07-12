@@ -133,15 +133,14 @@ function payloadText(container: any) {
 
 function priceText(container: any) {
   const value = referencePriceValue(container);
-  if (!value) return "-";
+  if (!value) return ui('container.priceMissing');
   return `${referenceCurrency(container)} ${formatMoney(value)}`;
 }
 
 function referencePriceValue(container: any) {
   const explicit = Number(container?.referencePrice ?? container?.price ?? container?.freightPrice);
   if (Number.isFinite(explicit) && explicit > 0) return explicit;
-  const costFactor = Number(container?.costFactor || 0);
-  return costFactor > 0 ? costFactor * 1000 : 0;
+  return 0;
 }
 
 function referenceCurrency(container: any) {
