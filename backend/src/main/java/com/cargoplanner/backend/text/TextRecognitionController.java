@@ -22,6 +22,11 @@ public class TextRecognitionController {
     this.textRecognitionService = textRecognitionService;
   }
 
+  @GetMapping("/capabilities")
+  public Map<String, Object> capabilities() {
+    return textRecognitionService.capabilities();
+  }
+
   @PostMapping("/tasks")
   public Map<String, Object> createTask(@RequestBody TextRecognitionRequest request) {
     return textRecognitionService.createTask(request);

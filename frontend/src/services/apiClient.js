@@ -38,6 +38,7 @@ export async function fetchWithApiFallback(path, options = {}, configuredBase = 
       }
       const message = await readResponseError(response);
       const error = new Error(message);
+      error.status = response.status;
       error.retryable = response.ok || shouldRetryStatus(response.status);
       throw error;
     } catch (error) {
@@ -77,6 +78,7 @@ async function requestJsonOnce(base, path, options) {
       window.dispatchEvent(new CustomEvent("auth-expired"));
     }
     const error = new Error(data?.message || `API ${response.status}`);
+    error.status = response.status;
     error.retryable = shouldRetryStatus(response.status) && !data?.message;
     throw error;
   }

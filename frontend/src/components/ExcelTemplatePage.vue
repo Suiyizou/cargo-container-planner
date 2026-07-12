@@ -216,7 +216,7 @@
           <el-button :disabled="!recognitionHasResult" @click="openRecognitionReviewDialog">
             {{ ui('excel.openRecognitionReview') }}
           </el-button>
-          <el-button type="primary" :disabled="!recognitionRows.length" @click="importRecognitionRows">
+          <el-button type="primary" :disabled="!recognitionRows.length || recognitionBlockingIssues.length" @click="importRecognitionRows">
             {{ ui('common.import') }} {{ recognitionRows.length }} {{ ui('unit.classes') }} / {{ recognitionQuantity }} {{ ui('unit.cargoPieces') }}
           </el-button>
         </div>
@@ -612,7 +612,7 @@
                       </div>
                       <p v-else class="recognition-review-card-empty">{{ ui('excel.reviewNotImportedYet') }}</p>
                     </div>
-                    <el-button type="primary" plain :icon="EditPen" @click="editRecognitionReviewCargo(finding)">
+                    <el-button v-if="finding.canEdit" type="primary" plain :icon="EditPen" @click="editRecognitionReviewCargo(finding)">
                       {{ ui('excel.reviewEditImport') }}
                     </el-button>
                   </li>
@@ -820,6 +820,7 @@ import { buildPreviewInWorker, readWorkbookInWorker } from "../services/excelImp
 import {
   createTextRecognitionTask,
   downloadTextRecognitionExcel,
+  fetchTextRecognitionCapabilities,
   waitForTextRecognitionTask
 } from "../services/excelAgentApi";
 import { currentLocale, t } from "../i18n";
@@ -944,7 +945,14 @@ const recognitionQuantity = computed(() =>
 );
 const recognitionTotalRows = computed(() => recognitionAgentTask.value?.rowCount ?? 0);
 const recognitionValidCount = computed(() => recognitionAgentTask.value?.validCount ?? 0);
-const recognitionHasResult = computed(() => Boolean(recognitionAgentTask.value));
+const recognitionHasResult = computed(() => recognitionAgentTask.value?.status === "SUCCEEDED");
+const recognitionBlockingIssueCodes = new Set(["AGENT_OUTPUT_LIMIT", "AGENT_ROW_COVERAGE", "AGENT_REQUEST_BUDGET", "INPUT_TRUNCATED"]);
+const recognitionBlockingIssues = computed(() => recognitionIssues.value.filter((issue, index) => {
+  const code = String(issue?.code || "");
+  if (!recognitionBlockingIssueCodes.has(code)) return false;
+  if (code === "INPUT_TRUNCATED") return true;
+  return !Number.isInteger(recognitionReviewIndexOverrides.value[recognitionIssueFindingId(issue, index)]);
+}));
 const recognitionElapsedText = computed(() => formatElapsedTime(recognitionElapsedSeconds.value));
 const sourceWorkbookFileSize = computed(() => formatFileSize(sourceWorkbookFile.value?.size || 0));
 const sourcePreviewSheet = computed(() =>
@@ -967,7 +975,7 @@ const recognitionReviewFindings = computed(() => {
     const messages = issueMessages(issue);
     if (isSoftRecognitionIssue(issue, messages)) return;
     const cargo = issue?.suggestion?.cargo || null;
-    const findingId = `issue-${issue.rowNumber ?? index}-${index}`;
+    const findingId = recognitionIssueFindingId(issue, index);
     const overriddenIndex = recognitionReviewIndexOverrides.value[findingId];
     const cargoIndex = Number.isInteger(overriddenIndex)
       && overriddenIndex >= 0
@@ -985,7 +993,8 @@ const recognitionReviewFindings = computed(() => {
       issue,
       suggestion: issue?.suggestion || null,
       cargo: cargoIndex >= 0 ? recognitionRows.value[cargoIndex] : cargo,
-      index: cargoIndex
+      index: cargoIndex,
+      canEdit: issue?.code !== "INPUT_TRUNCATED"
     });
   });
 
@@ -1001,7 +1010,8 @@ const recognitionReviewFindings = computed(() => {
       issue: null,
       suggestion: null,
       cargo,
-      index
+      index,
+      canEdit: true
     });
   });
 
@@ -1016,7 +1026,8 @@ const recognitionNormalRows = computed(() =>
   recognitionRowsWithIndex.value.filter((item) => !recognitionReviewIndexes.value.has(item.index))
 );
 const recognitionSkippedIssueCount = computed(() =>
-  recognitionIssues.value.filter((issue) => {
+  recognitionIssues.value.filter((issue, index) => {
+    if (Number.isInteger(recognitionReviewIndexOverrides.value[recognitionIssueFindingId(issue, index)])) return false;
     const messages = issueMessages(issue);
     if (isSoftRecognitionIssue(issue, messages)) return false;
     const text = messages.join(" ").toLowerCase();
@@ -1361,17 +1372,22 @@ async function submitTextRecognitionTask(options = {}) {
   recognitionAgentTask.value = null;
   recognitionReviewIndexOverrides.value = {};
   try {
+    await assertExcelAgentBackendReady(text);
     const task = await createTextRecognitionTask(text, {
       sourceName: options.sourceName || ui("excel.pastedTextSource"),
       mode: "agent",
       languageHint: "auto"
     });
+    assertCreatedExcelTaskEngine(task, text);
     recognitionAgentTask.value = task?.id ? await waitForTextRecognitionTask(task.id) : task;
     closeRecognitionEdit();
-    recognitionMessageType.value = recognitionAgentTask.value.status === "FAILED" ? "error" : "ok";
+    const recognitionPartial = recognitionBlockingIssues.value.length > 0;
+    recognitionMessageType.value = recognitionAgentTask.value.status === "FAILED" || recognitionPartial ? "error" : "ok";
     recognitionMessage.value =
       recognitionAgentTask.value.status === "FAILED"
-        ? `智能识别失败：${recognitionAgentTask.value.errorMessage || "请检查后端任务日志"}`
+        ? recognitionTaskFailureMessage(recognitionAgentTask.value)
+        : recognitionPartial
+          ? ui("excel.recognitionPartial", { count: recognitionBlockingIssues.value.length })
         : ui("excel.recognitionCompleteMessage", {
             types: recognitionRows.value.length,
             pieces: recognitionQuantity.value,
@@ -1386,12 +1402,56 @@ async function submitTextRecognitionTask(options = {}) {
     recognitionMessageType.value = "error";
     recognitionMessage.value = error?.code === "TEXT_RECOGNITION_TIMEOUT"
       ? ui("excel.recognitionTimeout")
-      : ui("excel.recognitionUnavailable", { message: error.message });
+      : error?.code === "TEXT_RECOGNITION_BACKEND_OUTDATED"
+        ? ui("excel.recognitionBackendOutdated")
+        : ui("excel.recognitionUnavailable", { message: error.message });
     closeRecognitionReviewDialog();
   } finally {
     recognitionAgentBusy.value = false;
     stopRecognitionTimer();
   }
+}
+
+async function assertExcelAgentBackendReady(text) {
+  if (!String(text || "").includes("EXCEL_FORMATTED_TABLE_FOR_AGENT")) return;
+  let capabilities;
+  try {
+    capabilities = await fetchTextRecognitionCapabilities();
+  } catch (error) {
+    if ([404, 405].includes(Number(error?.status)) || /API\s+(404|405)\b/i.test(String(error?.message || ""))) {
+      throw textRecognitionBackendOutdatedError();
+    }
+    throw error;
+  }
+  const versionMatch = /^excel-agent-batch-v(\d+)$/.exec(String(capabilities?.engineVersion || ""));
+  if (capabilities?.adaptiveBatching !== true || Number(versionMatch?.[1] || 0) < 3) {
+    throw textRecognitionBackendOutdatedError();
+  }
+}
+
+function textRecognitionBackendOutdatedError() {
+  const error = new Error("TEXT_RECOGNITION_BACKEND_OUTDATED");
+  error.code = "TEXT_RECOGNITION_BACKEND_OUTDATED";
+  return error;
+}
+
+function assertCreatedExcelTaskEngine(task, text) {
+  if (!String(text || "").includes("EXCEL_FORMATTED_TABLE_FOR_AGENT")) return;
+  const versionMatch = /^excel-agent-batch-v(\d+)$/.exec(String(task?.serverEngineVersion || ""));
+  if (task?.serverAdaptiveBatching !== true || Number(versionMatch?.[1] || 0) < 3) {
+    throw textRecognitionBackendOutdatedError();
+  }
+}
+
+function recognitionTaskFailureMessage(task) {
+  const message = String(task?.errorMessage || "").trim();
+  const legacyOutputLimit = message.includes("\u8bf7\u91cd\u8bd5\u6216\u51cf\u5c11\u65e0\u5173\u5de5\u4f5c\u8868\u3001\u7a7a\u767d\u884c");
+  if (legacyOutputLimit) return ui("excel.recognitionBackendOutdated");
+  return ui("excel.recognitionFailed", { message: message || ui("excel.recognitionFailedFallback") });
+}
+
+function recognitionIssueFindingId(issue, index) {
+  return `issue-${issue?.rowNumber ?? index}-${index}`;
 }
 
 let recognitionTimerId = null;
@@ -1477,6 +1537,12 @@ function clearRecognition() {
 
 function importRecognitionRows() {
   if (!recognitionRows.value.length) return;
+  if (recognitionBlockingIssues.value.length) {
+    recognitionMessageType.value = "error";
+    recognitionMessage.value = ui("excel.recognitionPartial", { count: recognitionBlockingIssues.value.length });
+    openRecognitionReviewDialog();
+    return;
+  }
   const cargos = recognitionRows.value.map((cargo, index) => normalizeImportedCargo(cargo, index));
   emit("import-cargos", { cargos, mode: importMode.value, skippedRows: recognitionSkippedIssueCount.value });
 }
@@ -1510,6 +1576,13 @@ function editRecognitionReviewCargo(finding) {
 }
 
 function issueMessages(issue) {
+  const codedMessageKey = {
+    AGENT_OUTPUT_LIMIT: "excel.recognitionIssueOutputLimit",
+    AGENT_ROW_COVERAGE: "excel.recognitionIssueRowCoverage",
+    AGENT_REQUEST_BUDGET: "excel.recognitionIssueRequestBudget",
+    INPUT_TRUNCATED: "excel.recognitionIssueInputTruncated"
+  }[String(issue?.code || "")];
+  if (codedMessageKey) return [ui(codedMessageKey)];
   const errors = Array.isArray(issue?.errors) ? issue.errors.filter(Boolean) : [];
   if (errors.length) return errors;
   const message = String(issue?.message || "").trim();
@@ -1517,6 +1590,7 @@ function issueMessages(issue) {
 }
 
 function isSoftRecognitionIssue(issue, messages = []) {
+  if (recognitionBlockingIssueCodes.has(String(issue?.code || ""))) return false;
   const suggestion = issue?.suggestion || {};
   const text = [
     issue?.message,
@@ -1736,8 +1810,13 @@ function applyRecognitionEdit() {
     };
   }
   recognitionAgentTask.value = { ...recognitionAgentTask.value, cleanedRows: rows };
-  recognitionMessageType.value = "ok";
-  recognitionMessage.value = `已修改第 ${recognitionEditIndex.value + 1} 条识别结果，可继续编辑或直接导入。`;
+  if (recognitionBlockingIssues.value.length) {
+    recognitionMessageType.value = "error";
+    recognitionMessage.value = ui("excel.recognitionPartial", { count: recognitionBlockingIssues.value.length });
+  } else {
+    recognitionMessageType.value = "ok";
+    recognitionMessage.value = ui("excel.recognitionEditSaved", { index: recognitionEditIndex.value + 1 });
+  }
   closeRecognitionEdit();
 }
 

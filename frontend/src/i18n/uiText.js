@@ -347,6 +347,42 @@ const uiText = {
     zh: "智能识别接口不可用：{message}",
     en: "Smart recognition API unavailable: {message}"
   },
+  "excel.recognitionBackendOutdated": {
+    zh: "智能识别后端仍在运行旧版本，尚未启用自动拆批。请在服务器重新构建并重启 backend 容器，同时确认前端连接的是新 API 地址后再试。",
+    en: "The recognition backend is still running an old build without adaptive batching. Rebuild and restart the backend container, and verify that the frontend points to the new API endpoint before retrying."
+  },
+  "excel.recognitionFailed": {
+    zh: "智能识别失败：{message}",
+    en: "Smart recognition failed: {message}"
+  },
+  "excel.recognitionFailedFallback": {
+    zh: "请检查后端任务日志",
+    en: "Check the backend task logs"
+  },
+  "excel.recognitionPartial": {
+    zh: "识别仅得到部分结果：仍有 {count} 项因输出超限、行覆盖缺失、请求/时间上限或输入截断而未完成。请逐项复核补录；若提示输入截断，请精简工作表后重新识别。未处理前禁止直接导入。",
+    en: "Recognition produced only a partial result: {count} item(s) remain unresolved because of an output limit, missing row coverage, request/time budget, or truncated input. Review and complete each item; if the input was truncated, reduce the workbook and run recognition again. Direct import is blocked until resolved."
+  },
+  "excel.recognitionIssueOutputLimit": {
+    zh: "该源行在单行紧凑重试后仍返回截断或无效 JSON，请按原文人工补录。",
+    en: "This source row still returned truncated or invalid JSON after a compact single-row retry. Complete it manually from the source."
+  },
+  "excel.recognitionIssueRowCoverage": {
+    zh: "Agent 未明确返回该源行的货物、异常或跳过状态，请按原文人工确认。",
+    en: "The agent did not explicitly classify this source row as cargo, an issue, or skipped. Review it manually."
+  },
+  "excel.recognitionIssueRequestBudget": {
+    zh: "任务已达到请求次数或处理时间上限，该源行未继续请求，请人工补录或精简文件后重试。",
+    en: "The task reached its request or time budget before this source row could be processed. Complete it manually or retry with a smaller workbook."
+  },
+  "excel.recognitionIssueInputTruncated": {
+    zh: "工作簿的行、列、合并区域或单元格内容已被截断，当前结果不是完整清单。请精简工作表并重新识别。",
+    en: "Workbook rows, columns, merged ranges, or cell content were truncated, so this is not a complete list. Reduce the workbook and run recognition again."
+  },
+  "excel.recognitionEditSaved": {
+    zh: "已修改第 {index} 条识别结果，可继续编辑或直接导入。",
+    en: "Recognition result {index} was updated. You can continue editing or import it now."
+  },
   "excel.textItems": { zh: "文本条目", en: "Text Items" },
   "excel.validItems": { zh: "有效条目", en: "Valid Items" },
   "excel.issueItems": { zh: "异常条目", en: "Issue Items" },

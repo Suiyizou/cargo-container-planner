@@ -62,11 +62,18 @@ SPRING_AI_OPENAI_BASE_URL=https://api.deepseek.com
 SPRING_AI_OPENAI_MODEL=deepseek-v4-flash
 ```
 
-说明：后台保存后的配置存入 MySQL，修改 LLM 开关、API Key、Base URL、模型名后不需要重新打包。更新镜像或配置后可重启后端：
+说明：后台保存后的配置存入 MySQL，修改 LLM 开关、API Key、Base URL、模型名后不需要重新打包。
+
+如果修改了 Java 源码，仅执行 `docker compose restart backend` 不会生成新 JAR，固定镜像标签也不会自动更新。拉取代码后必须重新构建并强制重建后端容器：
 
 ```bash
-docker compose up -d --build backend
+git pull
+docker compose build --no-cache backend
+docker compose up -d --force-recreate backend
+docker compose logs --tail=100 backend
 ```
+
+登录后访问 `/api/text-recognition/capabilities`，新识别引擎应返回 `adaptiveBatching: true` 和 `engineVersion: excel-agent-batch-v3`。如果前端配置了 `VITE_API_BASE_URL`，还要在浏览器 Network 面板确认识别请求实际发往新后端地址，而不是旧 API 实例。
 
 ## 本地开发
 

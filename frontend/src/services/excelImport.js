@@ -76,6 +76,8 @@ export async function readWorkbook(file) {
 export function formatWorkbookForRecognition(workbook, options = {}) {
   const maxRows = Math.max(20, Number(options.maxRows || 240));
   const maxColumns = Math.max(12, Number(options.maxColumns || 80));
+  const maxMergeRanges = Math.max(20, Number(options.maxMergeRanges || 200));
+  const maxCellChars = Math.max(200, Number(options.maxCellChars || 1_000));
   const lines = [
     "EXCEL_FORMATTED_TABLE_FOR_AGENT",
     `FILE: ${cleanCell(workbook?.fileName || options.fileName || "")}`,
@@ -83,32 +85,52 @@ export function formatWorkbookForRecognition(workbook, options = {}) {
     "WEIGHT_RULE: If a final pallet/wooden package has pallet tare/wood-package weight and contains product rows, calculate unit weight as (pallet tare total + contained product gross total) / pallet quantity. If a final gross-weight column clearly already includes pallet plus cargo, do not double count; explain the basis in remark/packageInfo.",
     "STRUCTURE_RULE: In sheets with left product/carton details and right pallet/final-package columns, output the right-side final pallet/package rows as algorithm cargo. Store left-side loose/carton details only in packageInfo.innerCargo or remark."
   ];
+  let emittedWorkbookRows = 0;
 
   (workbook?.sheets || []).forEach((sheet, sheetIndex) => {
     lines.push("");
     lines.push(`SHEET ${sheetIndex + 1}: ${cleanCell(sheet.name) || "Sheet" + (sheetIndex + 1)}`);
     lines.push(`DETECTED_HEADER_ROW: ${Number(sheet.headerRowIndex || 0) + 1}`);
     if (Array.isArray(sheet.merges) && sheet.merges.length) {
-      lines.push(`MERGED_RANGES: ${sheet.merges.join(", ")}`);
+      lines.push(`MERGED_RANGES: ${sheet.merges.slice(0, maxMergeRanges).join(", ")}`);
+      if (sheet.merges.length > maxMergeRanges) {
+        lines.push(`MERGED_RANGES_TRUNCATED: emitted ${maxMergeRanges} of ${sheet.merges.length}.`);
+      }
     }
     lines.push("ROWS_WITH_EXCEL_COORDINATES:");
     const rows = Array.isArray(sheet.rawRows) && sheet.rawRows.length
       ? sheet.rawRows
       : [[...(sheet.headers || [])], ...(sheet.rows || [])];
     let emitted = 0;
+    let truncatedCellCount = 0;
+    let truncatedColumnRowCount = 0;
     rows.forEach((row, rowIndex) => {
-      if (emitted >= maxRows) return;
+      if (emittedWorkbookRows >= maxRows) return;
+      if ((row || []).slice(maxColumns).some((value) => cleanCell(value) !== "")) {
+        truncatedColumnRowCount += 1;
+      }
       const cells = (row || [])
         .slice(0, maxColumns)
-        .map((value, columnIndex) => ({ value: cleanCell(value), columnIndex }))
+        .map((value, columnIndex) => {
+          const cleaned = cleanCell(value);
+          if (cleaned.length > maxCellChars) truncatedCellCount += 1;
+          return { value: cleaned, columnIndex };
+        })
         .filter((cell) => cell.value !== "");
       if (!cells.length) return;
       emitted += 1;
-      lines.push(`R${rowIndex + 1}: ${cells.map((cell) => `${columnName(cell.columnIndex)}=${quoteForRecognition(cell.value)}`).join(" | ")}`);
+      emittedWorkbookRows += 1;
+      lines.push(`R${rowIndex + 1}: ${cells.map((cell) => `${columnName(cell.columnIndex)}=${quoteForRecognition(cell.value, maxCellChars)}`).join(" | ")}`);
     });
     const nonEmptyRows = rows.filter((row) => (row || []).some((cell) => cleanCell(cell) !== "")).length;
     if (nonEmptyRows > emitted) {
       lines.push(`TRUNCATED: emitted ${emitted} non-empty rows of ${nonEmptyRows}.`);
+    }
+    if (truncatedColumnRowCount > 0) {
+      lines.push(`COLUMNS_TRUNCATED: ${truncatedColumnRowCount} emitted row(s) contained non-empty cells after column ${columnName(maxColumns - 1)}.`);
+    }
+    if (truncatedCellCount > 0) {
+      lines.push(`CELL_VALUES_TRUNCATED: shortened ${truncatedCellCount} cell value(s) longer than ${maxCellChars} characters.`);
     }
   });
 
@@ -823,8 +845,14 @@ function columnName(index) {
   return name || "A";
 }
 
-function quoteForRecognition(value) {
-  return JSON.stringify(cleanCell(value));
+function quoteForRecognition(value, maxChars = 1_000) {
+  const text = cleanCell(value);
+  if (text.length <= maxChars) return JSON.stringify(text);
+  const marker = " …[cell truncated]… ";
+  const availableChars = Math.max(2, maxChars - marker.length);
+  const headLength = Math.max(1, Math.floor(availableChars * 0.75));
+  const tailLength = Math.max(1, availableChars - headLength);
+  return JSON.stringify(`${text.slice(0, headLength)}${marker}${text.slice(-tailLength)}`);
 }
 
 function cleanCell(value) {

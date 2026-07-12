@@ -15,12 +15,15 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -36,6 +39,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -46,6 +50,7 @@ import org.springframework.web.client.RestTemplate;
 
 @Service
 public class TextRecognitionService {
+  private static final String TEXT_RECOGNITION_ENGINE_VERSION = "excel-agent-batch-v3";
   private static final List<String> OUTPUT_HEADERS = List.of(
       "name", "model", "lengthCm", "widthCm", "heightCm", "quantity", "weightKg", "type", "color", "sku", "remark"
   );
@@ -79,16 +84,25 @@ public class TextRecognitionService {
       "(?i)(?:单重|每件|单箱毛重|毛重|净重|unit\\s*weight|each|weight|wt)?\\s*([0-9][0-9.,]*)\\s*(kg|kgs|公斤|千克|g|克|t|吨)"
   );
   private static final Pattern EXCEL_ROW_PATTERN = Pattern.compile("^R(\\d+):\\s.*$");
+  private static final Pattern EXCEL_SOURCE_ROW_PATTERN = Pattern.compile("(?:^|\\s)R(\\d+):");
   private static final Pattern EXCEL_HEADER_ROW_PATTERN = Pattern.compile("^DETECTED_HEADER_ROW:\\s*(\\d+).*$");
-  private static final int EXCEL_AGENT_BATCH_MAX_ROWS = 18;
-  private static final int EXCEL_AGENT_BATCH_MAX_TARGET_CHARS = 12_000;
+  private static final int EXCEL_AGENT_BATCH_MAX_ROWS = 10;
+  private static final int EXCEL_AGENT_BATCH_MAX_TARGET_CHARS = 6_000;
   private static final int EXCEL_AGENT_PREVIOUS_CONTEXT_ROWS = 2;
   private static final int EXCEL_AGENT_NEXT_CONTEXT_ROWS = 1;
+  private static final int EXCEL_AGENT_MAX_REQUESTS_PER_TASK = 96;
+  private static final int EXCEL_AGENT_MAX_PREAMBLE_CHARS = 2_000;
+  private static final int EXCEL_AGENT_MAX_METADATA_CHARS = 3_000;
+  private static final int EXCEL_AGENT_MAX_CONTEXT_ROW_CHARS = 1_600;
+  private static final int EXCEL_AGENT_MAX_TARGET_ROW_CHARS = 4_000;
+  private static final Duration EXCEL_AGENT_TASK_DEADLINE = Duration.ofMinutes(8);
+  private static final Duration LLM_CONNECT_TIMEOUT = Duration.ofSeconds(15);
+  private static final Duration LLM_READ_TIMEOUT = Duration.ofSeconds(90);
 
   private final JdbcTemplate jdbcTemplate;
   private final ObjectMapper objectMapper;
   private final LlmSettingsService llmSettingsService;
-  private final RestTemplate restTemplate = new RestTemplate();
+  private final RestTemplate restTemplate = createLlmRestTemplate();
   private final ExecutorService recognitionExecutor = Executors.newFixedThreadPool(2, runnable -> {
     Thread thread = new Thread(runnable, "text-recognition-agent");
     thread.setDaemon(true);
@@ -104,6 +118,13 @@ public class TextRecognitionService {
     this.jdbcTemplate = jdbcTemplate;
     this.objectMapper = objectMapper;
     this.llmSettingsService = llmSettingsService;
+  }
+
+  private static RestTemplate createLlmRestTemplate() {
+    SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+    requestFactory.setConnectTimeout(LLM_CONNECT_TIMEOUT);
+    requestFactory.setReadTimeout(LLM_READ_TIMEOUT);
+    return new RestTemplate(requestFactory);
   }
 
   public Map<String, Object> createTask(TextRecognitionRequest request) {
@@ -131,6 +152,19 @@ public class TextRecognitionService {
       );
     }
     return getTask(taskId);
+  }
+
+  public Map<String, Object> capabilities() {
+    return Map.of(
+        "engineVersion", TEXT_RECOGNITION_ENGINE_VERSION,
+        "adaptiveBatching", true,
+        "maxTargetRowsPerBatch", EXCEL_AGENT_BATCH_MAX_ROWS,
+        "maxTargetCharsPerBatch", EXCEL_AGENT_BATCH_MAX_TARGET_CHARS,
+        "maxRequestsPerTask", EXCEL_AGENT_MAX_REQUESTS_PER_TASK,
+        "taskDeadlineSeconds", EXCEL_AGENT_TASK_DEADLINE.toSeconds(),
+        "requestReadTimeoutSeconds", LLM_READ_TIMEOUT.toSeconds(),
+        "singleRowFailureMode", "issue"
+    );
   }
 
   private void processTask(long taskId, String text, String languageHint) {
@@ -368,40 +402,224 @@ public class TextRecognitionService {
   ) {
     List<ExcelAgentBatch> batches = buildExcelAgentBatches(text);
     if (batches.isEmpty()) {
-      return recognizeWithOpenAiCompatible(settings, text, languageHint);
+      return withInputTruncationIssue(recognizeWithOpenAiCompatible(settings, text, languageHint), text);
     }
 
     List<RecognitionResult> results = new ArrayList<>();
     int requestCount = 0;
+    AgentRequestBudget requestBudget = new AgentRequestBudget(EXCEL_AGENT_MAX_REQUESTS_PER_TASK, EXCEL_AGENT_TASK_DEADLINE);
     for (ExcelAgentBatch batch : batches) {
-      BatchRecognitionResult batchResult = recognizeExcelBatchWithAdaptiveSplit(settings, batch, languageHint);
+      BatchRecognitionResult batchResult = recognizeExcelBatchWithAdaptiveSplit(settings, batch, languageHint, requestBudget);
       results.addAll(batchResult.results());
       requestCount += batchResult.requestCount();
     }
-    return mergeExcelBatchResults(results, countFormattedExcelRows(text), requestCount, settings.model());
+    RecognitionResult merged = mergeExcelBatchResults(results, countFormattedExcelRows(text), requestCount, settings.model());
+    return withInputTruncationIssue(merged, text);
+  }
+
+  private RecognitionResult withInputTruncationIssue(RecognitionResult result, String text) {
+    List<String> sourceLines = String.valueOf(text == null ? "" : text).lines().toList();
+    List<String> markers = new ArrayList<>(sourceLines.stream()
+        .map(this::cleanCell)
+        .filter(line -> line.startsWith("TRUNCATED:")
+            || line.startsWith("MERGED_RANGES_TRUNCATED:")
+            || line.startsWith("COLUMNS_TRUNCATED:")
+            || line.startsWith("CELL_VALUES_TRUNCATED:"))
+        .limit(20)
+        .toList());
+    long oversizedTargetRows = sourceLines.stream()
+        .map(this::cleanCell)
+        .filter(line -> EXCEL_ROW_PATTERN.matcher(line).matches())
+        .filter(line -> line.length() > EXCEL_AGENT_MAX_TARGET_ROW_CHARS)
+        .count();
+    if (oversizedTargetRows > 0) {
+      markers.add("BACKEND_ROW_TRUNCATED: " + oversizedTargetRows + " source row(s) exceeded " + EXCEL_AGENT_MAX_TARGET_ROW_CHARS + " characters.");
+    }
+    if (markers.isEmpty()) return result;
+
+    Map<String, Object> issue = new LinkedHashMap<>();
+    issue.put("code", "INPUT_TRUNCATED");
+    issue.put("rowNumber", 0);
+    issue.put("text", trim(String.join("；", markers), 800));
+    issue.put("errors", List.of("原始工作簿超出智能识别的行、列、合并区域或单元格长度上限；为避免漏货，当前结果不可直接视为完整导入清单。"));
+    List<Map<String, Object>> issues = new ArrayList<>(result.issues());
+    issues.add(issue);
+    return new RecognitionResult(
+        result.rowCount(),
+        result.validCount(),
+        issues.size(),
+        result.cleanedRows(),
+        issues,
+        result.agentNotes() + "；输入内容存在截断，结果仅供复核，不应直接作为完整清单导入。"
+    );
   }
 
   private BatchRecognitionResult recognizeExcelBatchWithAdaptiveSplit(
       LlmRuntimeSettings settings,
       ExcelAgentBatch batch,
-      String languageHint
+      String languageHint,
+      AgentRequestBudget requestBudget
   ) {
+    if (!requestBudget.tryAcquire()) {
+      return unresolvedExcelBatch(
+          batch,
+          "AGENT_REQUEST_BUDGET",
+          "本次 Excel 识别已达到 Agent 请求或处理时间上限，未继续请求；相关行已保留供人工复核。",
+          0
+      );
+    }
     try {
       return new BatchRecognitionResult(
-          List.of(recognizeWithOpenAiCompatible(settings, renderExcelAgentBatch(batch), languageHint)),
+          List.of(recognizeWithOpenAiCompatible(settings, renderExcelAgentBatch(batch, false), languageHint)),
           1
       );
-    } catch (RetryableAgentOutputException error) {
-      if (batch.targetRows().size() <= 1) throw error;
+    } catch (RuntimeException error) {
+      if (!isRetryableAgentOutputFailure(error)) throw error;
+      PartialBatchCoverageException coverageError = findCoverageError(error);
+      if (coverageError != null) {
+        List<ExcelAgentRow> missingRows = batch.targetRows().stream()
+            .filter(row -> coverageError.missingRowNumbers().contains(row.rowNumber()))
+            .toList();
+        if (!missingRows.isEmpty() && missingRows.size() < batch.targetRows().size()) {
+          BatchRecognitionResult retryResult = recognizeExcelBatchWithAdaptiveSplit(
+              settings,
+              batch.withTargetRows(new ArrayList<>(missingRows)),
+              languageHint,
+              requestBudget
+          );
+          List<RecognitionResult> merged = new ArrayList<>();
+          merged.add(coverageError.partialResult());
+          merged.addAll(retryResult.results());
+          return new BatchRecognitionResult(merged, 1 + retryResult.requestCount());
+        }
+      }
+      if (batch.targetRows().size() <= 1) {
+        return recognizeSingleExcelRowWithCompactRetry(settings, batch, languageHint, error, requestBudget);
+      }
       int midpoint = Math.max(1, batch.targetRows().size() / 2);
       ExcelAgentBatch left = batch.withTargetRows(new ArrayList<>(batch.targetRows().subList(0, midpoint)));
       ExcelAgentBatch right = batch.withTargetRows(new ArrayList<>(batch.targetRows().subList(midpoint, batch.targetRows().size())));
-      BatchRecognitionResult leftResult = recognizeExcelBatchWithAdaptiveSplit(settings, left, languageHint);
-      BatchRecognitionResult rightResult = recognizeExcelBatchWithAdaptiveSplit(settings, right, languageHint);
+      BatchRecognitionResult leftResult = recognizeExcelBatchWithAdaptiveSplit(settings, left, languageHint, requestBudget);
+      BatchRecognitionResult rightResult = recognizeExcelBatchWithAdaptiveSplit(settings, right, languageHint, requestBudget);
       List<RecognitionResult> merged = new ArrayList<>(leftResult.results());
       merged.addAll(rightResult.results());
       return new BatchRecognitionResult(merged, 1 + leftResult.requestCount() + rightResult.requestCount());
     }
+  }
+
+  private BatchRecognitionResult recognizeSingleExcelRowWithCompactRetry(
+      LlmRuntimeSettings settings,
+      ExcelAgentBatch batch,
+      String languageHint,
+      RuntimeException initialError,
+      AgentRequestBudget requestBudget
+  ) {
+    if (!requestBudget.tryAcquire()) {
+      return unresolvedExcelBatch(
+          batch,
+          "AGENT_REQUEST_BUDGET",
+          "本次 Excel 识别已达到 Agent 请求或处理时间上限，单行紧凑重试未执行；相关行已保留供人工复核。",
+          1
+      );
+    }
+    try {
+      RecognitionResult result = recognizeWithOpenAiCompatible(
+          settings,
+          renderExcelAgentBatch(batch, true),
+          languageHint
+      );
+      return new BatchRecognitionResult(List.of(result), 2);
+    } catch (RuntimeException retryError) {
+      if (!isRetryableAgentOutputFailure(retryError)) throw retryError;
+      ExcelAgentRow row = batch.targetRows().get(0);
+      String detail = trim(firstNonBlank(retryError.getMessage(), initialError.getMessage()), 180);
+      boolean coverageFailure = findCoverageError(retryError) != null;
+      String issueCode = coverageFailure ? "AGENT_ROW_COVERAGE" : "AGENT_OUTPUT_LIMIT";
+      String issueMessage = coverageFailure
+          ? "Agent 单行紧凑重试后仍未明确返回该源行的处理状态，已保留原始行供人工复核。"
+          : "Agent 单行紧凑重试后仍返回截断或无效 JSON，已保留原始行供人工复核。";
+      Map<String, Object> issue = new LinkedHashMap<>(buildIssue(
+          row.rowNumber(),
+          trim(row.line(), 500),
+          List.of(issueMessage + (detail.isBlank() ? "" : "详情：" + detail)),
+          Map.of()
+      ));
+      issue.put("code", issueCode);
+      RecognitionResult partial = new RecognitionResult(
+          1,
+          0,
+          1,
+          List.of(),
+          List.of(issue),
+          coverageFailure
+              ? "该行经 Agent 单行紧凑重试后仍未被完整覆盖，已转入人工复核。"
+              : "该行经 Agent 单行紧凑重试后仍超限，已转入人工复核。"
+      );
+      return new BatchRecognitionResult(List.of(partial), 2);
+    }
+  }
+
+  private BatchRecognitionResult unresolvedExcelBatch(
+      ExcelAgentBatch batch,
+      String code,
+      String message,
+      int requestCount
+  ) {
+    List<Map<String, Object>> issues = new ArrayList<>();
+    for (ExcelAgentRow row : batch.targetRows()) {
+      Map<String, Object> issue = new LinkedHashMap<>(buildIssue(
+          row.rowNumber(),
+          trim(row.line(), 500),
+          List.of(message),
+          Map.of()
+      ));
+      issue.put("code", code);
+      issues.add(issue);
+    }
+    RecognitionResult partial = new RecognitionResult(
+        batch.targetRows().size(),
+        0,
+        issues.size(),
+        List.of(),
+        issues,
+        message
+    );
+    return new BatchRecognitionResult(List.of(partial), requestCount);
+  }
+
+  private boolean isRetryableAgentOutputFailure(Throwable error) {
+    Throwable current = error;
+    while (current != null) {
+      if (current instanceof RetryableAgentOutputException) return true;
+      String message = cleanCell(current.getMessage()).toLowerCase(Locale.ROOT);
+      if ((message.contains("finish_reason") && message.contains("length"))
+          || message.contains("max_tokens")
+          || message.contains("maximum output")
+          || message.contains("max output")
+          || message.contains("output length")
+          || message.contains("context length")
+          || message.contains("output limit")
+          || message.contains("unexpected end-of-input")
+          || message.contains("unexpected end of input")
+          || message.contains("expected close marker")
+          || message.contains("unterminated json")
+          || message.contains("长度上限")
+          || message.contains("输出超限")
+          || message.contains("返回结果被截断")) {
+        return true;
+      }
+      current = current.getCause();
+    }
+    return false;
+  }
+
+  private PartialBatchCoverageException findCoverageError(Throwable error) {
+    Throwable current = error;
+    while (current != null) {
+      if (current instanceof PartialBatchCoverageException coverageError) return coverageError;
+      current = current.getCause();
+    }
+    return null;
   }
 
   private RecognitionResult mergeExcelBatchResults(
@@ -422,6 +640,24 @@ public class TextRecognitionService {
     String notes = requestCount > 1
         ? "Excel 已拆分为 " + requestCount + " 个 Agent 请求并合并校验，避免单次输出超限（模型：" + model + "）。"
         : "Excel 已完成 Agent 识别与合并校验（模型：" + model + "）。";
+    long outputLimitIssueCount = issues.stream()
+        .filter(issue -> "AGENT_OUTPUT_LIMIT".equals(cleanCell(issue.get("code"))))
+        .count();
+    if (outputLimitIssueCount > 0) {
+      notes += "；其中 " + outputLimitIssueCount + " 行经单行紧凑重试后仍超限，已保留原文并转入人工复核，其余行正常合并。";
+    }
+    long coverageIssueCount = issues.stream()
+        .filter(issue -> "AGENT_ROW_COVERAGE".equals(cleanCell(issue.get("code"))))
+        .count();
+    if (coverageIssueCount > 0) {
+      notes += "；其中 " + coverageIssueCount + " 行未被 Agent 明确覆盖，已保留原文并转入人工复核。";
+    }
+    long requestBudgetIssueCount = issues.stream()
+        .filter(issue -> "AGENT_REQUEST_BUDGET".equals(cleanCell(issue.get("code"))))
+        .count();
+    if (requestBudgetIssueCount > 0) {
+      notes += "；为避免异常响应造成无限重试，达到任务请求或处理时间上限后停止追加请求，剩余 " + requestBudgetIssueCount + " 行已转入人工复核。";
+    }
     return new RecognitionResult(sourceRowCount, validCount, issues.size(), aggregatedRows, issues, notes);
   }
 
@@ -475,7 +711,7 @@ public class TextRecognitionService {
     return batches;
   }
 
-  private String renderExcelAgentBatch(ExcelAgentBatch batch) {
+  private String renderExcelAgentBatch(ExcelAgentBatch batch, boolean compactSingleRowRetry) {
     List<ExcelAgentRow> allRows = batch.section().rows();
     List<ExcelAgentRow> targetRows = batch.targetRows();
     int firstTargetIndex = allRows.indexOf(targetRows.get(0));
@@ -494,19 +730,65 @@ public class TextRecognitionService {
       if (!targetRows.contains(row) && !contextRows.contains(row)) contextRows.add(row);
     }
 
-    List<String> lines = new ArrayList<>(batch.preamble());
+    if (compactSingleRowRetry) {
+      contextRows.removeIf(row -> row.rowNumber() > headerContextEnd);
+    }
+
+    List<String> lines = new ArrayList<>();
+    if (!compactSingleRowRetry) {
+      appendLimitedAgentLines(lines, batch.preamble(), EXCEL_AGENT_MAX_PREAMBLE_CHARS, 1_000, "PREAMBLE_TRUNCATED");
+    }
     lines.add("EXCEL_AGENT_BATCH");
+    if (compactSingleRowRetry) {
+      lines.add("EXCEL_AGENT_SINGLE_ROW_COMPACT_RETRY");
+    }
     lines.add("BATCH_RULE: Extract and emit cargo only for BATCH_TARGET_ROWS. BATCH_CONTEXT_ONLY rows are layout/header context; never emit cargo or issues for context-only rows.");
+    lines.add("BATCH_RULE: Every source row number listed in BATCH_TARGET_SOURCE_ROWS must appear at least once as rows[].sourceRowNumber, issues[].sourceRowNumber, or skippedSourceRowNumbers. A cargo row may also have a review issue. skippedSourceRowNumbers is mutually exclusive with rows/issues and is only for headers, totals, and non-cargo rows.");
     lines.add("BATCH_RULE: Keep JSON compact. Do not repeat full source rows in remarks or notes. Omit optional packageInfo when it is not needed.");
+    lines.add("BATCH_RULE: Emit at most one rows item and at most one issues item per target row. Keep sourceText and remark under 120 characters and notes under 160 characters.");
     lines.add(batch.section().sheetLine());
-    lines.addAll(batch.section().metadata());
+    List<String> metadata = compactSingleRowRetry
+        ? batch.section().metadata().stream()
+            .filter(line -> line.startsWith("DETECTED_HEADER_ROW:") || line.startsWith("MERGED_RANGES:"))
+            .toList()
+        : batch.section().metadata();
+    appendLimitedAgentLines(lines, metadata, EXCEL_AGENT_MAX_METADATA_CHARS, 1_600, "METADATA_TRUNCATED");
     if (!contextRows.isEmpty()) {
       lines.add("BATCH_CONTEXT_ONLY:");
-      contextRows.forEach(row -> lines.add(row.line()));
+      contextRows.forEach(row -> lines.add(trimAgentLine(row.line(), EXCEL_AGENT_MAX_CONTEXT_ROW_CHARS)));
     }
     lines.add("BATCH_TARGET_ROWS:");
-    targetRows.forEach(row -> lines.add(row.line()));
+    lines.add("BATCH_TARGET_SOURCE_ROWS: " + targetRows.stream().map(row -> String.valueOf(row.rowNumber())).reduce((left, right) -> left + "," + right).orElse(""));
+    targetRows.forEach(row -> lines.add(trimAgentLine(row.line(), EXCEL_AGENT_MAX_TARGET_ROW_CHARS)));
     return String.join("\n", lines);
+  }
+
+  private void appendLimitedAgentLines(
+      List<String> destination,
+      List<String> source,
+      int totalCharLimit,
+      int lineCharLimit,
+      String truncationMarker
+  ) {
+    int emittedChars = 0;
+    int emittedLines = 0;
+    for (String rawLine : source) {
+      if (emittedChars >= totalCharLimit) break;
+      String line = trimAgentLine(rawLine, Math.min(lineCharLimit, totalCharLimit - emittedChars));
+      if (line.isBlank()) continue;
+      destination.add(line);
+      emittedChars += line.length();
+      emittedLines += 1;
+    }
+    if (emittedLines < source.size()) destination.add(truncationMarker + ": omitted " + (source.size() - emittedLines) + " line(s).");
+  }
+
+  private String trimAgentLine(String value, int limit) {
+    String text = cleanCell(value);
+    if (limit <= 0 || text.length() <= limit) return text;
+    int headLength = Math.max(1, (limit * 3) / 4);
+    int tailLength = Math.max(0, limit - headLength - 20);
+    return text.substring(0, headLength) + " …[truncated]… " + text.substring(text.length() - tailLength);
   }
 
   private int countFormattedExcelRows(String text) {
@@ -531,32 +813,54 @@ public class TextRecognitionService {
     List<Map<String, Object>> modelIssues = mapList(payload.get("issues"));
     List<Map<String, Object>> validRows = new ArrayList<>();
     List<Map<String, Object>> issues = new ArrayList<>();
+    Set<Integer> targetSourceRows = batchTargetSourceRows(text);
+    Set<Integer> coveredSourceRows = new LinkedHashSet<>();
+    Set<Integer> cargoSourceRows = new LinkedHashSet<>();
+    Set<Integer> issueSourceRows = new LinkedHashSet<>();
 
     int rowNumber = 0;
     for (Map<String, Object> rawRow : rawRows) {
-      rowNumber++;
-      ParsedCargo parsed = normalizeCargo(rawRow, rowNumber, cleanCell(rawRow.get("sourceText")));
+      int sourceRowNumber = targetSourceRows.isEmpty()
+          ? ++rowNumber
+          : modelSourceRowNumber(rawRow);
+      if (!targetSourceRows.isEmpty() && !targetSourceRows.contains(sourceRowNumber)) continue;
+      if (!targetSourceRows.isEmpty() && !cargoSourceRows.add(sourceRowNumber)) continue;
+      if (!targetSourceRows.isEmpty()) coveredSourceRows.add(sourceRowNumber);
+      ParsedCargo parsed = normalizeCargo(rawRow, sourceRowNumber, cleanCell(rawRow.get("sourceText")));
       if (parsed.errors().isEmpty()) {
         validRows.add(parsed.cargo());
         List<String> reviewWarnings = reviewWarnings(parsed.cargo(), parsed.text());
         if (!reviewWarnings.isEmpty()) {
-          issues.add(buildIssue(rowNumber, parsed.text(), reviewWarnings, parsed.cargo()));
+          issues.add(buildIssue(sourceRowNumber, parsed.text(), reviewWarnings, parsed.cargo()));
         }
       } else {
-        issues.add(buildIssue(rowNumber, parsed.text(), parsed.errors(), parsed.cargo()));
+        issues.add(buildIssue(sourceRowNumber, parsed.text(), parsed.errors(), parsed.cargo()));
       }
     }
 
     for (Map<String, Object> modelIssue : modelIssues) {
-      int issueRowNumber = intValue(modelIssue.get("rowNumber"), ++rowNumber);
+      int issueRowNumber = targetSourceRows.isEmpty()
+          ? intValue(firstNonBlank(modelIssue.get("sourceRowNumber"), modelIssue.get("rowNumber")), ++rowNumber)
+          : modelSourceRowNumber(modelIssue);
+      if (!targetSourceRows.isEmpty() && !targetSourceRows.contains(issueRowNumber)) continue;
+      if (!targetSourceRows.isEmpty() && !issueSourceRows.add(issueRowNumber)) continue;
+      if (!targetSourceRows.isEmpty()) coveredSourceRows.add(issueRowNumber);
       String issueText = cleanCell(firstNonBlank(modelIssue.get("text"), modelIssue.get("sourceText")));
       List<String> errors = stringList(modelIssue.get("errors"));
       if (errors.isEmpty()) errors = List.of(cleanCell(modelIssue.get("message")).isBlank() ? "模型未能确认该行货物规格" : cleanCell(modelIssue.get("message")));
       issues.add(buildIssue(issueRowNumber, issueText, errors, Map.of()));
     }
 
-    if (validRows.isEmpty() && issues.isEmpty()) {
-      throw new IllegalStateException("Spring AI did not return recognizable rows");
+    if (!targetSourceRows.isEmpty()) {
+      for (Integer skippedRowNumber : intSet(payload.get("skippedSourceRowNumbers"))) {
+        if (targetSourceRows.contains(skippedRowNumber)
+            && !cargoSourceRows.contains(skippedRowNumber)
+            && !issueSourceRows.contains(skippedRowNumber)) {
+          coveredSourceRows.add(skippedRowNumber);
+        }
+      }
+    } else if (validRows.isEmpty() && issues.isEmpty()) {
+      throw new AgentProtocolException("Agent returned no recognizable rows or issues");
     }
 
     int correctedWeightCount = applyThousandSeparatedWeightCorrections(validRows, text);
@@ -569,7 +873,63 @@ public class TextRecognitionService {
       notes += "；已按原文千分位重量修正 " + correctedWeightCount + " 条（如 29.200 kgs = 29200 kg）。";
     }
     notes = notes + "（模型：" + settings.model() + "）";
-    return new RecognitionResult(Math.max(rawRows.size() + modelIssues.size(), textRows(text).size()), validRows.size(), issues.size(), cleanedRows, issues, notes);
+    RecognitionResult result = new RecognitionResult(
+        targetSourceRows.isEmpty()
+            ? Math.max(rawRows.size() + modelIssues.size(), textRows(text).size())
+            : coveredSourceRows.size(),
+        validRows.size(),
+        issues.size(),
+        cleanedRows,
+        issues,
+        notes
+    );
+    if (!targetSourceRows.isEmpty()) {
+      Set<Integer> missingSourceRows = new LinkedHashSet<>(targetSourceRows);
+      missingSourceRows.removeAll(coveredSourceRows);
+      if (!missingSourceRows.isEmpty()) {
+        throw new PartialBatchCoverageException(result, missingSourceRows);
+      }
+    }
+    return result;
+  }
+
+  private Set<Integer> batchTargetSourceRows(String text) {
+    Set<Integer> result = new LinkedHashSet<>();
+    boolean inTargetRows = false;
+    for (String rawLine : String.valueOf(text == null ? "" : text).lines().toList()) {
+      String line = cleanCell(rawLine);
+      if (line.equals("BATCH_TARGET_ROWS:")) {
+        inTargetRows = true;
+        continue;
+      }
+      if (!inTargetRows) continue;
+      Matcher matcher = EXCEL_ROW_PATTERN.matcher(line);
+      if (matcher.matches()) result.add(intValue(matcher.group(1), 0));
+    }
+    return result;
+  }
+
+  private int modelSourceRowNumber(Map<String, Object> row) {
+    int explicit = intValue(row.get("sourceRowNumber"), 0);
+    if (explicit > 0) return explicit;
+    String sourceText = cleanCell(firstNonBlank(row.get("sourceText"), row.get("text")));
+    Matcher matcher = EXCEL_SOURCE_ROW_PATTERN.matcher(sourceText);
+    if (matcher.find()) return intValue(matcher.group(1), 0);
+    return intValue(row.get("rowNumber"), 0);
+  }
+
+  private Set<Integer> intSet(Object value) {
+    Set<Integer> result = new LinkedHashSet<>();
+    if (value instanceof List<?> list) {
+      for (Object item : list) {
+        int number = intValue(item, 0);
+        if (number > 0) result.add(number);
+      }
+    } else {
+      Matcher matcher = Pattern.compile("\\d+").matcher(cleanCell(value));
+      while (matcher.find()) result.add(intValue(matcher.group(), 0));
+    }
+    return result;
   }
 
   private String callOpenAiCompatibleChat(LlmRuntimeSettings settings, String text, String languageHint) {
@@ -637,19 +997,37 @@ public class TextRecognitionService {
       Object first = choices.get(0);
       if (first instanceof Map<?, ?> choice) {
         String finishReason = cleanCell(choice.get("finish_reason"));
-        if ("length".equalsIgnoreCase(finishReason)) {
-          throw new RetryableAgentOutputException("Agent 输出达到长度上限，返回结果被截断。正在缩小批次重试。");
-        }
         String content = contentText(choice.get("message"));
         if (content.isBlank()) content = contentText(choice.get("delta"));
         if (content.isBlank()) content = contentText(choice.get("text"));
+        if (isOutputLimitFinishReason(finishReason)) {
+          if (!content.isBlank() && containsCompleteJsonObject(content)) return content;
+          throw new RetryableAgentOutputException("Agent 输出达到长度上限，返回结果被截断。正在缩小批次重试。");
+        }
         if (!content.isBlank()) return content;
       }
     }
     String content = contentText(payload.get("output_text"));
     if (content.isBlank()) content = contentText(payload.get("text"));
     if (!content.isBlank()) return content;
-    throw new IllegalStateException("LLM response did not contain assistant content");
+    throw new AgentProtocolException("LLM response did not contain assistant content");
+  }
+
+  private boolean isOutputLimitFinishReason(String finishReason) {
+    String value = cleanCell(finishReason).toLowerCase(Locale.ROOT);
+    return value.equals("length")
+        || value.contains("max_token")
+        || value.contains("token_limit")
+        || value.contains("output_limit");
+  }
+
+  private boolean containsCompleteJsonObject(String content) {
+    try {
+      objectMapper.readTree(extractJsonObject(content));
+      return true;
+    } catch (Exception ignored) {
+      return false;
+    }
   }
 
   private String contentText(Object value) {
@@ -1324,6 +1702,7 @@ public class TextRecognitionService {
         {
           "rows": [
             {
+              "sourceRowNumber": 12,
               "sourceText": "original line or clause",
               "name": "cargo name",
               "model": "model/specification, empty if unknown",
@@ -1349,8 +1728,9 @@ public class TextRecognitionService {
             }
           ],
           "issues": [
-            {"rowNumber": 1, "text": "raw text", "errors": ["missing dimension"]}
+            {"sourceRowNumber": 12, "text": "raw text", "errors": ["missing dimension"]}
           ],
+          "skippedSourceRowNumbers": [1, 2],
           "notes": "short Chinese summary"
         }
         Rules:
@@ -1360,6 +1740,7 @@ public class TextRecognitionService {
         - If loose-piece/order details exist, store them only in packageInfo.innerCargo and/or remark. packageInfo is optional but recommended for packing-list rows.
         - For input beginning with EXCEL_FORMATTED_TABLE_FOR_AGENT, use the Excel coordinates, merged ranges, and neighboring rows/columns to understand the table layout. Do not blindly parse the first recognizable table.
         - If the input contains EXCEL_AGENT_BATCH, emit rows and issues only for lines under BATCH_TARGET_ROWS. Lines under BATCH_CONTEXT_ONLY are read-only layout/header context and must never be emitted or counted.
+        - For EXCEL_AGENT_BATCH, copy the R number into sourceRowNumber. Every number in BATCH_TARGET_SOURCE_ROWS must be covered by a row, an issue, or skippedSourceRowNumbers. A cargo row may also appear in issues when review is required. skippedSourceRowNumbers is mutually exclusive with rows/issues; use it only for headers, totals, blank/reference rows, and anything intentionally not cargo.
         - Keep the JSON compact. Do not copy full Excel source rows into remark or notes. Omit optional packageInfo when it adds no information needed for final package weight or review.
         - If a sheet has product/carton details on the left and pallet/final-package columns on the right, output the right-side final pallet/package rows as the algorithm cargo. The left-side product/carton rows become inner contents only.
         - Chinese packing sheets with right-side headers such as 免熏蒸木托盘体积, 免熏蒸木托盘重量KG, 数量, 总体积m3, 重量KG, 托盘拼装 are final pallet-unit lists. Extract those pallets, not the left-side cartons.
@@ -1393,7 +1774,7 @@ public class TextRecognitionService {
     int start = text.indexOf('{');
     int end = text.lastIndexOf('}');
     if (start < 0 || end <= start) {
-      throw new IllegalStateException("Spring AI response did not contain JSON object");
+      throw new AgentProtocolException("Agent response did not contain a JSON object");
     }
     return text.substring(start, end + 1);
   }
@@ -1681,14 +2062,23 @@ public class TextRecognitionService {
     row.put("cleanedCount", rs.getInt("cleaned_count"));
     row.put("agentNotes", rs.getString("agent_notes"));
     row.put("errorMessage", rs.getString("error_message"));
+    row.put("serverEngineVersion", TEXT_RECOGNITION_ENGINE_VERSION);
+    row.put("serverAdaptiveBatching", true);
     row.put("createdAt", stringTimestamp(rs, "created_at"));
     row.put("updatedAt", stringTimestamp(rs, "updated_at"));
     row.put("finishedAt", stringTimestamp(rs, "finished_at"));
     if (includePayload) {
+      List<Map<String, Object>> parsedIssues = parseJsonList(rs.getString("issues_json"));
       row.put("cleanedRows", parseJsonList(rs.getString("cleaned_json")));
-      row.put("issues", parseJsonList(rs.getString("issues_json")));
+      row.put("issues", parsedIssues);
+      row.put("partial", parsedIssues.stream().anyMatch(issue -> isBlockingRecognitionIssueCode(issue.get("code"))));
     }
     return row;
+  }
+
+  private boolean isBlockingRecognitionIssueCode(Object code) {
+    return Set.of("AGENT_OUTPUT_LIMIT", "AGENT_ROW_COVERAGE", "AGENT_REQUEST_BUDGET", "INPUT_TRUNCATED")
+        .contains(cleanCell(code));
   }
 
   private List<Map<String, Object>> parseJsonList(String json) {
@@ -1705,13 +2095,38 @@ public class TextRecognitionService {
     return timestamp == null ? null : timestamp.toInstant().toString();
   }
 
-  private static final class RetryableAgentOutputException extends IllegalStateException {
+  private static class RetryableAgentOutputException extends IllegalStateException {
     private RetryableAgentOutputException(String message) {
       super(message);
     }
 
     private RetryableAgentOutputException(String message, Throwable cause) {
       super(message, cause);
+    }
+  }
+
+  private static final class PartialBatchCoverageException extends RetryableAgentOutputException {
+    private final RecognitionResult partialResult;
+    private final Set<Integer> missingRowNumbers;
+
+    private PartialBatchCoverageException(RecognitionResult partialResult, Set<Integer> missingRowNumbers) {
+      super("Agent response did not cover source rows: " + missingRowNumbers);
+      this.partialResult = partialResult;
+      this.missingRowNumbers = Set.copyOf(missingRowNumbers);
+    }
+
+    private RecognitionResult partialResult() {
+      return partialResult;
+    }
+
+    private Set<Integer> missingRowNumbers() {
+      return missingRowNumbers;
+    }
+  }
+
+  private static final class AgentProtocolException extends IllegalStateException {
+    private AgentProtocolException(String message) {
+      super(message);
     }
   }
 
@@ -1750,6 +2165,23 @@ public class TextRecognitionService {
   }
 
   private record BatchRecognitionResult(List<RecognitionResult> results, int requestCount) {}
+
+  private static final class AgentRequestBudget {
+    private final int limit;
+    private final long deadlineNanos;
+    private int used;
+
+    private AgentRequestBudget(int limit, Duration deadline) {
+      this.limit = Math.max(1, limit);
+      this.deadlineNanos = System.nanoTime() + Math.max(1, deadline.toNanos());
+    }
+
+    private boolean tryAcquire() {
+      if (used >= limit || System.nanoTime() >= deadlineNanos) return false;
+      used += 1;
+      return true;
+    }
+  }
 
   private record ParsedCargo(
       boolean matched,

@@ -54,6 +54,10 @@ export function createTextRecognitionTask(text, options = {}) {
   });
 }
 
+export function fetchTextRecognitionCapabilities() {
+  return request("/text-recognition/capabilities");
+}
+
 export function fetchTextRecognitionTasks() {
   return request("/text-recognition/tasks");
 }
