@@ -416,12 +416,22 @@
               <ExcelTemplatePage key="embedded-smart-import" :current-cargo-count="cargos.length" @import-cargos="importExcelCargos" />
             </div>
           </el-collapse-transition>
+          <el-alert
+            v-if="cargoImportNotice"
+            class="cargo-import-check-notice"
+            type="warning"
+            show-icon
+            :title="cargoImportNotice"
+            @close="cargoImportNotice = ''"
+          />
           <el-table
             v-if="cargos.length"
             :data="cargos"
             row-key="id"
             class="cargo-overview-table"
             size="large"
+            max-height="520"
+            :row-style="cargoOverviewRowStyle"
             @selection-change="handleCargoSelectionChange"
           >
             <el-table-column type="selection" width="44" />
@@ -450,9 +460,19 @@
             <el-table-column :label="ui('common.subtotalVolume')" width="148">
               <template #default="{ row }">{{ fmt((row.lengthCm * row.widthCm * row.heightCm * row.quantity) / 1000000, 3) }} m³</template>
             </el-table-column>
-            <el-table-column :label="ui('common.type')" width="166">
+            <el-table-column :label="ui('common.type')" min-width="230">
               <template #default="{ row }">
-                <el-tag class="cargo-type-tag" effect="plain">{{ cargoTypeText(row.type) }}</el-tag>
+                <div class="cargo-rule-tags">
+                  <el-tag
+                    v-for="tag in cargoRuleTags(row)"
+                    :key="tag.key"
+                    class="cargo-type-tag"
+                    :type="tag.type"
+                    effect="plain"
+                  >
+                    {{ tag.label }}
+                  </el-tag>
+                </div>
               </template>
             </el-table-column>
             <el-table-column :label="ui('common.actions')" width="144" fixed="right">
@@ -839,6 +859,7 @@ import { currentLocale, elementPlusLocale, t } from "./i18n";
 import { translateLegacyText } from "./i18n/legacyText";
 import { translateUiText } from "./i18n/uiText";
 import { cargoLabel, fmt, shortType, uid } from "./utils/format";
+import { cargoConstraintFlags, cargoHandlingUnitType, normalizeCargoConstraints } from "./utils/cargoConstraints";
 
 const STORAGE_KEY = "cargo-planner-vue-state";
 const TEMPLATE_STORAGE_KEY = "cargo-planner-cargo-templates";
@@ -960,6 +981,7 @@ const cargoTemplates = ref([]);
 const templateName = ref("");
 const exportingReport = ref(false);
 const toast = ref("");
+const cargoImportNotice = ref("");
 const apiStatus = ref("本机计算");
 const decisionLogs = ref<any[]>([]);
 const packingWorkerProgress = ref<any | null>(null);
@@ -2339,11 +2361,11 @@ function applyUserSettings(settings) {
 }
 
 function loadSample(notify = true) {
-  cargos.value = [
+  cargos.value = normalizeCargoModels([
     { id: uid("cargo"), name: "蝶阀木箱 A", lengthCm: 110, widthCm: 45, heightCm: 82, quantity: 8, weightKg: 180, type: "pallet", color: systemColorFor(0) },
     { id: uid("cargo"), name: "纸箱 B", lengthCm: 60, widthCm: 40, heightCm: 35, quantity: 30, weightKg: 12, type: "normal", color: systemColorFor(1) },
     { id: uid("cargo"), name: "易碎品 C", lengthCm: 55, widthCm: 45, heightCm: 30, quantity: 12, weightKg: 18, type: "nonstack", color: systemColorFor(2) }
-  ];
+  ]);
   result.value = null;
   selectedBoxIndex.value = 1;
   if (notify) showToast("已套用示例货物。");
@@ -2409,8 +2431,17 @@ function templateQuantity(template) {
 }
 
 function exportCsv() {
-  const header = ["name", "model", "lengthCm", "widthCm", "heightCm", "quantity", "weightKg", "type", "color"];
-  const rows = cargos.value.map((cargo) => header.map((key) => cargo[key]).join(","));
+  const header = ["name", "model", "lengthCm", "widthCm", "heightCm", "quantity", "weightKg", "type", "nonStack", "keepUpright", "color"];
+  const rows = cargos.value.map((cargo) => {
+    const flags = cargoConstraintFlags(cargo);
+    const normalized = {
+      ...cargo,
+      type: cargoHandlingUnitType(cargo),
+      nonStack: flags.nonStack,
+      keepUpright: flags.keepUpright
+    };
+    return header.map((key) => normalized[key]).join(",");
+  });
   const blob = new Blob([[header.join(","), ...rows].join("\n")], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -2553,6 +2584,8 @@ function importCsvFile(file: Blob) {
         quantity: Number(item.quantity || 1),
         weightKg: Number(item.weightKg || 0),
         type: item.type || "normal",
+        nonStack: item.nonStack,
+        keepUpright: item.keepUpright,
         color: item.color || ""
       };
     });
@@ -2582,7 +2615,8 @@ async function importStructuredCargoFile(file: File, label = "文件") {
     importExcelCargos({
       cargos: imported,
       mode: quickImportMode.value,
-      skippedRows: preview.invalidRows?.length || 0
+      skippedRows: preview.invalidRows?.length || 0,
+      importKind: "quick"
     });
   } catch (error) {
     showToast(error?.message || `${label} 导入失败，请检查文件格式。`);
@@ -2904,7 +2938,7 @@ function isEvaluationExportable(evaluation) {
 }
 
 function normalizeImportedCargo(cargo, index = 0) {
-  return {
+  return normalizeCargoForRuntime({
     id: cargo.id || uid("cargo"),
     name: String(cargo.name || "").trim(),
     model: String(cargo.model || "").trim(),
@@ -2917,11 +2951,13 @@ function normalizeImportedCargo(cargo, index = 0) {
     color: cargo.color || systemColorFor(index),
     sku: cargo.sku || "",
     remark: String(cargo.remark || "").trim(),
-    packageInfo: cargo.packageInfo || null
-  };
+    packageInfo: cargo.packageInfo || null,
+    nonStack: cargo.nonStack,
+    keepUpright: cargo.keepUpright
+  });
 }
 
-function importExcelCargos({ cargos: importedCargos, mode, skippedRows = 0 }) {
+function importExcelCargos({ cargos: importedCargos, mode, skippedRows = 0, importKind = "" }) {
   if (!importedCargos?.length) return;
   const nextMode = mode === "replace" ? "replace" : "append";
   const normalizedImported = importedCargos.map((cargo, index) => normalizeImportedCargo(cargo, cargos.value.length + index));
@@ -2929,6 +2965,9 @@ function importExcelCargos({ cargos: importedCargos, mode, skippedRows = 0 }) {
   result.value = null;
   selectedBoxIndex.value = 1;
   router.push("/planner/cargos");
+  cargoImportNotice.value = importKind === "quick"
+    ? ui("excel.quickImportPostCheck", { count: normalizedImported.length })
+    : "";
   showToast(ui("app.importCargoSuccess", {
     action: ui(nextMode === "append" ? "app.importActionAppend" : "app.importActionReplace"),
     count: normalizedImported.length,
@@ -2948,17 +2987,32 @@ function cargoDisplayName(cargo) {
   return cargoLabel(cargo);
 }
 
-function cargoTypeText(type) {
-  return {
-    normal: "普通货物",
-    upright: "保持朝上",
-    nonstack: "不可重压",
-    pallet: "托盘/木箱"
-  }[type] || "普通货物";
+function cargoRuleTags(cargo) {
+  const flags = cargoConstraintFlags(cargo);
+  const tags = [{
+    key: "handling-unit",
+    label: ui(cargoHandlingUnitType(cargo) === "pallet" ? "cargo.pallet" : "cargo.normal"),
+    type: "info"
+  }];
+  if (flags.nonStack) tags.push({ key: "non-stack", label: ui("cargo.nonstack"), type: "warning" });
+  if (flags.keepUpright) tags.push({ key: "keep-upright", label: ui("cargo.upright"), type: "primary" });
+  return tags;
+}
+
+function cargoOverviewRowStyle() {
+  return { height: "56px" };
 }
 
 function normalizeCargoModels(items) {
-  return assignCargoModels(items);
+  return assignCargoModels(items.map((cargo) => normalizeCargoForRuntime(cargo)));
+}
+
+function normalizeCargoForRuntime(cargo = {}) {
+  const normalized = normalizeCargoConstraints(cargo);
+  return {
+    ...normalized,
+    type: cargoHandlingUnitType(normalized)
+  };
 }
 
 function showToast(message) {

@@ -46,6 +46,9 @@ const uiText = {
   "cargo.upright": { zh: "保持朝上", en: "Keep Upright" },
   "cargo.nonstack": { zh: "不可重压", en: "Non-stackable" },
   "cargo.pallet": { zh: "托盘/木箱", en: "Pallet/Wooden Crate" },
+  "cargo.packageType": { zh: "包装类型", en: "Package Type" },
+  "cargo.constraints": { zh: "装箱条件（可同时选择）", en: "Packing Constraints (select both if needed)" },
+  "cargo.constraintsHelp": { zh: "两个条件彼此独立；例如精密设备可以同时要求“不可重压”和“保持朝上”。", en: "The constraints are independent; precision equipment may require both non-stackable and keep-upright handling." },
 
   "app.currentCargoList": { zh: "当前货物列表", en: "Current Cargo List" },
   "app.manualEntry": { zh: "手动录入", en: "Manual Entry" },
@@ -66,7 +69,7 @@ const uiText = {
   "result.currencySetMismatch": { zh: "参与方案币种不一致，未形成最低运价结论", en: "Plan currencies differ; no lowest-freight conclusion was produced" },
   "result.currentPlanBoxes": { zh: "当前方案箱数", en: "Current Plan Containers" },
   "result.calculatedPlanComparison": { zh: "参与计算箱型与方案对比", en: "Calculated Containers and Plan Comparison" },
-  "result.currentBestMark": { zh: "当前搜索最优", en: "Best Found" },
+  "result.currentBestMark": { zh: "综合方案优选", en: "Best Overall Plan" },
   "result.noFeasiblePlan": { zh: "暂无可行方案", en: "No Feasible Plan" },
   "result.cacheHit": { zh: "已复用上次计算", en: "Reused Last Result" },
   "result.optimizationEyebrow": { zh: "搜索依据", en: "Search Basis" },
@@ -268,24 +271,30 @@ const uiText = {
   "container.priority.special": { zh: "特殊设备", en: "Special Equipment" },
   "container.priority.custom": { zh: "自定义", en: "Custom" },
 
-  "excel.title": { zh: "智能导入", en: "Smart Import" },
-  "excel.manualImport": { zh: "手动导入", en: "Manual Import" },
-  "excel.manualSubtitle": { zh: "Excel 转文本后走智能识别", en: "Excel-to-text agent recognition" },
-  "excel.smartRecognition": { zh: "智能识别", en: "Smart Recognition" },
-  "excel.recognitionSubtitle": { zh: "粘贴货物描述，提取标准规格", en: "Paste cargo descriptions and extract standard dimensions" },
+  "excel.title": { zh: "Excel / 智能导入", en: "Excel / Smart Import" },
+  "excel.manualImport": { zh: "快速导入", en: "Quick Import" },
+  "excel.manualSubtitle": { zh: "适合字段清晰、格式规范的表格", en: "For clean tables with clearly labeled fields" },
+  "excel.smartRecognition": { zh: "精确导入", en: "Precise Import" },
+  "excel.recognitionSubtitle": { zh: "适合不规整、杂糅或拼盘表格", en: "For irregular, mixed, or consolidated sheets" },
   "excel.fieldTemplate": { zh: "字段样板", en: "Field Template" },
   "excel.fieldSubtitle": { zh: "标准字段、规则和示例", en: "Standard fields, rules, and examples" },
-  "excel.manualPath": { zh: "路径一：手动导入 Excel / CSV", en: "Path 1: Manual Excel / CSV Import" },
+  "excel.manualPath": { zh: "路径一：快速导入", en: "Path 1: Quick Import" },
   "excel.manualPathText": {
-    zh: "先把工作簿转换为带行列坐标的格式化文本，再交给智能识别 agent 判断最终装柜单元。",
-    en: "The workbook is converted into coordinate-preserving text first, then sent to the agent to identify final handled units."
+    zh: "在浏览器后台线程中按标准字段映射、校验并直接生成装箱货物，通常几秒内完成。",
+    en: "Map and validate standard fields in a browser worker, then create packing cargo directly—usually within seconds."
   },
-  "excel.dropToRecognize": { zh: "拖拽文件到此识别", en: "Drop a file here to recognize" },
-  "excel.dropRelease": { zh: "松开文件，立即开始识别", en: "Release to start recognition" },
-  "excel.dropBusy": { zh: "正在读取并识别文件", en: "Reading and recognizing the file" },
+  "excel.quickImportCheckTitle": { zh: "快速导入需要人工复核", en: "Quick import requires a manual check" },
+  "excel.quickImportCheckDescription": { zh: "适合表头和条目清晰的表格；复杂包装关系、拼盘信息或特殊约束可能识别不完整，请在导入前后核对名称、尺寸、数量、单重和装箱条件。", en: "Best for clean headers and rows. Complex packaging, consolidated loads, or special constraints may be incomplete; verify names, dimensions, quantities, unit weights, and handling constraints before and after import." },
+  "excel.quickImportParsing": { zh: "正在按字段映射快速解析文件。", en: "Parsing the file with field mapping." },
+  "excel.quickImportFailed": { zh: "快速导入解析失败，请检查文件格式和字段。", en: "Quick import parsing failed. Check the file format and fields." },
+  "excel.quickImportPostCheck": { zh: "已快速导入 {count} 类货物。识别结果可能存在偏差，请检查名称、尺寸、数量、单重、不可重压和保持朝上条件，确认后再进入计算。", en: "Quick-imported {count} cargo types. Results may contain mapping errors; verify names, dimensions, quantities, unit weights, non-stackable, and keep-upright constraints before calculating." },
+  "excel.choosePreciseFile": { zh: "选择 Excel 精确识别", en: "Choose Excel for Precise Import" },
+  "excel.dropToRecognize": { zh: "拖拽文件到此快速导入", en: "Drop a file here for quick import" },
+  "excel.dropRelease": { zh: "松开文件，立即快速解析", en: "Release to parse immediately" },
+  "excel.dropBusy": { zh: "正在读取并快速解析文件", en: "Reading and parsing the file" },
   "excel.dropSupportText": {
-    zh: "也可以点击此区域选择文件，松开后会自动进入智能识别。",
-    en: "You can also click this area to choose a file. Recognition starts automatically after the file is added."
+    zh: "也可以点击此区域选择文件；快速导入不会调用 Agent。",
+    en: "You can also click this area to choose a file. Quick import does not call the Agent."
   },
   "excel.dropSingleFileOnly": {
     zh: "每次只能识别一个文件，请重新拖入单个 Excel 或 CSV 文件。",
@@ -314,10 +323,10 @@ const uiText = {
   "excel.issueRows": { zh: "异常行", en: "Issue Rows" },
   "excel.aggregatedCargo": { zh: "聚合后货物", en: "Aggregated Cargo" },
   "excel.importPieces": { zh: "导入件数", en: "Import Pieces" },
-  "excel.recognitionPath": { zh: "路径二：智能识别", en: "Path 2: Smart Recognition" },
+  "excel.recognitionPath": { zh: "路径二：精确导入", en: "Path 2: Precise Import" },
   "excel.recognitionPathText": {
-    zh: "直接粘贴聊天记录、报价明细或邮件里的货物描述；系统会交给后端智能识别流程提取标准规格并返回可导入清单。",
-    en: "Paste chat records, quote details, or email cargo descriptions; the system sends them to the backend smart-recognition flow and returns an importable list."
+    zh: "上传不规整、信息杂糅或包含拼盘关系的 Excel，或粘贴聊天/报价文本；系统解析文件后交给 Agent 输出标准清单和逐项审查结果。",
+    en: "Upload an irregular, mixed, or consolidated Excel file—or paste chat/quote text. The workbook is parsed, then the Agent returns a standardized list and itemized review."
   },
   "excel.recognizing": { zh: "智能识别中...", en: "Recognizing..." },
   "excel.elapsedTime": { zh: "已识别 {time}", en: "Elapsed {time}" },
@@ -394,7 +403,7 @@ const uiText = {
   "excel.textItems": { zh: "文本条目", en: "Text Items" },
   "excel.validItems": { zh: "有效条目", en: "Valid Items" },
   "excel.issueItems": { zh: "异常条目", en: "Issue Items" },
-  "excel.importMode": { zh: "导入方式", en: "Import Mode" },
+  "excel.importMode": { zh: "写入方式", en: "Write Mode" },
   "excel.replaceCargo": { zh: "替换当前货物", en: "Replace Current Cargo" },
   "excel.appendCargo": { zh: "追加到当前货物", en: "Append to Current Cargo" },
   "excel.workbookAndUnits": { zh: "工作表与单位", en: "Worksheet and Units" },
@@ -414,8 +423,8 @@ const uiText = {
   "excel.requiredFields": { zh: "必填字段", en: "Required Fields" },
   "excel.optionalRules": { zh: "可选字段与规则", en: "Optional Fields and Rules" },
   "excel.rule.type": {
-    zh: "type：支持 normal、upright、nonstack、pallet，备注里写“易碎/不可重压/托盘/朝上”也会自动识别。",
-    en: "type: supports normal, upright, nonstack, and pallet. Notes containing fragile/non-stackable/pallet/upright are also recognized automatically."
+    zh: "type 用于包装类型；nonStack 和 keepUpright 是两个独立条件，可以同时为 true。备注里的“不可重压/易碎”和“保持朝上/不可倒置”也会分别识别。",
+    en: "type describes the package. nonStack and keepUpright are independent and may both be true. Notes containing non-stackable/fragile and keep-upright/this-side-up are detected separately."
   },
   "excel.rule.dimensionText": {
     zh: "dimensionText：允许把尺寸写成 60*40*35、60×40×35 cm 或“长宽高”。",
@@ -436,8 +445,8 @@ const uiText = {
   "excel.standardExample": { zh: "标准 Excel 示例", en: "Standard Excel Example" },
   "excel.recognitionPosition": { zh: "智能识别的位置", en: "Where Smart Recognition Fits" },
   "excel.recognitionPositionText": {
-    zh: "表格文件继续走本地确定性规则完成解析、校验、单位换算和预览。粘贴文本则走后端智能识别流程，由模型提取货物名称、型号、尺寸、数量、重量和备注，最终导入仍然由用户确认。",
-    en: "Spreadsheet files still use local deterministic rules for parsing, validation, unit conversion, and preview. Pasted text uses the backend smart-recognition flow, where the model extracts cargo name, model, dimensions, quantity, weight, and notes; final import is still confirmed by the user."
+    zh: "快速导入走本地确定性规则，适合标准表格；精确导入接受 Excel 或文本并走后端 Agent，适合复杂包装和拼盘关系。两条路径都由用户确认后才写入当前货物。",
+    en: "Quick import uses deterministic local rules for standard sheets. Precise import accepts Excel or text and uses the backend Agent for complex packaging and consolidated loads. Both paths require user confirmation before writing cargo."
   },
   "excel.suggestStandardCargo": { zh: "建议修改为标准货物", en: "Suggest Standard Cargo" },
   "excel.preserveFields": { zh: "系统已尽量保留原始行中的可识别字段。", en: "The system kept identifiable fields from the original row where possible." },
@@ -447,6 +456,7 @@ const uiText = {
   "excel.widthCm": { zh: "宽度 cm", en: "Width cm" },
   "excel.heightCm": { zh: "高度 cm", en: "Height cm" },
   "excel.singleWeightKg": { zh: "单件重量 kg", en: "Unit Weight kg" },
+  "excel.handlingConstraints": { zh: "装箱条件（可同时选择）", en: "Packing Constraints (select both if needed)" },
   "excel.needsChanges": { zh: "还需要修改", en: "Still needs changes" },
   "excel.recognitionResultNo": { zh: "识别结果第", en: "Recognition Result" },
   "excel.editRecognitionCargo": { zh: "编辑识别货物", en: "Edit Recognized Cargo" },

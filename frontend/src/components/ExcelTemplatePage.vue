@@ -11,7 +11,7 @@
         :default-active="excelMode"
         @select="switchExcelMode"
       >
-        <el-menu-item index="manual">
+        <el-menu-item index="manual" :disabled="recognitionAgentBusy || preciseImportBusy">
           <div class="excel-menu-item">
             <strong>{{ ui('excel.manualImport') }}</strong>
             <span>{{ ui('excel.manualSubtitle') }}</span>
@@ -26,7 +26,7 @@
             <span>{{ ui('excel.recognitionSubtitle') }}</span>
           </div>
         </el-menu-item>
-        <el-menu-item index="reference">
+        <el-menu-item index="reference" :disabled="recognitionAgentBusy || preciseImportBusy">
           <div class="excel-menu-item">
             <strong>{{ ui('excel.fieldTemplate') }}</strong>
             <span>{{ ui('excel.fieldSubtitle') }}</span>
@@ -38,7 +38,7 @@
       <div
         v-if="excelMode === 'manual'"
         class="excel-manual-card"
-        :class="{ 'is-dragging': manualDropActive, 'is-busy': manualImportBusy }"
+        :class="{ 'is-dragging': manualDropActive, 'is-busy': manualImportBusy || recognitionAgentBusy || preciseImportBusy }"
         @dragenter.prevent="handleManualDragEnter"
         @dragover.prevent="handleManualDragOver"
         @dragleave.prevent="handleManualDragLeave"
@@ -55,22 +55,31 @@
               hidden
               type="file"
               :accept="WORKBOOK_FILE_ACCEPT"
-              :disabled="manualImportBusy"
+              :disabled="manualImportBusy || recognitionAgentBusy || preciseImportBusy"
               @change="handleFile"
             />
-            <el-button type="primary" :loading="manualImportBusy" @click="openManualFilePicker">
+            <el-button type="primary" :disabled="recognitionAgentBusy || preciseImportBusy" :loading="manualImportBusy" @click="openManualFilePicker">
               {{ ui('common.chooseFile') }}
             </el-button>
             <el-button @click="downloadTemplate">{{ ui('common.downloadTemplate') }}</el-button>
           </div>
         </div>
 
+        <el-alert
+          class="quick-import-check-alert"
+          type="warning"
+          show-icon
+          :closable="false"
+          :title="ui('excel.quickImportCheckTitle')"
+          :description="ui('excel.quickImportCheckDescription')"
+        />
+
         <div
           class="excel-drop-zone"
           :class="{ active: manualDropActive }"
           role="button"
           tabindex="0"
-          :aria-disabled="manualImportBusy"
+          :aria-disabled="manualImportBusy || recognitionAgentBusy || preciseImportBusy"
           @click="openManualFilePicker"
           @keydown.enter.prevent="openManualFilePicker"
           @keydown.space.prevent="openManualFilePicker"
@@ -130,9 +139,20 @@
           <p>{{ ui('excel.recognitionPathText') }}</p>
         </div>
         <div class="recognition-actions">
-          <el-button @click="fillRecognitionSample">{{ ui('common.useSample') }}</el-button>
-          <el-button @click="clearRecognition">{{ ui('common.clear') }}</el-button>
-          <el-button type="primary" :disabled="!recognitionText.trim() || recognitionAgentBusy" :loading="recognitionAgentBusy" @click="submitTextRecognitionTask">
+          <input
+            ref="preciseFileInput"
+            hidden
+            type="file"
+            :accept="WORKBOOK_FILE_ACCEPT"
+            :disabled="recognitionAgentBusy || preciseImportBusy"
+            @change="handlePreciseFile"
+          />
+          <el-button :disabled="recognitionAgentBusy || preciseImportBusy" :loading="preciseImportBusy" @click="openPreciseFilePicker">
+            {{ ui('excel.choosePreciseFile') }}
+          </el-button>
+          <el-button :disabled="recognitionAgentBusy || preciseImportBusy" @click="fillRecognitionSample">{{ ui('common.useSample') }}</el-button>
+          <el-button :disabled="recognitionAgentBusy || preciseImportBusy" @click="clearRecognition">{{ ui('common.clear') }}</el-button>
+          <el-button type="primary" :disabled="!recognitionText.trim() || recognitionAgentBusy || preciseImportBusy" :loading="recognitionAgentBusy" @click="submitTextRecognitionTask">
             <span class="hollow-star button-star" aria-hidden="true">☆</span>
             {{ recognitionAgentBusy ? ui('excel.recognizing') : ui('excel.smartRecognition') }}
           </el-button>
@@ -141,6 +161,7 @@
       <el-input
         v-model="recognitionText"
         type="textarea"
+        :disabled="recognitionAgentBusy || preciseImportBusy"
         @input="resetRecognitionResult"
         :rows="10"
         :placeholder="t('smartImport.recognitionPlaceholder')"
@@ -164,7 +185,7 @@
           <small>{{ sourceWorkbookFileSize }}</small>
         </div>
         <div class="source-workbook-actions">
-          <el-button :disabled="!workbook" @click="openSourceWorkbookPreview">{{ ui('excel.previewWorkbook') }}</el-button>
+          <el-button :disabled="!recognitionWorkbook" @click="openSourceWorkbookPreview">{{ ui('excel.previewWorkbook') }}</el-button>
           <el-button @click="downloadSourceWorkbook">{{ ui('excel.downloadOriginalWorkbook') }}</el-button>
         </div>
       </div>
@@ -221,8 +242,8 @@
           </el-button>
         </div>
 
-        <div v-if="recognitionRows.length" class="template-table-wrap">
-          <table class="template-table sample">
+        <div v-if="recognitionRows.length" class="template-table-wrap recognition-result-table-wrap">
+          <table class="template-table sample recognition-result-table">
             <thead>
               <tr>
                 <th>{{ ui('common.cargo') }}</th>
@@ -242,7 +263,7 @@
                 <td>{{ cargo.lengthCm }} × {{ cargo.widthCm }} × {{ cargo.heightCm }}</td>
                 <td>{{ cargo.quantity }}</td>
                 <td>{{ cargo.weightKg }}</td>
-                <td>{{ typeText(cargo.type) }}</td>
+                <td :title="cargoRuleText(cargo)">{{ cargoRuleText(cargo) }}</td>
                 <td>{{ cargo.remark || "-" }}</td>
                 <td>
                   <el-button link type="primary" @click="openRecognitionEdit(cargo, index)">{{ ui('common.edit') }}</el-button>
@@ -361,7 +382,7 @@
                 <td>{{ cargo.lengthCm }} × {{ cargo.widthCm }} × {{ cargo.heightCm }}</td>
                 <td>{{ cargo.quantity }}</td>
                 <td>{{ cargo.weightKg }}</td>
-                <td>{{ typeText(cargo.type) }}</td>
+                <td>{{ cargoRuleText(cargo) }}</td>
                 <td>{{ cargo.remark || "-" }}</td>
               </tr>
               <tr v-if="approvedAggregated.length > 12">
@@ -480,7 +501,7 @@
       <div class="source-preview-toolbar">
         <el-select v-model="sourcePreviewSheetName">
           <el-option
-            v-for="sheet in workbook?.sheets || []"
+            v-for="sheet in recognitionWorkbook?.sheets || []"
             :key="sheet.name"
             :label="`${sheet.name} / ${sourceSheetRowCount(sheet)} ${ui('unit.rows')}`"
             :value="sheet.name"
@@ -673,7 +694,7 @@
                     <td>{{ item.cargo.lengthCm }} × {{ item.cargo.widthCm }} × {{ item.cargo.heightCm }}</td>
                     <td>{{ item.cargo.quantity }}</td>
                     <td>{{ item.cargo.weightKg }}</td>
-                    <td>{{ typeText(item.cargo.type) }}</td>
+                    <td>{{ cargoRuleText(item.cargo) }}</td>
                     <td>{{ item.cargo.remark || "-" }}</td>
                   </tr>
                 </tbody>
@@ -735,13 +756,15 @@
           <el-form-item :label="ui('excel.singleWeightKg')">
             <el-input-number v-model="suggestionForm.weightKg" :min="0" :step="0.01" :precision="2" controls-position="right" />
           </el-form-item>
-          <el-form-item :label="ui('common.type')">
+          <el-form-item :label="ui('cargo.packageType')">
             <el-select v-model="suggestionForm.type">
               <el-option :label="ui('cargo.normal')" value="normal" />
-              <el-option :label="ui('cargo.upright')" value="upright" />
-              <el-option :label="ui('cargo.nonstack')" value="nonstack" />
               <el-option :label="ui('cargo.pallet')" value="pallet" />
             </el-select>
+          </el-form-item>
+          <el-form-item class="span-2" :label="ui('excel.handlingConstraints')">
+            <el-checkbox v-model="suggestionForm.nonStack">{{ ui('cargo.nonstack') }}</el-checkbox>
+            <el-checkbox v-model="suggestionForm.keepUpright">{{ ui('cargo.upright') }}</el-checkbox>
           </el-form-item>
           <el-form-item :label="ui('common.remark')">
             <el-input v-model.trim="suggestionForm.remark" />
@@ -804,16 +827,18 @@
           <el-form-item :label="ui('excel.singleWeightKg')">
             <el-input-number v-model="recognitionEditForm.weightKg" :min="0" :step="0.01" :precision="2" controls-position="right" />
           </el-form-item>
-          <el-form-item :label="ui('common.type')">
+          <el-form-item :label="ui('cargo.packageType')">
             <el-select
               v-model="recognitionEditForm.type"
               :disabled="recognitionEditIssueCode === 'PALLET_DIMENSIONS_MISSING'"
             >
               <el-option :label="ui('cargo.normal')" value="normal" />
-              <el-option :label="ui('cargo.upright')" value="upright" />
-              <el-option :label="ui('cargo.nonstack')" value="nonstack" />
               <el-option :label="ui('cargo.pallet')" value="pallet" />
             </el-select>
+          </el-form-item>
+          <el-form-item class="span-2" :label="ui('excel.handlingConstraints')">
+            <el-checkbox v-model="recognitionEditForm.nonStack">{{ ui('cargo.nonstack') }}</el-checkbox>
+            <el-checkbox v-model="recognitionEditForm.keepUpright">{{ ui('cargo.upright') }}</el-checkbox>
           </el-form-item>
           <el-form-item :label="ui('common.remark')">
             <el-input v-model.trim="recognitionEditForm.remark" />
@@ -853,6 +878,7 @@ import { currentLocale, t } from "../i18n";
 import { translateLegacyText } from "../i18n/legacyText";
 import { translateUiText } from "../i18n/uiText";
 import { uid } from "../utils/format";
+import { cargoConstraintFlags, cargoHandlingUnitType, normalizeCargoConstraints } from "../utils/cargoConstraints";
 
 const emit = defineEmits(["import-cargos"]);
 const props = defineProps({
@@ -872,6 +898,7 @@ function ui(key, params) {
 
 const colors = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3"];
 const workbook = ref(null);
+const recognitionWorkbook = ref(null);
 const selectedSheetName = ref("");
 const activeSheet = ref(null);
 const preview = ref(null);
@@ -888,7 +915,9 @@ const sourcePreviewSheetName = ref("");
 const manualImportBusy = ref(false);
 const manualDropActive = ref(false);
 const manualFileInput = ref(null);
+const preciseFileInput = ref(null);
 const previewBusy = ref(false);
+const preciseImportBusy = ref(false);
 const manualImportMessage = ref("");
 const manualImportMessageType = ref("info");
 const recognitionAgentTask = ref(null);
@@ -914,6 +943,8 @@ const suggestionForm = reactive({
   quantity: 1,
   weightKg: 0,
   type: "normal",
+  nonStack: false,
+  keepUpright: false,
   color: "",
   sku: "",
   remark: ""
@@ -927,6 +958,8 @@ const recognitionEditForm = reactive({
   quantity: 1,
   weightKg: 0,
   type: "normal",
+  nonStack: false,
+  keepUpright: false,
   color: "",
   sku: "",
   remark: ""
@@ -965,7 +998,12 @@ const importStatusType = computed(() => {
   if (!preview.value) return manualImportMessageType.value;
   return preview.value.invalidRows.length ? "warning" : "success";
 });
-const recognitionRows = computed(() => recognitionAgentTask.value?.cleanedRows || []);
+const recognitionRows = computed(() =>
+  (recognitionAgentTask.value?.cleanedRows || []).map((cargo) => {
+    const normalized = normalizeCargoConstraints(cargo);
+    return { ...normalized, type: cargoHandlingUnitType(normalized) };
+  })
+);
 const recognitionIssues = computed(() => recognitionAgentTask.value?.issues || []);
 const recognitionQuantity = computed(() =>
   recognitionRows.value.reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0)
@@ -992,7 +1030,9 @@ const recognitionMissingPalletDimensionIssues = computed(() =>
 const recognitionElapsedText = computed(() => formatElapsedTime(recognitionElapsedSeconds.value));
 const sourceWorkbookFileSize = computed(() => formatFileSize(sourceWorkbookFile.value?.size || 0));
 const sourcePreviewSheet = computed(() =>
-  workbook.value?.sheets?.find((sheet) => sheet.name === sourcePreviewSheetName.value) || workbook.value?.sheets?.[0] || null
+  recognitionWorkbook.value?.sheets?.find((sheet) => sheet.name === sourcePreviewSheetName.value)
+  || recognitionWorkbook.value?.sheets?.[0]
+  || null
 );
 const SOURCE_PREVIEW_ROW_LIMIT = 200;
 const sourcePreviewRows = computed(() => {
@@ -1096,11 +1136,11 @@ const requiredFields = [
   { key: "weightKg", label: "单件重量 kg", example: "12", rule: "大于等于 0 的数字" }
 ];
 
-const sampleHeaders = ["name", "model", "lengthCm", "widthCm", "heightCm", "quantity", "weightKg", "type", "color", "remark"];
+const sampleHeaders = ["name", "model", "lengthCm", "widthCm", "heightCm", "quantity", "weightKg", "type", "nonStack", "keepUpright", "color", "remark"];
 const sampleRows = [
-  { id: 1, name: "蝶阀木箱", model: "100", lengthCm: 110, widthCm: 45, heightCm: 82, quantity: 8, weightKg: 180, type: "pallet", color: "#2a9d8f", remark: "木箱/托盘类" },
-  { id: 2, name: "纸箱 B", model: "", lengthCm: 60, widthCm: 40, heightCm: 35, quantity: 30, weightKg: 12, type: "normal", color: "#3b82f6", remark: "普通可堆叠" },
-  { id: 3, name: "易碎品 C", model: "", lengthCm: 55, widthCm: 45, heightCm: 30, quantity: 12, weightKg: 18, type: "nonstack", color: "#8b5cf6", remark: "不可重压" }
+  { id: 1, name: "\u8776\u9600\u6728\u7bb1", model: "100", lengthCm: 110, widthCm: 45, heightCm: 82, quantity: 8, weightKg: 180, type: "pallet", nonStack: false, keepUpright: false, color: "#2a9d8f", remark: "\u6728\u7bb1/\u6258\u76d8\u7c7b" },
+  { id: 2, name: "\u7eb8\u7bb1 B", model: "", lengthCm: 60, widthCm: 40, heightCm: 35, quantity: 30, weightKg: 12, type: "normal", nonStack: false, keepUpright: false, color: "#3b82f6", remark: "\u666e\u901a\u53ef\u5806\u53e0" },
+  { id: 3, name: "\u7cbe\u5bc6\u8bbe\u5907 C", model: "", lengthCm: 55, widthCm: 45, heightCm: 30, quantity: 12, weightKg: 18, type: "normal", nonStack: true, keepUpright: true, color: "#8b5cf6", remark: "\u4e0d\u53ef\u91cd\u538b\uff1b\u4fdd\u6301\u671d\u4e0a" }
 ];
 const reviewKeywords = {
   emptyPallet: ["\u7a7a\u6258\u76d8", "\u7a7a\u6258", "\u7a7a\u6728\u6258", "empty pallet", "empty skid"],
@@ -1135,8 +1175,13 @@ let pendingPreviewSignature = "";
 let manualDragDepth = 0;
 
 function openManualFilePicker() {
-  if (manualImportBusy.value) return;
+  if (manualImportBusy.value || recognitionAgentBusy.value || preciseImportBusy.value) return;
   manualFileInput.value?.click();
+}
+
+function openPreciseFilePicker() {
+  if (recognitionAgentBusy.value || preciseImportBusy.value) return;
+  preciseFileInput.value?.click();
 }
 
 async function handleFile(event) {
@@ -1146,14 +1191,21 @@ async function handleFile(event) {
   await loadWorkbookFile(file);
 }
 
+async function handlePreciseFile(event) {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+  await loadWorkbookFileForRecognition(file);
+}
+
 function handleManualDragEnter(event) {
-  if (manualImportBusy.value || !dragContainsFiles(event)) return;
+  if (manualImportBusy.value || recognitionAgentBusy.value || preciseImportBusy.value || !dragContainsFiles(event)) return;
   manualDragDepth += 1;
   manualDropActive.value = true;
 }
 
 function handleManualDragOver(event) {
-  if (manualImportBusy.value || !dragContainsFiles(event)) return;
+  if (manualImportBusy.value || recognitionAgentBusy.value || preciseImportBusy.value || !dragContainsFiles(event)) return;
   if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
   manualDropActive.value = true;
 }
@@ -1167,7 +1219,7 @@ function handleManualDragLeave() {
 async function handleManualDrop(event) {
   manualDragDepth = 0;
   manualDropActive.value = false;
-  if (manualImportBusy.value) return;
+  if (manualImportBusy.value || recognitionAgentBusy.value || preciseImportBusy.value) return;
 
   const files = Array.from(event.dataTransfer?.files || []);
   if (!files.length) return;
@@ -1192,43 +1244,63 @@ function showManualFileError(message) {
 }
 
 async function loadWorkbookFile(file) {
+  if (recognitionAgentBusy.value || preciseImportBusy.value) return;
   if (!isSupportedWorkbookFile(file)) {
     showManualFileError(ui("excel.dropUnsupportedFile", { name: file?.name || "-" }));
     return;
   }
   manualImportBusy.value = true;
-  sourceWorkbookFile.value = file;
-  startRecognitionTimer();
+  sourceWorkbookFile.value = null;
+  recognitionWorkbook.value = null;
+  sourcePreviewOpen.value = false;
+  sourcePreviewSheetName.value = "";
+  workbook.value = null;
   preview.value = null;
   activeSheet.value = null;
   manualImportMessageType.value = "info";
-  manualImportMessage.value = ui("excel.agentPreparingFromExcel");
+  manualImportMessage.value = ui("excel.quickImportParsing");
   try {
-    workbook.value = await readWorkbookInWorker(file);
-    workbookVersion += 1;
-    lastPreviewSignature = "";
-    pendingPreviewSignature = "";
-    selectedSheetName.value = workbook.value?.sheets?.[0]?.name || "";
-    activeSheet.value = workbook.value?.sheets?.[0] || null;
-    manualCorrections.value = [];
-    const formattedText = formatWorkbookForRecognition(workbook.value, { fileName: file?.name });
+    await loadWorkbookFileLocally(file);
+  } catch (error) {
+    workbook.value = null;
+    activeSheet.value = null;
+    preview.value = null;
+    manualImportMessageType.value = "error";
+    manualImportMessage.value = error?.message || ui("excel.quickImportFailed");
+  } finally {
+    manualImportBusy.value = false;
+  }
+}
+
+async function loadWorkbookFileForRecognition(file) {
+  if (!isSupportedWorkbookFile(file)) {
+    recognitionMessageType.value = "error";
+    recognitionMessage.value = ui("excel.dropUnsupportedFile", { name: file?.name || "-" });
+    return;
+  }
+  preciseImportBusy.value = true;
+  sourceWorkbookFile.value = file;
+  recognitionWorkbook.value = null;
+  sourcePreviewOpen.value = false;
+  sourcePreviewSheetName.value = "";
+  recognitionText.value = "";
+  resetRecognitionResult();
+  startRecognitionTimer();
+  try {
+    recognitionWorkbook.value = await readWorkbookInWorker(file);
+    const formattedText = formatWorkbookForRecognition(recognitionWorkbook.value, { fileName: file?.name });
     recognitionText.value = formattedText;
     excelMode.value = "recognition";
-    manualImportMessageType.value = "success";
-    manualImportMessage.value = ui("excel.agentSubmittedFromExcel", { count: workbook.value?.sheets?.length || 0 });
     await submitTextRecognitionTask({
       textOverride: formattedText,
       sourceName: file?.name || ui("excel.excelFormattedSource"),
       keepTimer: true
     });
   } catch (error) {
-    workbook.value = null;
-    activeSheet.value = null;
-    preview.value = null;
-    manualImportMessageType.value = "error";
-    manualImportMessage.value = error?.message || ui("excel.excelAgentFailed");
+    recognitionMessageType.value = "error";
+    recognitionMessage.value = error?.message || ui("excel.excelAgentFailed");
   } finally {
-    manualImportBusy.value = false;
+    preciseImportBusy.value = false;
     if (!recognitionAgentBusy.value) stopRecognitionTimer();
   }
 }
@@ -1277,7 +1349,9 @@ function applyBackendImportResult(result, file) {
 }
 
 function switchExcelMode(mode) {
-  excelMode.value = mode === "agent" ? "recognition" : mode;
+  const nextMode = mode === "agent" ? "recognition" : mode;
+  if ((recognitionAgentBusy.value || preciseImportBusy.value) && nextMode !== "recognition") return;
+  excelMode.value = nextMode;
 }
 
 async function selectSheet() {
@@ -1527,8 +1601,8 @@ function sourceSheetRowCount(sheet) {
 }
 
 function openSourceWorkbookPreview() {
-  if (!workbook.value) return;
-  sourcePreviewSheetName.value = workbook.value.sheets?.[0]?.name || "";
+  if (!recognitionWorkbook.value) return;
+  sourcePreviewSheetName.value = recognitionWorkbook.value.sheets?.[0]?.name || "";
   sourcePreviewOpen.value = true;
 }
 
@@ -1548,6 +1622,7 @@ onBeforeUnmount(stopRecognitionTimer);
 
 function fillRecognitionSample() {
   sourceWorkbookFile.value = null;
+  recognitionWorkbook.value = null;
   sourcePreviewOpen.value = false;
   recognitionText.value = t("smartImport.recognitionSample");
   recognitionPreview.value = null;
@@ -1561,6 +1636,7 @@ function fillRecognitionSample() {
 
 function clearRecognition() {
   sourceWorkbookFile.value = null;
+  recognitionWorkbook.value = null;
   sourcePreviewOpen.value = false;
   recognitionText.value = "";
   recognitionPreview.value = null;
@@ -1581,7 +1657,12 @@ function importRecognitionRows() {
   }
   const cargos = aggregateCargos(recognitionRows.value)
     .map((cargo, index) => normalizeImportedCargo(cargo, index));
-  emit("import-cargos", { cargos, mode: importMode.value, skippedRows: recognitionSkippedIssueCount.value });
+  emit("import-cargos", {
+    cargos,
+    mode: importMode.value,
+    skippedRows: recognitionSkippedIssueCount.value,
+    importKind: "precise"
+  });
 }
 
 function openRecognitionReviewDialog() {
@@ -1657,11 +1738,10 @@ function isRecognitionIssueOverrideResolved(issue, issueIndex) {
 
 function isUserConfirmedPalletDimensions(cargo) {
   const packageInfo = cargo?.packageInfo || {};
-  const cargoType = String(cargo?.type || "").trim().toLowerCase();
   return Number(cargo?.lengthCm) > 0
     && Number(cargo?.widthCm) > 0
     && Number(cargo?.heightCm) > 0
-    && ["pallet", "nonstack", "upright"].includes(cargoType)
+    && cargoHandlingUnitType(cargo) === "pallet"
     && String(packageInfo.handlingUnitType || "").trim().toLowerCase() === "pallet"
     && String(packageInfo.packageUnit || "").trim().toLowerCase() === "pallet"
     && String(packageInfo.dimensionSource || "").trim().toLowerCase() === "user"
@@ -1706,10 +1786,7 @@ function cargoReviewReasons(cargo) {
 }
 
 function isPalletRecognitionCargo(cargo) {
-  const packageInfo = cargo?.packageInfo || {};
-  return String(cargo?.type || "").trim().toLowerCase() === "pallet"
-    || String(packageInfo.handlingUnitType || "").trim().toLowerCase() === "pallet"
-    || String(packageInfo.packageUnit || "").trim().toLowerCase() === "pallet";
+  return cargoHandlingUnitType(cargo) === "pallet";
 }
 
 function containsReviewKeyword(text, keywords) {
@@ -1761,7 +1838,7 @@ function recognitionReviewCargoRows(cargo, finding = null) {
     ...dimensions,
     { label: ui("common.quantity"), value: cargo.quantity ?? "-" },
     { label: ui("common.unitWeightKg"), value: cargo.weightKg ?? "-" },
-    { label: ui("common.type"), value: typeText(cargo.type) }
+    { label: ui("common.type"), value: cargoRuleText(cargo) }
   ];
   if (cargo.remark) rows.push({ label: ui("common.remark"), value: cargo.remark });
   return rows;
@@ -1872,7 +1949,9 @@ function cargoReviewKey(cargo) {
     Number(cargo.heightCm || 0),
     Number(cargo.quantity || 0),
     Number(cargo.weightKg || 0),
-    cargo.type || ""
+    cargo.type || "",
+    Boolean(cargo.nonStack),
+    Boolean(cargo.keepUpright)
   ].join("|");
 }
 
@@ -1898,16 +1977,24 @@ function importPreview() {
     quantity: cargo.quantity,
     weightKg: cargo.weightKg,
     type: cargo.type,
+    nonStack: Boolean(cargo.nonStack),
+    keepUpright: Boolean(cargo.keepUpright),
     color: cargo.color || colors[index % colors.length],
     sku: cargo.sku || "",
     remark: cargo.remark || "",
     packageInfo: cargo.packageInfo || null
   }));
-  emit("import-cargos", { cargos, mode: importMode.value, skippedRows: unresolvedInvalidRows.value.length });
+  emit("import-cargos", {
+    cargos,
+    mode: importMode.value,
+    skippedRows: unresolvedInvalidRows.value.length,
+    importKind: "quick"
+  });
 }
 
 function normalizeImportedCargo(cargo, index) {
-  return {
+  const constraints = cargoConstraintFlags(cargo);
+  return normalizeCargoConstraints({
     id: uid("cargo"),
     name: cargo.name,
     model: cargo.model || "",
@@ -1916,12 +2003,14 @@ function normalizeImportedCargo(cargo, index) {
     heightCm: round2(cargo.heightCm),
     quantity: Math.round(Number(cargo.quantity || 0)),
     weightKg: round2(cargo.weightKg),
-    type: cargo.type || "normal",
+    type: cargoHandlingUnitType(cargo),
+    nonStack: constraints.nonStack,
+    keepUpright: constraints.keepUpright,
     color: cargo.color || colors[index % colors.length],
     sku: cargo.sku || "",
     remark: cargo.remark || "",
     packageInfo: cargo.packageInfo || null
-  };
+  });
 }
 
 function openRecognitionEdit(cargo, index, options = {}) {
@@ -1930,6 +2019,7 @@ function openRecognitionEdit(cargo, index, options = {}) {
   recognitionEditPackageInfo.value = cargo.packageInfo || null;
   recognitionEditFindingId.value = options.findingId || "";
   recognitionEditIssueCode.value = options.issueCode || "";
+  const constraints = cargoConstraintFlags(cargo);
   Object.assign(recognitionEditForm, {
     name: cargo.name || "",
     model: cargo.model || "",
@@ -1938,7 +2028,9 @@ function openRecognitionEdit(cargo, index, options = {}) {
     heightCm: cargo.heightCm || "",
     quantity: Number(cargo.quantity) > 0 ? Number(cargo.quantity) : null,
     weightKg: cargo.weightKg || 0,
-    type: cargo.type || "normal",
+    type: cargoHandlingUnitType(cargo),
+    nonStack: constraints.nonStack,
+    keepUpright: constraints.keepUpright,
     color: cargo.color || "",
     sku: cargo.sku || "",
     remark: cargo.remark || ""
@@ -1993,7 +2085,19 @@ function normalizeRecognitionEditCargo() {
   const lengthCm = round2(recognitionEditForm.lengthCm);
   const widthCm = round2(recognitionEditForm.widthCm);
   const heightCm = round2(recognitionEditForm.heightCm);
-  let packageInfo = recognitionEditPackageInfo.value;
+  const type = recognitionEditForm.type === "pallet" ? "pallet" : "normal";
+  let packageInfo = recognitionEditPackageInfo.value
+    ? { ...recognitionEditPackageInfo.value }
+    : null;
+  if (type === "pallet") {
+    packageInfo = {
+      ...(packageInfo || {}),
+      handlingUnitType: "pallet",
+      packageUnit: "pallet"
+    };
+  } else if (packageInfo && cargoHandlingUnitType({ type: "normal", packageInfo }) === "pallet") {
+    packageInfo = null;
+  }
   if (recognitionEditIssueCode.value === "PALLET_DIMENSIONS_MISSING"
     && lengthCm > 0
     && widthCm > 0
@@ -2007,7 +2111,7 @@ function normalizeRecognitionEditCargo() {
       packageDimensionsCm: { lengthCm, widthCm, heightCm }
     };
   }
-  return {
+  return normalizeCargoConstraints({
     name: String(recognitionEditForm.name || "").trim(),
     model: String(recognitionEditForm.model || "").trim(),
     lengthCm,
@@ -2015,17 +2119,20 @@ function normalizeRecognitionEditCargo() {
     heightCm,
     quantity: Math.round(Number(recognitionEditForm.quantity || 0)),
     weightKg: round2(recognitionEditForm.weightKg),
-    type: recognitionEditForm.type || "normal",
+    type,
+    nonStack: Boolean(recognitionEditForm.nonStack),
+    keepUpright: Boolean(recognitionEditForm.keepUpright),
     color: recognitionEditForm.color || "",
     sku: recognitionEditForm.sku || "",
     remark: String(recognitionEditForm.remark || "").trim(),
     packageInfo
-  };
+  });
 }
 
 function openSuggestion(row) {
   suggestionRow.value = row;
-  Object.assign(suggestionForm, row.suggestion.cargo);
+  const cargo = normalizeCargoConstraints(row.suggestion.cargo || {});
+  Object.assign(suggestionForm, cargo, { type: cargoHandlingUnitType(cargo) });
   suggestionErrors.value = [...row.suggestion.errors];
 }
 
@@ -2050,7 +2157,7 @@ function applySuggestion() {
 }
 
 function normalizeSuggestionCargo() {
-  return {
+  return normalizeCargoConstraints({
     name: String(suggestionForm.name || "").trim(),
     model: String(suggestionForm.model || "").trim(),
     lengthCm: round2(suggestionForm.lengthCm),
@@ -2059,10 +2166,12 @@ function normalizeSuggestionCargo() {
     quantity: Math.round(Number(suggestionForm.quantity || 0)),
     weightKg: round2(suggestionForm.weightKg),
     type: suggestionForm.type || "normal",
+    nonStack: Boolean(suggestionForm.nonStack),
+    keepUpright: Boolean(suggestionForm.keepUpright),
     color: suggestionForm.color || "",
     sku: suggestionForm.sku || "",
     remark: String(suggestionForm.remark || "").trim()
-  };
+  });
 }
 
 function round2(value) {
@@ -2082,12 +2191,20 @@ function typeText(type) {
   }[type] || ui('cargo.normal');
 }
 
+function cargoRuleText(cargo) {
+  const flags = cargoConstraintFlags(cargo);
+  const labels = [typeText(cargoHandlingUnitType(cargo))];
+  if (flags.nonStack) labels.push(ui('cargo.nonstack'));
+  if (flags.keepUpright) labels.push(ui('cargo.upright'));
+  return [...new Set(labels)].join(" + ");
+}
+
 function suggestionCargoLabel(cargo) {
   if (!cargo?.name) return "-";
   return cargo.model ? `${cargo.name} ${cargo.model}` : cargo.name;
 }
 
 function cargoKey(cargo, index = "") {
-  return `${index}-${cargo.name}-${cargo.lengthCm}-${cargo.widthCm}-${cargo.heightCm}-${cargo.quantity}-${cargo.weightKg}-${cargo.type}`;
+  return `${index}-${cargo.name}-${cargo.lengthCm}-${cargo.widthCm}-${cargo.heightCm}-${cargo.quantity}-${cargo.weightKg}-${cargo.type}-${Boolean(cargo.nonStack)}-${Boolean(cargo.keepUpright)}`;
 }
 </script>

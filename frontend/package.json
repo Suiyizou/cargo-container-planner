@@ -12,6 +12,7 @@
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "i18n:scan": "node scripts/check-i18n-hardcoded.js",
     "i18n:baseline": "node scripts/check-i18n-hardcoded.js --write-baseline",
+    "test:loaded-pallet-import": "node scripts/check-loaded-pallet-import.js",
     "desktop:preview": "npm run build && electron .",
     "desktop:build": "npm run build && electron-builder --win nsis --x64"
   },

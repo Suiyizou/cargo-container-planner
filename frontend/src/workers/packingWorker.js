@@ -968,7 +968,7 @@ function buildUnits(cargos, globalGapCm, container = null, total = null) {
   const totalQuantity = total?.totalQuantity ?? cargos.reduce((sum, cargo) => sum + Math.max(0, Math.floor(Number(cargo.quantity || 0))), 0);
   const canGroup = Boolean(container) && totalQuantity >= GROUPING_MIN_TOTAL_UNITS;
   cargos.forEach((cargo, cargoIndex) => {
-    const rule = TYPE_RULES[cargo.type] || TYPE_RULES.normal;
+    const rule = cargoPackingRule(cargo);
     const gap = globalGapCm + rule.extraGapCm;
     const cargoId = cargo.id || `cargo-${cargoIndex}`;
     const quantity = Math.max(0, Math.floor(Number(cargo.quantity || 0)));
@@ -983,6 +983,32 @@ function buildUnits(cargos, globalGapCm, container = null, total = null) {
   });
   markHeavyUnits(units);
   return orderUnits(units, "support");
+}
+
+function cargoPackingRule(cargo = {}) {
+  const legacyType = String(cargo.type || "normal").trim().toLowerCase();
+  const handlingUnit = String(
+    cargo?.packageInfo?.handlingUnitType
+    || cargo?.packageInfo?.packageUnit
+    || ""
+  ).trim().toLowerCase();
+  const physicalType = ["pallet", "skid", "crate", "wooden", "wooden-case"].includes(handlingUnit)
+    ? "pallet"
+    : legacyType === "pallet" ? "pallet" : "normal";
+  const baseRule = TYPE_RULES[physicalType] || TYPE_RULES.normal;
+  const nonStack = cargo.nonStack === false
+    ? false
+    : cargo.nonStack === true || cargo.nonStackable === true || legacyType === "nonstack";
+  const keepUpright = cargo.keepUpright === false
+    ? false
+    : cargo.keepUpright === true || cargo.upright === true || legacyType === "upright";
+  return {
+    ...baseRule,
+    nonStack,
+    keepUpright,
+    rotatable: keepUpright ? true : baseRule.rotatable,
+    extraGapCm: Math.max(baseRule.extraGapCm, nonStack ? 2 : 0, keepUpright ? 1 : 0)
+  };
 }
 
 function markHeavyUnits(units) {
@@ -1078,6 +1104,7 @@ function makeCargoUnit(cargo, cargoIndex, cargoId, itemIndex, groupQuantity, rul
     weightKg: Number(cargo.weightKg || 0) * groupQuantity,
     rotatable: rule.rotatable,
     nonStack: rule.nonStack,
+    keepUpright: rule.keepUpright,
     extraGapCm: rule.extraGapCm,
     globalGapCm,
     verticalGapCm: rule.extraGapCm,
@@ -1098,7 +1125,11 @@ function generateOrientations(unit, options = {}) {
   const base = [
     { lengthCm: unit.lengthCm, widthCm: unit.widthCm, heightCm: unit.heightCm, lengthAxis: "长", widthAxis: "宽", heightAxis: "高" }
   ];
-  if (unit.groupQuantity > 1 && unit.rotatable) {
+  if (unit.keepUpright) {
+    base.push(
+      { lengthCm: unit.widthCm, widthCm: unit.lengthCm, heightCm: unit.heightCm, lengthAxis: "宽", widthAxis: "长", heightAxis: "高" }
+    );
+  } else if (unit.groupQuantity > 1 && unit.rotatable) {
     base.push(
       { lengthCm: unit.widthCm, widthCm: unit.lengthCm, heightCm: unit.heightCm, lengthAxis: "宽", widthAxis: "长", heightAxis: "高" }
     );
@@ -5000,7 +5031,8 @@ function toPlacementDto(unit) {
     groupQuantity: unitQuantity(unit),
     groupCols: Number(unit.groupCols || 1),
     groupRows: Number(unit.groupRows || 1),
-    nonStack: unit.nonStack
+    nonStack: unit.nonStack,
+    keepUpright: Boolean(unit.keepUpright)
   };
 }
 

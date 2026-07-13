@@ -45,6 +45,8 @@ public class CargoImportParseService {
       new FieldDef("weightKg", true),
       new FieldDef("totalWeightKg", false),
       new FieldDef("type", false),
+      new FieldDef("nonStack", false),
+      new FieldDef("keepUpright", false),
       new FieldDef("color", false),
       new FieldDef("id", false),
       new FieldDef("remark", false),
@@ -70,6 +72,10 @@ public class CargoImportParseService {
           "\u603b\u91cd", "\u603b\u91cd\u91cf", "\u603b\u6bdb\u91cd", "\u6bdb\u91cd", "\u5408\u8ba1\u91cd\u91cf")),
       Map.entry("type", List.of("type", "cargotype", "rule", "stackrule",
           "\u7c7b\u578b", "\u8d27\u7269\u7c7b\u578b", "\u89c4\u5219", "\u6446\u653e\u89c4\u5219", "\u5806\u53e0\u89c4\u5219", "\u5c5e\u6027")),
+      Map.entry("nonStack", List.of("nonstack", "nonstackable",
+          "\u4e0d\u53ef\u91cd\u538b", "\u4e0d\u80fd\u91cd\u538b", "\u7981\u6b62\u91cd\u538b", "\u6613\u788e", "\u627f\u538b\u9650\u5236")),
+      Map.entry("keepUpright", List.of("keepupright", "upright",
+          "\u4fdd\u6301\u671d\u4e0a", "\u671d\u4e0a", "\u4e0d\u53ef\u5012\u7f6e", "\u65b9\u5411\u9650\u5236")),
       Map.entry("color", List.of("color", "\u989c\u8272", "\u8272\u503c", "\u663e\u793a\u989c\u8272")),
       Map.entry("id", List.of("id", "sku", "code", "cargoid", "goodsid", "productid",
           "\u8d27\u7269id", "\u8d27\u7269\u7f16\u53f7", "\u8d27\u53f7", "\u7f16\u53f7", "\u7269\u6599\u7f16\u7801", "\u4ea7\u54c1\u7f16\u53f7", "\u6761\u7801")),
@@ -331,6 +337,13 @@ public class CargoImportParseService {
     if (totalWeightKg != null && weightSource.isBlank()) notes.add("\u5df2\u7528\u603b\u91cd\u91cf / \u6570\u91cf\u6362\u7b97\u5355\u4ef6\u91cd\u91cf");
 
     Map<String, Object> cargo = cargoMap(name, model, lengthCm, widthCm, heightCm, quantity, weightKg, type, color, sku, remark);
+    applyIndependentConstraints(
+        cargo,
+        valueFor(raw, mapping.get("type")),
+        valueFor(raw, mapping.get("nonStack")),
+        valueFor(raw, mapping.get("keepUpright")),
+        remark
+    );
     Map<String, Object> packageInfo = buildPackageInfo(mapping, raw, quantity, lengthCm, widthCm, heightCm, weightKg, totalWeightKg);
     if (!packageInfo.isEmpty()) {
       cargo.put("packageInfo", packageInfo);
@@ -362,10 +375,11 @@ public class CargoImportParseService {
     cargo.put("heightCm", round2(heightCm));
     cargo.put("quantity", quantity == null ? 0 : quantity);
     cargo.put("weightKg", round2(weightKg));
-    cargo.put("type", type);
+    cargo.put("type", "pallet".equalsIgnoreCase(cleanCell(type)) ? "pallet" : "normal");
     cargo.put("color", color);
     cargo.put("sku", sku);
     cargo.put("remark", remark);
+    applyIndependentConstraints(cargo, type, remark);
     return cargo;
   }
 
@@ -380,6 +394,8 @@ public class CargoImportParseService {
     suggested.put("quantity", positiveIntegerValue(cargo.get("quantity"), 1));
     suggested.put("weightKg", nonNegativeValue(cargo.get("weightKg"), 0));
     suggested.put("type", firstNonBlank(String.valueOf(cargo.getOrDefault("type", "")), "normal"));
+    suggested.put("nonStack", Boolean.TRUE.equals(cargo.get("nonStack")));
+    suggested.put("keepUpright", Boolean.TRUE.equals(cargo.get("keepUpright")));
     suggested.put("color", String.valueOf(cargo.getOrDefault("color", "")));
     suggested.put("sku", String.valueOf(cargo.getOrDefault("sku", "")));
     suggested.put("remark", String.valueOf(cargo.getOrDefault("remark", "")));
@@ -411,6 +427,8 @@ public class CargoImportParseService {
           String.valueOf(cargo.getOrDefault("heightCm", "")),
           String.valueOf(cargo.getOrDefault("weightKg", "")),
           String.valueOf(cargo.getOrDefault("type", "")),
+          String.valueOf(cargo.getOrDefault("nonStack", false)),
+          String.valueOf(cargo.getOrDefault("keepUpright", false)),
           String.valueOf(cargo.getOrDefault("color", ""))
       ).toString();
       Map<String, Object> existing = aggregate.get(key);
@@ -902,13 +920,92 @@ public class CargoImportParseService {
   }
 
   private String normalizeType(String value, String remark) {
-    String text = (cleanCell(value) + " " + cleanCell(remark)).toLowerCase(Locale.ROOT);
-    for (TypeAlias alias : TYPE_ALIASES) {
-      if (alias.words().stream().anyMatch((word) -> text.contains(word.toLowerCase(Locale.ROOT)))) {
-        return alias.type();
-      }
-    }
+    String explicit = cleanCell(value).toLowerCase(Locale.ROOT);
+    String note = cleanCell(remark).toLowerCase(Locale.ROOT);
+    String combined = explicit + " " + note;
+    if (typeAliasMatches("pallet", combined)) return "pallet";
     return "normal";
+  }
+
+  private boolean typeAliasMatches(String type, String text) {
+    return TYPE_ALIASES.stream()
+        .filter((alias) -> alias.type().equals(type))
+        .flatMap((alias) -> alias.words().stream())
+        .anyMatch((word) -> text.contains(word.toLowerCase(Locale.ROOT)));
+  }
+
+  private void applyIndependentConstraints(Map<String, Object> cargo, Object... sources) {
+    StringBuilder text = new StringBuilder();
+    text.append(' ').append(cleanCell(cargo.get("type")));
+    text.append(' ').append(cleanCell(cargo.get("remark")));
+    for (Object source : sources) text.append(' ').append(cleanCell(source));
+    String normalized = text.toString().toLowerCase(Locale.ROOT);
+    Boolean explicitNonStack = sources.length >= 3 ? constraintBoolean(sources[1]) : null;
+    Boolean explicitKeepUpright = sources.length >= 3 ? constraintBoolean(sources[2]) : null;
+    boolean detectedNonStack = detectsNonStackConstraint(normalized);
+    boolean detectedKeepUpright = detectsKeepUprightConstraint(normalized);
+    boolean nonStack = explicitNonStack != null
+        ? explicitNonStack
+        : Boolean.TRUE.equals(cargo.get("nonStack")) || truthyConstraint(cargo.get("nonStackable")) || detectedNonStack;
+    boolean keepUpright = explicitKeepUpright != null
+        ? explicitKeepUpright
+        : Boolean.TRUE.equals(cargo.get("keepUpright")) || truthyConstraint(cargo.get("upright")) || detectedKeepUpright;
+    cargo.put("nonStack", nonStack);
+    cargo.put("keepUpright", keepUpright);
+  }
+
+  private boolean detectsNonStackConstraint(String value) {
+    String probe = cleanCell(value).toLowerCase(Locale.ROOT);
+    for (String phrase : List.of(
+        "not non-stackable", "not nonstackable", "not non stackable",
+        "非不可重压", "无需不可重压", "不要求不可重压")) {
+      probe = probe.replace(phrase, " ");
+    }
+    for (String phrase : List.of(
+        "non-stackable", "non stackable", "nonstackable", "unstackable",
+        "not stackable", "do not stack", "no stack", "non-stack", "non stack", "nonstack",
+        "不可重压", "不能重压", "禁止重压", "勿压", "不可堆叠", "不能堆叠", "禁止堆叠")) {
+      probe = probe.replace(phrase, " __non_stack__ ");
+    }
+    for (String phrase : List.of(
+        "非易碎", "不是易碎", "not fragile", "non-fragile", "non fragile",
+        "可重压", "允许重压", "可以重压", "可堆叠", "允许堆叠", "可以堆叠",
+        "can be stacked", "stacking allowed")) {
+      probe = probe.replace(phrase, " ");
+    }
+    probe = probe.replaceAll("(?<![\\p{L}\\p{N}-])stackable(?![\\p{L}\\p{N}-])", " ");
+    return probe.contains("__non_stack__") || containsAny(probe, "易碎", "fragile");
+  }
+
+  private boolean detectsKeepUprightConstraint(String value) {
+    String probe = cleanCell(value).toLowerCase(Locale.ROOT);
+    for (String phrase : List.of(
+        "无需保持朝上", "不需要保持朝上", "不要求保持朝上", "无需朝上",
+        "可以倒置", "允许倒置", "keep upright not required", "upright not required", "not upright")) {
+      probe = probe.replace(phrase, " ");
+    }
+    return containsAny(probe,
+        "保持朝上", "朝上", "向上", "不可倒置", "请勿倒置",
+        "upright", "this side up", "keep upright");
+  }
+
+  private Boolean constraintBoolean(Object value) {
+    if (value instanceof Boolean bool) return bool;
+    if (value instanceof Number number) return number.doubleValue() == 0 ? false : number.doubleValue() == 1 ? true : null;
+    String text = cleanCell(value).toLowerCase(Locale.ROOT);
+    if (text.isBlank()) return null;
+    if (List.of("1", "true", "yes", "y", "是", "有", "需要", "必需", "√", "✓").contains(text)) return true;
+    if (List.of("0", "false", "no", "n", "否", "无", "不需要", "×", "✕").contains(text)) return false;
+    return null;
+  }
+
+  private boolean truthyConstraint(Object value) {
+    return Boolean.TRUE.equals(constraintBoolean(value));
+  }
+
+  private boolean containsAny(String text, String... words) {
+    for (String word : words) if (text.contains(word)) return true;
+    return false;
   }
 
   private String normalizeColor(String value) {
@@ -922,7 +1019,9 @@ public class CargoImportParseService {
         String.valueOf(round2(numberValue(cargo.get("widthCm")))),
         String.valueOf(round2(numberValue(cargo.get("heightCm")))),
         String.valueOf(round2(numberValue(cargo.get("weightKg")))),
-        String.valueOf(cargo.getOrDefault("type", "normal"))
+        String.valueOf(cargo.getOrDefault("type", "normal")),
+        String.valueOf(cargo.getOrDefault("nonStack", false)),
+        String.valueOf(cargo.getOrDefault("keepUpright", false))
     );
   }
 

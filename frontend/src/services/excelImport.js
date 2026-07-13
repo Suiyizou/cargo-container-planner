@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx";
+import { normalizeCargoConstraints } from "../utils/cargoConstraints.js";
 
 const STANDARD_FIELDS = [
   { key: "name", label: "货物名称", required: true },
@@ -10,6 +11,8 @@ const STANDARD_FIELDS = [
   { key: "weightKg", label: "单件重量 kg", required: true },
   { key: "totalWeightKg", label: "总重量 kg", required: false },
   { key: "type", label: "货物类型", required: false },
+  { key: "nonStack", label: "\u4e0d\u53ef\u91cd\u538b", required: false },
+  { key: "keepUpright", label: "\u4fdd\u6301\u671d\u4e0a", required: false },
   { key: "color", label: "颜色", required: false },
   { key: "id", label: "货物 ID/SKU", required: false },
   { key: "remark", label: "备注", required: false },
@@ -26,6 +29,8 @@ const FIELD_ALIASES = {
   weightKg: ["weightKg", "unitWeight", "unitWeightKg", "weight", "单重", "单件重量", "每件重量", "重量kg", "单重kg", "单件重量kg", "毛重kg", "净重kg"],
   totalWeightKg: ["totalWeight", "totalWeightKg", "grossWeight", "总重", "总重量", "总毛重", "毛重", "总净重", "总重量kg"],
   type: ["type", "cargoType", "rule", "货物类型", "类型", "规则", "摆放规则", "堆叠规则", "属性"],
+  nonStack: ["nonStack", "nonStackable", "\u4e0d\u53ef\u91cd\u538b", "\u4e0d\u80fd\u91cd\u538b", "\u7981\u6b62\u91cd\u538b", "\u6613\u788e", "\u627f\u538b\u9650\u5236", "\u5806\u53e0\u9650\u5236", "\u5806\u7801\u9650\u5236"],
+  keepUpright: ["keepUpright", "upright", "\u4fdd\u6301\u671d\u4e0a", "\u671d\u4e0a", "\u4e0d\u53ef\u5012\u7f6e", "\u65b9\u5411\u9650\u5236", "\u671d\u5411\u8981\u6c42", "\u65b9\u5411\u8981\u6c42", "\u6446\u653e\u65b9\u5411"],
   color: ["color", "颜色", "色值", "显示颜色"],
   id: ["id", "sku", "code", "cargoId", "goodsId", "productId", "货物ID", "货物编号", "货号", "编号", "物料编码", "产品编号", "条码"],
   remark: ["remark", "remarks", "note", "notes", "备注", "说明", "特殊要求", "装箱要求"],
@@ -42,7 +47,7 @@ const TYPE_ALIASES = [
 export const importFields = STANDARD_FIELDS;
 
 export function downloadTemplateWorkbook(rows) {
-  const headers = ["name", "model", "lengthCm", "widthCm", "heightCm", "quantity", "weightKg", "type", "color", "remark"];
+  const headers = ["name", "model", "lengthCm", "widthCm", "heightCm", "quantity", "weightKg", "type", "nonStack", "keepUpright", "color", "remark"];
   const worksheet = XLSX.utils.json_to_sheet(rows, { header: headers });
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "cargo-template");
@@ -213,8 +218,110 @@ export function guessMapping(headers) {
 
 function refineMapping(headers, mapping) {
   const refined = { ...mapping };
-  applyPackingListMapping(headers, refined);
+  applyLoadedPalletMapping(headers, refined);
+  if (refined.__loadedPallet !== "true") applyPackingListMapping(headers, refined);
   return refined;
+}
+
+function applyLoadedPalletMapping(headers, mapping) {
+  const palletLengthHeader = firstHeader(headers, (header) => isLoadedPalletDimensionHeader(header, "length"));
+  const palletWidthHeader = firstHeader(headers, (header) => isLoadedPalletDimensionHeader(header, "width"));
+  const palletHeightHeader = firstHeader(headers, (header) => isLoadedPalletDimensionHeader(header, "height"));
+  if (!palletLengthHeader || !palletWidthHeader || !palletHeightHeader) return;
+
+  const palletQuantityHeader = firstHeader(headers, isPalletQuantityHeader);
+  const palletIdHeader = firstHeader(headers, isPalletIdentifierHeader);
+  if (!palletQuantityHeader && !palletIdHeader) return;
+
+  const palletUnitGrossWeightHeader = firstHeader(headers, isLoadedPalletUnitGrossWeightHeader);
+  const stackConstraintHeader = firstHeader(headers, isStackConstraintHeader);
+  const orientationConstraintHeader = firstHeader(headers, isOrientationConstraintHeader);
+
+  mapping.__loadedPallet = "true";
+  mapping.__packageUnit = "pallet";
+  mapping.lengthCm = palletLengthHeader;
+  mapping.widthCm = palletWidthHeader;
+  mapping.heightCm = palletHeightHeader;
+  if (palletQuantityHeader) mapping.quantity = palletQuantityHeader;
+  if (palletIdHeader) mapping.id = palletIdHeader;
+  if (palletUnitGrossWeightHeader) {
+    mapping.weightKg = palletUnitGrossWeightHeader;
+    mapping.totalWeightKg = "";
+  }
+  if (stackConstraintHeader) mapping.nonStack = stackConstraintHeader;
+  if (orientationConstraintHeader) mapping.keepUpright = orientationConstraintHeader;
+}
+
+function isLoadedPalletDimensionHeader(header, axis) {
+  const palletSignal = header.includes("\u6258\u76d8")
+    || header.includes("\u6808\u677f")
+    || header.includes("pallet")
+    || header.includes("skid");
+  const outerSignal = header.includes("\u88c5\u8d27\u540e")
+    || header.includes("\u5916\u5ed3")
+    || header.includes("\u5916\u5f62")
+    || header.includes("loaded")
+    || header.includes("overall");
+  const axisSignals = {
+    length: ["\u957f", "length"],
+    width: ["\u5bbd", "width"],
+    height: ["\u9ad8", "height"]
+  };
+  return palletSignal
+    && outerSignal
+    && axisSignals[axis].some((signal) => header.includes(signal));
+}
+
+function isPalletQuantityHeader(header) {
+  return header.includes("\u6258\u76d8\u6570\u91cf")
+    || header.includes("\u6258\u76d8\u6570")
+    || header.includes("\u6258\u6570")
+    || header.includes("\u6808\u677f\u6570\u91cf")
+    || header.includes("\u6808\u677f\u6570")
+    || header.includes("palletqty")
+    || header.includes("palletquantity")
+    || header.includes("skidqty");
+}
+
+function isPalletIdentifierHeader(header) {
+  return header.includes("\u6258\u76d8\u7f16\u53f7")
+    || header.includes("\u6258\u76d8id")
+    || header.includes("\u6808\u677f\u7f16\u53f7")
+    || header.includes("\u6808\u677fid")
+    || header.includes("palletno")
+    || header.includes("palletid")
+    || header.includes("skidno")
+    || header.includes("skidid");
+}
+
+function isLoadedPalletUnitGrossWeightHeader(header) {
+  const unitSignal = header.includes("\u5355\u6258")
+    || header.includes("\u6bcf\u6258")
+    || header.includes("\u5355\u6808\u677f")
+    || header.includes("\u6bcf\u6808\u677f")
+    || header.includes("perpallet")
+    || header.includes("perskid");
+  const finalGrossSignal = header.includes("\u603b\u6bdb\u91cd")
+    || header.includes("\u542b\u6258\u6bdb\u91cd")
+    || header.includes("\u88c5\u8d27\u540e\u6bdb\u91cd")
+    || header.includes("totalgrossweight");
+  return unitSignal && finalGrossSignal;
+}
+
+function isStackConstraintHeader(header) {
+  return header.includes("\u5806\u53e0\u9650\u5236")
+    || header.includes("\u5806\u7801\u9650\u5236")
+    || header.includes("\u627f\u538b\u9650\u5236")
+    || header.includes("stackingrestriction")
+    || header.includes("stacklimit");
+}
+
+function isOrientationConstraintHeader(header) {
+  return header.includes("\u671d\u5411\u8981\u6c42")
+    || header.includes("\u65b9\u5411\u8981\u6c42")
+    || header.includes("\u6446\u653e\u65b9\u5411")
+    || header.includes("orientationrequirement")
+    || header.includes("orientation");
 }
 
 function applyPackingListMapping(headers, mapping) {
@@ -381,7 +488,9 @@ function parseCargoTextLine(line, rowNumber, options = {}) {
   const weight = extractTextWeight(text, quantity.value, options.weightUnit || "auto");
   const explicitModel = extractTextModel(text);
   const nameModel = extractTextNameModel(text, [dimension, quantity, weight, explicitModel].filter(Boolean));
-  const type = normalizeType(text, text);
+  const inferredType = normalizeType(text, text);
+  const type = inferredType === "pallet" ? "pallet" : "normal";
+  const constraints = normalizeCargoConstraints({ type, remark: text, constraintText: text });
   const notes = [];
 
   if (dimension) notes.push(`识别尺寸：${dimension.values.join(" × ")} cm`);
@@ -400,6 +509,8 @@ function parseCargoTextLine(line, rowNumber, options = {}) {
     quantity: quantity.value || 0,
     weightKg: weight.value ?? 0,
     type,
+    nonStack: constraints.nonStack,
+    keepUpright: constraints.keepUpright,
     color: "",
     sku: "",
     remark: notes.join("；")
@@ -541,6 +652,8 @@ function buildTextSuggestion(line, cargo, errors, rowNumber) {
     quantity: cargo.quantity || 1,
     weightKg: cargo.weightKg || 0,
     type: cargo.type || normalizeType("", line),
+    nonStack: cargo.nonStack,
+    keepUpright: cargo.keepUpright,
     color: "",
     sku: "",
     remark: cargo.remark || ""
@@ -625,8 +738,17 @@ function parseCargoRow(raw, mapping, context) {
   const name = cleanCell(valueFor(raw, mapping.name) || valueFor(raw, mapping.id));
   const model = cleanCell(valueFor(raw, mapping.model));
   const remark = cleanCell(valueFor(raw, mapping.remark));
-  let type = normalizeType(valueFor(raw, mapping.type), remark);
-  if (type === "normal" && packageUnitFromMapping(mapping) === "pallet") type = "pallet";
+  const rawType = cleanCell(valueFor(raw, mapping.type));
+  const inferredType = normalizeType(rawType, remark);
+  let type = inferredType === "pallet" ? "pallet" : "normal";
+  if (packageUnitFromMapping(mapping) === "pallet") type = "pallet";
+  const constraints = normalizeCargoConstraints({
+    type,
+    remark,
+    constraintText: rawType,
+    nonStack: constraintFieldValue(valueFor(raw, mapping.nonStack)),
+    keepUpright: constraintFieldValue(valueFor(raw, mapping.keepUpright))
+  });
   const color = normalizeColor(valueFor(raw, mapping.color));
   const sku = cleanCell(valueFor(raw, mapping.id));
 
@@ -653,7 +775,22 @@ function parseCargoRow(raw, mapping, context) {
     notes.push("导入口径：算法货物=外包装箱/托盘，散件数量仅保存为包装明细");
   }
 
-  const cargo = parsedCargo({ name, model, lengthCm, widthCm, heightCm, quantity, weightKg, type, color, sku, remark, packageInfo });
+  const cargo = parsedCargo({
+    name,
+    model,
+    lengthCm,
+    widthCm,
+    heightCm,
+    quantity,
+    weightKg,
+    type,
+    nonStack: constraints.nonStack,
+    keepUpright: constraints.keepUpright,
+    color,
+    sku,
+    remark,
+    packageInfo
+  });
 
   return {
     rowNumber: context.rowNumber,
@@ -677,6 +814,8 @@ export function aggregateCargos(cargos) {
       cargo.heightCm,
       cargo.weightKg,
       cargo.type,
+      Boolean(cargo.nonStack),
+      Boolean(cargo.keepUpright),
       cargo.color
     ].join("|");
     const existing = map.get(key);
@@ -773,6 +912,8 @@ function buildRowSuggestion(raw, cargo, errors, rowNumber) {
     quantity: cargo.quantity || 1,
     weightKg: cargo.weightKg || 0,
     type: cargo.type || normalizeType("", cargo.remark),
+    nonStack: Boolean(cargo.nonStack),
+    keepUpright: Boolean(cargo.keepUpright),
     color: cargo.color || "",
     sku: cargo.sku || "",
     remark: cargo.remark || ""
@@ -817,12 +958,14 @@ function parsedCargo({
   quantity,
   weightKg,
   type,
+  nonStack,
+  keepUpright,
   color,
   sku,
   remark,
   packageInfo
 }) {
-  const cargo = {
+  const cargo = normalizeCargoConstraints({
       name,
       model,
       lengthCm: round2(lengthCm),
@@ -831,10 +974,12 @@ function parsedCargo({
       quantity,
       weightKg: round2(weightKg || 0),
       type,
+      nonStack,
+      keepUpright,
       color,
       sku,
       remark
-  };
+  });
   if (packageInfo) cargo.packageInfo = packageInfo;
   return cargo;
 }
@@ -916,7 +1061,9 @@ function buildPackageInfo({
   const packageGrossWeightKg = round2(weightKg || 0);
   const innerTotalQuantity = numberFromCell(valueFor(raw, mapping.__sourceQuantity));
   const innerPiecesPerPackage = numberFromCell(valueFor(raw, mapping.__packingQuantity));
+  const unit = packageUnitFromMapping(mapping);
   const hasPackageSignal = isPackingListMapping(mapping)
+    || unit !== "carton"
     || normalizeHeader(mapping.dimensionText).includes("pallet")
     || normalizeHeader(mapping.dimensionText).includes("skid")
     || normalizeHeader(mapping.dimensionText).includes("\u6258\u76d8")
@@ -924,13 +1071,14 @@ function buildPackageInfo({
   const hasInnerInfo = innerTotalQuantity > 0 || innerPiecesPerPackage > 0;
   if (!hasPackageSignal && !hasInnerInfo) return null;
 
-  const unit = packageUnitFromMapping(mapping);
   const packageTotalGrossWeightKg = totalWeightKg != null
     ? round2(totalWeightKg)
     : round2(packageGrossWeightKg * packageQuantity);
   return compactObject({
     algorithmBasis: "package-unit",
     packageUnit: unit,
+    handlingUnitType: unit,
+    handlingUnitDimensionsExplicit: true,
     packageQuantity,
     packageDimensionsCm: compactObject({
       lengthCm: round2(lengthCm || 0),
@@ -1073,11 +1221,29 @@ function convertWeight(value, unit) {
 }
 
 function normalizeType(value, remark) {
-  const text = `${cleanCell(value)} ${cleanCell(remark)}`.toLowerCase();
-  for (const item of TYPE_ALIASES) {
-    if (item.words.some((word) => text.includes(word.toLowerCase()))) return item.type;
-  }
+  const explicit = cleanCell(value).toLowerCase();
+  const note = cleanCell(remark).toLowerCase();
+  const combined = `${explicit} ${note}`;
+  if (typeAliasMatches("pallet", combined)) return "pallet";
+  if (typeAliasMatches("normal", explicit)) return "normal";
+  if (typeAliasMatches("nonstack", explicit)) return "nonstack";
+  if (typeAliasMatches("upright", explicit)) return "upright";
+  if (typeAliasMatches("nonstack", note)) return "nonstack";
+  if (typeAliasMatches("upright", note)) return "upright";
   return "normal";
+}
+
+function typeAliasMatches(type, text) {
+  const alias = TYPE_ALIASES.find((item) => item.type === type);
+  return Boolean(alias?.words.some((word) => text.includes(word.toLowerCase())));
+}
+
+function constraintFieldValue(value) {
+  const text = cleanCell(value).toLowerCase();
+  if (!text) return undefined;
+  if (["1", "true", "yes", "y", "\u662f", "\u6709", "\u9700\u8981", "\u5fc5\u9700", "\u221a", "\u2713"].includes(text)) return true;
+  if (["0", "false", "no", "n", "\u5426", "\u65e0", "\u4e0d\u9700\u8981", "\u00d7", "\u2715"].includes(text)) return false;
+  return cleanCell(value);
 }
 
 function normalizeColor(value) {
@@ -1092,7 +1258,9 @@ function dimensionKey(cargo) {
     round2(cargo.widthCm),
     round2(cargo.heightCm),
     round2(cargo.weightKg),
-    cargo.type || "normal"
+    cargo.type || "normal",
+    Boolean(cargo.nonStack),
+    Boolean(cargo.keepUpright)
   ].join("|");
 }
 

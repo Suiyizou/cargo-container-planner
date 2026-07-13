@@ -9,6 +9,7 @@ import static org.mockito.Mockito.mock;
 import com.cargoplanner.backend.admin.LlmSettingsService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -237,6 +238,195 @@ class TextRecognitionServiceTest {
     assertTrue(Boolean.TRUE.equals(ReflectionTestUtils.invokeMethod(service, "isTransientProviderStatus", 503)));
     assertFalse(Boolean.TRUE.equals(ReflectionTestUtils.invokeMethod(service, "isTransientProviderStatus", 400)));
     assertFalse(Boolean.TRUE.equals(ReflectionTestUtils.invokeMethod(service, "isTransientProviderStatus", 401)));
+  }
+
+  @Test
+  void keepsPalletTypeWhileApplyingBothIndependentConstraints() {
+    Map<String, Object> cargo = new LinkedHashMap<>();
+    cargo.put("type", "pallet");
+    cargo.put("remark", "\u4e0d\u53ef\u91cd\u538b \u4fdd\u6301\u671d\u4e0a");
+
+    ReflectionTestUtils.invokeMethod(
+        service,
+        "applyIndependentConstraints",
+        cargo,
+        new Object[] { null, null, null, null }
+    );
+
+    assertEquals("pallet", cargo.get("type"));
+    assertTrue(Boolean.TRUE.equals(cargo.get("nonStack")));
+    assertTrue(Boolean.TRUE.equals(cargo.get("keepUpright")));
+  }
+
+  @Test
+  void explicitFalseOverridesPositiveConstraintText() {
+    Map<String, Object> cargo = new LinkedHashMap<>();
+    cargo.put("type", "normal");
+    cargo.put("remark", "\u4e0d\u53ef\u91cd\u538b \u4fdd\u6301\u671d\u4e0a");
+
+    ReflectionTestUtils.invokeMethod(
+        service,
+        "applyIndependentConstraints",
+        cargo,
+        new Object[] { false, null, false, null }
+    );
+
+    assertFalse(Boolean.TRUE.equals(cargo.get("nonStack")));
+    assertFalse(Boolean.TRUE.equals(cargo.get("keepUpright")));
+  }
+
+  @Test
+  void negativePhrasesDoNotCreateConstraints() {
+    Map<String, Object> cargo = new LinkedHashMap<>();
+    cargo.put("type", "normal");
+    cargo.put("remark", "\u975e\u6613\u788e\u54c1 \u53ef\u4ee5\u91cd\u538b \u53ef\u5806\u53e0 \u65e0\u9700\u4fdd\u6301\u671d\u4e0a stackable");
+
+    ReflectionTestUtils.invokeMethod(
+        service,
+        "applyIndependentConstraints",
+        cargo,
+        new Object[] { null, null, null, null }
+    );
+
+    assertFalse(Boolean.TRUE.equals(cargo.get("nonStack")));
+    assertFalse(Boolean.TRUE.equals(cargo.get("keepUpright")));
+  }
+
+  @Test
+  void recognizesNonstackableWithoutTreatingStackableSubstringAsNegative() {
+    Map<String, Object> cargo = new LinkedHashMap<>();
+    cargo.put("type", "normal");
+    cargo.put("remark", "nonstackable");
+
+    ReflectionTestUtils.invokeMethod(
+        service,
+        "applyIndependentConstraints",
+        cargo,
+        new Object[] { null, null, null, null }
+    );
+
+    assertTrue(Boolean.TRUE.equals(cargo.get("nonStack")));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void normalizesLegacyConstraintTypesBeforeAggregation() {
+    Map<String, Object> legacyRow = recognitionCargoRow("nonstackable");
+    Map<String, Object> standardRow = recognitionCargoRow("normal");
+    standardRow.put("nonStack", true);
+
+    Object legacyParsed = ReflectionTestUtils.invokeMethod(service, "normalizeCargo", legacyRow, 1, "");
+    Object standardParsed = ReflectionTestUtils.invokeMethod(service, "normalizeCargo", standardRow, 2, "");
+    Map<String, Object> legacyCargo = (Map<String, Object>) ReflectionTestUtils.invokeMethod(legacyParsed, "cargo");
+    Map<String, Object> standardCargo = (Map<String, Object>) ReflectionTestUtils.invokeMethod(standardParsed, "cargo");
+    List<Map<String, Object>> aggregated = (List<Map<String, Object>>) ReflectionTestUtils.invokeMethod(
+        service,
+        "aggregateCargos",
+        List.of(legacyCargo, standardCargo)
+    );
+
+    assertEquals("normal", legacyCargo.get("type"));
+    assertTrue(Boolean.TRUE.equals(legacyCargo.get("nonStack")));
+    assertEquals(1, aggregated.size());
+    assertEquals(2, aggregated.get(0).get("quantity"));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void preservesPalletIdentityWhenLegacyTypeCarriesUprightConstraint() {
+    Map<String, Object> row = recognitionCargoRow("upright");
+    row.put("packageInfo", new LinkedHashMap<>(Map.of(
+        "handlingUnitType", "pallet",
+        "packageUnit", "pallet",
+        "dimensionSource", "explicit",
+        "handlingUnitDimensionsExplicit", true
+    )));
+
+    Object parsed = ReflectionTestUtils.invokeMethod(service, "normalizeCargo", row, 1, "");
+    Map<String, Object> cargo = (Map<String, Object>) ReflectionTestUtils.invokeMethod(parsed, "cargo");
+
+    assertEquals("pallet", cargo.get("type"));
+    assertTrue(Boolean.TRUE.equals(cargo.get("keepUpright")));
+    assertFalse(Boolean.TRUE.equals(cargo.get("nonStack")));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void normalizesCrateAndWoodenCrateWithoutTreatingBareCaseAsPallet() {
+    Map<String, Object> cratePackageRow = recognitionCargoRow("normal");
+    cratePackageRow.put("packageInfo", new LinkedHashMap<>(Map.of(
+        "handlingUnitType", "crate",
+        "packageUnit", "crate",
+        "dimensionSource", "explicit",
+        "handlingUnitDimensionsExplicit", true
+    )));
+    Object crateParsed = ReflectionTestUtils.invokeMethod(service, "normalizeCargo", cratePackageRow, 1, "");
+    Map<String, Object> crateCargo = (Map<String, Object>) ReflectionTestUtils.invokeMethod(crateParsed, "cargo");
+
+    Object woodenParsed = ReflectionTestUtils.invokeMethod(
+        service,
+        "normalizeCargo",
+        recognitionCargoRow("wooden crate"),
+        2,
+        ""
+    );
+    Map<String, Object> woodenCargo = (Map<String, Object>) ReflectionTestUtils.invokeMethod(woodenParsed, "cargo");
+
+    Object bareCaseParsed = ReflectionTestUtils.invokeMethod(
+        service,
+        "normalizeCargo",
+        recognitionCargoRow("display case"),
+        3,
+        ""
+    );
+    Map<String, Object> bareCaseCargo = (Map<String, Object>) ReflectionTestUtils.invokeMethod(bareCaseParsed, "cargo");
+
+    assertEquals("pallet", crateCargo.get("type"));
+    assertEquals("pallet", woodenCargo.get("type"));
+    assertEquals("normal", bareCaseCargo.get("type"));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void preservesBothConstraintsInDimensionLineFallback() {
+    Object parsed = ReflectionTestUtils.invokeMethod(
+        service,
+        "parseLine",
+        "\u4e0d\u53ef\u91cd\u538b \u4fdd\u6301\u671d\u4e0a precision-device 80x40x30cm 1pcs 10kg",
+        "",
+        1
+    );
+    Map<String, Object> cargo = (Map<String, Object>) ReflectionTestUtils.invokeMethod(parsed, "cargo");
+
+    assertTrue(Boolean.TRUE.equals(cargo.get("nonStack")));
+    assertTrue(Boolean.TRUE.equals(cargo.get("keepUpright")));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void preservesBothConstraintsInPackingListFallback() {
+    Object parsed = ReflectionTestUtils.invokeMethod(
+        service,
+        "parsePackingListTableLine",
+        "PLITEM 10 2 20 1 2 10 20 60 40 30 1 1 1 2 3 \u4e0d\u53ef\u91cd\u538b \u4fdd\u6301\u671d\u4e0a",
+        1
+    );
+    Map<String, Object> cargo = (Map<String, Object>) ReflectionTestUtils.invokeMethod(parsed, "cargo");
+
+    assertTrue(Boolean.TRUE.equals(cargo.get("nonStack")));
+    assertTrue(Boolean.TRUE.equals(cargo.get("keepUpright")));
+  }
+
+  private Map<String, Object> recognitionCargoRow(String type) {
+    Map<String, Object> row = new LinkedHashMap<>();
+    row.put("name", "precision-device");
+    row.put("lengthCm", 100);
+    row.put("widthCm", 80);
+    row.put("heightCm", 60);
+    row.put("quantity", 1);
+    row.put("weightKg", 120);
+    row.put("type", type);
+    return row;
   }
 
   private Map<String, Object> palletCargo(double length, double width, double height) {

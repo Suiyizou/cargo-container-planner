@@ -141,28 +141,43 @@
           <template #header>
             <div class="info-card-head">
               <strong>{{ tr(sceneData.container?.name || "未选择箱型") }}</strong>
-              <el-tag size="small" effect="plain">{{ viewMode === "3d" ? tr("3D装箱") : tr("2D视角") }}</el-tag>
+              <div class="scene-plan-tags">
+                <el-tag v-if="planBoxCount" size="small" effect="plain">
+                  {{ t("metrics.boxProgress", { current: currentBoxNumber, total: planBoxCount }) }}
+                </el-tag>
+                <el-tag v-if="planAverageFillPercent > 0" size="small" type="primary" effect="light">
+                  {{ t("metrics.planAverageUtilization", { value: planAverageFillPercent.toFixed(1) }) }}
+                </el-tag>
+                <el-tag size="small" effect="plain">{{ viewMode === "3d" ? tr("3D装箱") : tr("2D视角") }}</el-tag>
+              </div>
             </div>
           </template>
           <div class="stats-grid compact">
             <div>
-              <span>{{ tr("总件数") }}</span>
+              <span>{{ t("metrics.currentBoxPieces") }}</span>
               <b>{{ sceneData.stats.totalPieces }}</b>
             </div>
             <div>
-              <span>{{ tr("总体积") }}</span>
+              <span>{{ t("metrics.currentBoxVolume") }}</span>
               <b>{{ sceneData.stats.totalVolumeM3.toFixed(2) }} m³</b>
             </div>
             <div>
-              <span>{{ t(sceneData.stats.utilizationLabel) }}</span>
+              <span>{{ t(currentBoxUtilizationLabel) }}</span>
               <b>{{ sceneData.stats.utilizationPercent.toFixed(1) }}%</b>
               <small v-if="sceneData.stats.lengthUtilizationPercent">{{ t("metrics.lengthPercent", { value: sceneData.stats.lengthUtilizationPercent.toFixed(1) }) }}</small>
             </div>
             <div>
-              <span>{{ tr("总重量") }}</span>
+              <span>{{ t("metrics.currentBoxWeight") }}</span>
               <b>{{ formatWeight(sceneData.stats.totalWeightKg) }}</b>
             </div>
           </div>
+          <p v-if="planBoxCount > 1" class="current-box-plan-hint">
+            {{ t("metrics.currentBoxPlanHint", {
+              current: currentBoxNumber,
+              total: planBoxCount,
+              value: planAverageFillPercent.toFixed(1)
+            }) }}
+          </p>
           <el-alert
             v-if="sceneData.stats.performanceMode"
             class="visual-performance-alert"
@@ -286,6 +301,23 @@ const sceneData = computed(() => buildPackingSceneData({
   placements: props.placements as any[],
   evaluation: props.evaluation
 }));
+const planBoxCount = computed(() => Math.max(
+  Number(props.evaluation?.boxes || 0),
+  Array.isArray(props.evaluation?.packedBoxes) ? props.evaluation.packedBoxes.length : 0
+));
+const currentBoxNumber = computed(() => Math.max(1, Number(props.selectedBox?.index || 1)));
+const planAverageFillPercent = computed(() => {
+  const candidates = [
+    props.evaluation?.recommendation?.averageFillPercent,
+    props.evaluation?.averageFillPercent,
+    props.evaluation?.firstBoxFillPercent
+  ];
+  const value = candidates.map(Number).find((candidate) => Number.isFinite(candidate) && candidate > 0);
+  return value ?? 0;
+});
+const currentBoxUtilizationLabel = computed(() => sceneData.value.stats.utilizationLabel === "metrics.deckUtilization"
+  ? "metrics.currentBoxDeckUtilization"
+  : "metrics.currentBoxSpaceUtilization");
 const balanceState = computed(() => resolveBalanceState({
   container: props.container as any,
   placements: props.placements as any[],

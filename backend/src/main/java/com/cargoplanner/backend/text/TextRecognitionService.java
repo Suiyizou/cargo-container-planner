@@ -60,7 +60,7 @@ import org.springframework.web.client.RestTemplate;
 public class TextRecognitionService {
   private static final String TEXT_RECOGNITION_ENGINE_VERSION = "excel-agent-batch-v5";
   private static final List<String> OUTPUT_HEADERS = List.of(
-      "name", "model", "lengthCm", "widthCm", "heightCm", "quantity", "weightKg", "type", "color", "sku", "remark"
+      "name", "model", "lengthCm", "widthCm", "heightCm", "quantity", "weightKg", "type", "nonStack", "keepUpright", "color", "sku", "remark"
   );
   private static final Pattern SKID_LINE_PATTERN = Pattern.compile(
       "(?i)^\\s*(?:(?<name>[\\p{IsHan}A-Za-z][^\\d/]{1,80}?)\\s+)?(?<quantity>\\d+)\\s*"
@@ -102,6 +102,9 @@ public class TextRecognitionService {
       "(?i)-?\\d+(?:[.,]\\d+)?\\s*(mm|cm|m|毫米|厘米|米)"
   );
   private static final Pattern DIMENSION_NUMBER_TOKEN_PATTERN = Pattern.compile("-?\\d+(?:[.,]\\d+)?");
+  private static final Pattern PALLET_HANDLING_UNIT_PATTERN = Pattern.compile(
+      "(?i)(?<![\\p{L}\\p{N}])(?:pallets?|skids?|crates?|(?:wooden|wood)[\\s-]+(?:cases?|crates?|boxes?|packaging))(?![\\p{L}\\p{N}])"
+  );
   private static final int EXCEL_AGENT_BATCH_MAX_ROWS = 10;
   private static final int EXCEL_AGENT_BATCH_MAX_TARGET_CHARS = 6_000;
   private static final int EXCEL_AGENT_MAX_PARALLEL_BATCHES = 4;
@@ -1425,6 +1428,7 @@ public class TextRecognitionService {
         "",
         remark
     );
+    applyIndependentConstraints(cargo, line);
     cargo.put("packageInfo", packingListPackageInfo(
         "carton",
         totalCartons,
@@ -1612,6 +1616,7 @@ public class TextRecognitionService {
           "",
           "文本识别：" + pack
       );
+      applyIndependentConstraints(cargo, line);
       cargo.put("packageInfo", packingListPackageInfo(
           isPalletLike(pack) ? "pallet" : "carton",
           intValue(skid.group("quantity"), 1),
@@ -1651,6 +1656,7 @@ public class TextRecognitionService {
           "",
           tail
       );
+      applyIndependentConstraints(cargo, line);
       List<String> errors = validateCargo(cargo);
       return new ParsedCargo(true, line, cargo, errors);
     }
@@ -1734,6 +1740,14 @@ public class TextRecognitionService {
     if (row.get("packageInfo") instanceof Map<?, ?> packageInfo) {
       cargo.put("packageInfo", new LinkedHashMap<>(packageInfo));
     }
+    applyIndependentConstraints(cargo,
+        row.get("nonStack"),
+        row.get("nonStackable"),
+        row.get("keepUpright"),
+        row.get("upright"),
+        row.get("type"),
+        row.get("remark"),
+        sourceText);
     if (booleanValue(row.get("palletDimensionsMissing"))) {
       cargo.put("lengthCm", 0);
       cargo.put("widthCm", 0);
@@ -1757,8 +1771,7 @@ public class TextRecognitionService {
   @SuppressWarnings("unchecked")
   private void applyPackageHierarchyFormula(Map<String, Object> cargo) {
     if (!isPalletHandlingUnit(cargo)) return;
-    String cargoType = cleanCell(cargo.get("type"));
-    if (!Set.of("nonstack", "upright").contains(cargoType)) cargo.put("type", "pallet");
+    cargo.put("type", "pallet");
     Object packageInfoValue = cargo.get("packageInfo");
     Map<String, Object> packageInfo = packageInfoValue instanceof Map<?, ?> packageInfoRaw
         ? new LinkedHashMap<>((Map<String, Object>) packageInfoRaw)
@@ -2131,12 +2144,12 @@ public class TextRecognitionService {
     Object packageInfoValue = cargo.get("packageInfo");
     if (packageInfoValue instanceof Map<?, ?> packageInfoRaw) {
       Map<String, Object> packageInfo = (Map<String, Object>) packageInfoRaw;
-      String unit = cleanCell(firstNonBlank(
-          packageInfo.get("handlingUnitType"),
-          packageInfo.get("packageUnit"),
-          packageInfo.get("finalHandlingUnit")
-      )).toLowerCase(Locale.ROOT);
-      if (!unit.isBlank()) return containsAny(unit, "pallet", "skid", "托盘", "栈板", "木托");
+      String unit = String.join(" ",
+          cleanCell(packageInfo.get("handlingUnitType")),
+          cleanCell(packageInfo.get("packageUnit")),
+          cleanCell(packageInfo.get("finalHandlingUnit"))
+      ).trim();
+      if (!unit.isBlank()) return hasPalletHandlingUnitSignal(unit);
     }
     return "pallet".equals(cleanCell(cargo.get("type")));
   }
@@ -2144,7 +2157,79 @@ public class TextRecognitionService {
   private boolean booleanValue(Object value) {
     if (value instanceof Boolean bool) return bool;
     String text = cleanCell(value).toLowerCase(Locale.ROOT);
-    return text.equals("true") || text.equals("1") || text.equals("yes") || text.equals("y");
+    return text.equals("true") || text.equals("1") || text.equals("yes") || text.equals("y")
+        || text.equals("是") || text.equals("有") || text.equals("需要") || text.equals("必需")
+        || text.equals("√") || text.equals("✓");
+  }
+
+  private void applyIndependentConstraints(Map<String, Object> cargo, Object... sources) {
+    StringBuilder text = new StringBuilder();
+    text.append(' ').append(cleanCell(cargo.get("type")));
+    text.append(' ').append(cleanCell(cargo.get("remark")));
+    for (Object source : sources) text.append(' ').append(cleanCell(source));
+    String normalized = text.toString().toLowerCase(Locale.ROOT);
+    Boolean explicitNonStack = sources.length >= 4 ? firstExplicitBoolean(sources[0], sources[1]) : null;
+    Boolean explicitKeepUpright = sources.length >= 4 ? firstExplicitBoolean(sources[2], sources[3]) : null;
+    boolean detectedNonStack = detectsNonStackConstraint(normalized);
+    boolean detectedKeepUpright = detectsKeepUprightConstraint(normalized);
+    boolean nonStack = explicitNonStack != null
+        ? explicitNonStack
+        : booleanValue(cargo.get("nonStack")) || booleanValue(cargo.get("nonStackable")) || detectedNonStack;
+    boolean keepUpright = explicitKeepUpright != null
+        ? explicitKeepUpright
+        : booleanValue(cargo.get("keepUpright")) || booleanValue(cargo.get("upright")) || detectedKeepUpright;
+    cargo.put("nonStack", nonStack);
+    cargo.put("keepUpright", keepUpright);
+  }
+
+  private boolean detectsNonStackConstraint(String value) {
+    String probe = cleanCell(value).toLowerCase(Locale.ROOT);
+    for (String phrase : List.of(
+        "not non-stackable", "not nonstackable", "not non stackable",
+        "非不可重压", "无需不可重压", "不要求不可重压")) {
+      probe = probe.replace(phrase, " ");
+    }
+    for (String phrase : List.of(
+        "non-stackable", "non stackable", "nonstackable", "unstackable",
+        "not stackable", "do not stack", "no stack", "non-stack", "non stack", "nonstack",
+        "不可重压", "不能重压", "禁止重压", "勿压", "不可堆叠", "不能堆叠", "禁止堆叠")) {
+      probe = probe.replace(phrase, " __non_stack__ ");
+    }
+    for (String phrase : List.of(
+        "非易碎", "不是易碎", "not fragile", "non-fragile", "non fragile",
+        "可重压", "允许重压", "可以重压", "可堆叠", "允许堆叠", "可以堆叠",
+        "can be stacked", "stacking allowed")) {
+      probe = probe.replace(phrase, " ");
+    }
+    probe = probe.replaceAll("(?<![\\p{L}\\p{N}-])stackable(?![\\p{L}\\p{N}-])", " ");
+    return probe.contains("__non_stack__") || containsAny(probe, "易碎", "fragile");
+  }
+
+  private boolean detectsKeepUprightConstraint(String value) {
+    String probe = cleanCell(value).toLowerCase(Locale.ROOT);
+    for (String phrase : List.of(
+        "无需保持朝上", "不需要保持朝上", "不要求保持朝上", "无需朝上",
+        "可以倒置", "允许倒置", "keep upright not required", "upright not required", "not upright")) {
+      probe = probe.replace(phrase, " ");
+    }
+    return containsAny(probe,
+        "保持朝上", "朝上", "向上", "不可倒置", "请勿倒置",
+        "upright", "this side up", "keep upright");
+  }
+
+  private Boolean firstExplicitBoolean(Object... values) {
+    for (Object value : values) {
+      if (value instanceof Boolean bool) return bool;
+      if (value instanceof Number number) {
+        if (number.doubleValue() == 0) return false;
+        if (number.doubleValue() == 1) return true;
+      }
+      String text = cleanCell(value).toLowerCase(Locale.ROOT);
+      if (text.isBlank()) continue;
+      if (List.of("1", "true", "yes", "y", "是", "有", "需要", "必需", "√", "✓").contains(text)) return true;
+      if (List.of("0", "false", "no", "n", "否", "无", "不需要", "×", "✕").contains(text)) return false;
+    }
+    return null;
   }
 
   @SuppressWarnings("unchecked")
@@ -2285,7 +2370,8 @@ public class TextRecognitionService {
     cargo.put("heightCm", round2(heightCm));
     cargo.put("quantity", quantity == null ? 0 : quantity);
     cargo.put("weightKg", round2(weightKg));
-    cargo.put("type", firstNonBlank(type, "normal"));
+    cargo.put("type", "pallet".equalsIgnoreCase(cleanCell(type)) ? "pallet" : "normal");
+    applyIndependentConstraints(cargo, type, remark);
     cargo.put("color", normalizeColor(color));
     cargo.put("sku", cleanCell(sku));
     cargo.put("remark", cleanCell(remark));
@@ -2323,6 +2409,8 @@ public class TextRecognitionService {
           String.valueOf(cargo.getOrDefault("heightCm", "")),
           String.valueOf(cargo.getOrDefault("weightKg", "")),
           String.valueOf(cargo.getOrDefault("type", "")),
+          String.valueOf(cargo.getOrDefault("nonStack", false)),
+          String.valueOf(cargo.getOrDefault("keepUpright", false)),
           String.valueOf(cargo.getOrDefault("color", ""))
       ).toString();
       Map<String, Object> existing = aggregate.get(key);
@@ -2435,7 +2523,9 @@ public class TextRecognitionService {
               "heightCm": 0,
               "quantity": 1,
               "weightKg": 0,
-              "type": "normal|pallet|upright|nonstack",
+              "type": "normal|pallet",
+              "nonStack": false,
+              "keepUpright": false,
               "palletDimensionsMissing": false,
               "remark": "short note",
               "packageInfo": {
@@ -2470,7 +2560,8 @@ public class TextRecognitionService {
         - Do not skip a repeated pallet row merely because its product name and dimensions match another row. Different source rows/SKUs can represent different physical pallets; emit each source row first and let the backend aggregate only after the final handling unit is validated.
         - For a pallet final handling unit, quantity is the pallet count, not the number of cartons inside it. Store carton count, cartons per pallet, carton dimensions, carton weight, layers, and cartons per layer only in packageInfo.innerCargo. When cartonCount and cartonsPerPallet are both clear, pallet quantity is ceil(cartonCount / cartonsPerPallet).
         - For every pallet candidate, packageInfo is mandatory and must include handlingUnitType="pallet", packageUnit="pallet", packageQuantity, dimensionSource, and handlingUnitDimensionsExplicit. packageInfo may be omitted only for non-pallet rows that have no packaging hierarchy.
-        - type expresses the packing/stacking constraint, while packageInfo.handlingUnitType expresses the physical package. For a fragile or non-stackable pallet use type="nonstack" with handlingUnitType="pallet"; for an upright-only pallet use type="upright" with handlingUnitType="pallet". Do not lose those constraints by changing type back to "pallet".
+        - nonStack and keepUpright are independent packing constraints and may both be true on the same row. Set nonStack=true for fragile/no-stack cargo and keepUpright=true for this-side-up/upright cargo. Never drop one when both constraints appear. type describes the physical package (normally "normal" or "pallet"); the two booleans are authoritative for handling constraints.
+        - For a constrained pallet, keep packageInfo.handlingUnitType="pallet" and preserve both independent booleans. Do not change both booleans back to false merely because the physical package is a pallet.
         - Pallet algorithm dimensions must be the explicit loaded-pallet outer length, width, and height from the source. Total volume, carton dimensions, layer count, or a guessed grid cannot uniquely prove pallet outer dimensions. Never substitute carton dimensions or invent pallet dimensions.
         - If the final handling unit is a pallet but explicit loaded-pallet L/W/H is absent, still emit one row candidate under rows (not only under issues) with the applicable constraint type, the best-known pallet quantity and gross weight, lengthCm=0,widthCm=0,heightCm=0, palletDimensionsMissing=true, packageInfo.dimensionSource="missing", packageInfo.handlingUnitDimensionsExplicit=false, and the carton details in packageInfo.innerCargo. The backend will block import and ask the user to enter the pallet dimensions.
         - If loose-piece/order details exist, store them only in packageInfo.innerCargo and/or remark.
@@ -2496,7 +2587,7 @@ public class TextRecognitionService {
         - Do not calculate loose pieces / 散件 for container packing. Import the actual handled package unit: carton, crate, wooden case, or explicit final pallet unit.
         - If one product title is followed by multiple skid lines, use that title as the name for those rows.
         - If the same name has different dimensions and no model, leave model empty; the backend will assign 型号 A/B/C.
-        - Map skids, pallets, wooden cases and crates to type "pallet"; fragile/no stack to "nonstack"; this side up/upright to "upright"; otherwise "normal".
+        - Map skids, pallets, wooden cases and crates to type="pallet". Use type="normal" for ordinary cartons or other non-pallet units. Record fragile/no-stack only in nonStack and this-side-up/upright only in keepUpright; preserve both booleans when both apply.
         """;
   }
 
@@ -2769,27 +2860,20 @@ public class TextRecognitionService {
   }
 
   private String normalizeType(Object... values) {
-    String text = "";
-    for (Object value : values) {
-      text += " " + cleanCell(value).toLowerCase(Locale.ROOT);
-    }
-    if (text.contains("不可重压") || text.contains("不能重压") || text.contains("易碎") || text.contains("fragile")
-        || text.contains("nonstack") || text.contains("non-stack") || text.contains("no stack")) {
-      return "nonstack";
-    }
-    if (text.contains("朝上") || text.contains("向上") || text.contains("upright") || text.contains("this side up")) {
-      return "upright";
-    }
-    if (text.contains("托盘") || text.contains("栈板") || text.contains("木托")
-        || text.contains("pallet") || text.contains("skid")) {
-      return "pallet";
-    }
-    return "normal";
+    return hasPalletHandlingUnitSignal(values) ? "pallet" : "normal";
   }
 
   private boolean isPalletLike(String pack) {
-    String text = cleanCell(pack).toLowerCase(Locale.ROOT);
-    return text.contains("skid") || text.contains("pallet") || text.contains("托");
+    return hasPalletHandlingUnitSignal(pack);
+  }
+
+  private boolean hasPalletHandlingUnitSignal(Object... values) {
+    StringBuilder text = new StringBuilder();
+    for (Object value : values) text.append(' ').append(cleanCell(value).toLowerCase(Locale.ROOT));
+    String normalized = text.toString();
+    return containsAny(normalized,
+        "托盘", "栈板", "木托", "木箱", "木制箱", "木质箱", "木包装", "木制包装", "木质包装")
+        || PALLET_HANDLING_UNIT_PATTERN.matcher(normalized).find();
   }
 
   private String normalizeColor(Object value) {
@@ -2803,7 +2887,9 @@ public class TextRecognitionService {
         String.valueOf(round2(numberValue(cargo.get("widthCm")))),
         String.valueOf(round2(numberValue(cargo.get("heightCm")))),
         String.valueOf(round2(numberValue(cargo.get("weightKg")))),
-        String.valueOf(cargo.getOrDefault("type", "normal"))
+        String.valueOf(cargo.getOrDefault("type", "normal")),
+        String.valueOf(cargo.getOrDefault("nonStack", false)),
+        String.valueOf(cargo.getOrDefault("keepUpright", false))
     ).stream().reduce((left, right) -> left + "|" + right).orElse("");
   }
 

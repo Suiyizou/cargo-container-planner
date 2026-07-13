@@ -942,7 +942,13 @@ function axisBaseCm(item, axis) {
 }
 
 function stackMethod(item) {
+  if (item.nonStack && item.keepUpright) {
+    return "\u5806\u653e\u65b9\u5f0f\uff1a\u4e0d\u53ef\u91cd\u538b\u4e14\u5fc5\u987b\u4fdd\u6301\u671d\u4e0a\uff1b\u672c\u4ef6\u4e0d\u4f5c\u4e3a\u4e0a\u5c42\u652f\u6491\uff0c\u4e0d\u5141\u8bb8\u4fa7\u653e\u6216\u5012\u7f6e\u3002";
+  }
   if (item.nonStack) return "堆放方式：不可重压；可放在箱底或可承重货物顶面，本件不作为上层支撑。";
+  if (item.keepUpright) {
+    return "\u5806\u653e\u65b9\u5f0f\uff1a\u4fdd\u6301\u671d\u4e0a\uff1b\u53ea\u5141\u8bb8\u5728\u6c34\u5e73\u9762\u5185\u8c03\u6362\u957f\u5bbd\u65b9\u5411\uff0c\u4e0d\u5141\u8bb8\u4fa7\u653e\u6216\u5012\u7f6e\u3002";
+  }
   if (Number(item.zCm || 0) <= 0.1) return "堆放方式：箱底铺放；可承重，可作为上层货物支撑面。";
   return "堆放方式：上层堆放；下方可承重重叠面积需达到 98.5%，本件可继续承重。";
 }
