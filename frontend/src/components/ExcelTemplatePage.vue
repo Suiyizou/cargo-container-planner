@@ -1,44 +1,62 @@
 <template>
-  <section class="algorithm-page excel-template-page">
+  <section class="algorithm-page excel-template-page" data-i18n-ignore>
     <div class="page-title">
-      <p>{{ tr("Smart Import") }}</p>
-      <h2>{{ ui('excel.title') }}</h2>
+      <p>{{ ui('excel.importCargoEyebrow') }}</p>
+      <h2>{{ ui('excel.importCargoTitle') }}</h2>
+    </div>
+
+    <div class="excel-import-mode-switch" role="tablist" :aria-label="ui('excel.importModeChoice')">
+      <el-button
+        id="quick-import-tab"
+        ref="quickImportTab"
+        size="large"
+        :type="excelMode === 'manual' ? 'primary' : 'default'"
+        :plain="excelMode !== 'manual'"
+        :disabled="importBusy"
+        role="tab"
+        aria-controls="cargo-import-panel"
+        :aria-selected="excelMode === 'manual'"
+        :tabindex="excelMode === 'manual' ? 0 : -1"
+        @click="switchExcelMode('manual')"
+        @keydown.left.prevent="selectImportModeFromKeyboard('recognition')"
+        @keydown.right.prevent="selectImportModeFromKeyboard('recognition')"
+        @keydown.home.prevent="selectImportModeFromKeyboard('manual')"
+        @keydown.end.prevent="selectImportModeFromKeyboard('recognition')"
+      >
+        {{ ui('excel.manualImport') }}
+      </el-button>
+      <el-button
+        id="smart-import-tab"
+        ref="smartImportTab"
+        size="large"
+        :type="excelMode === 'recognition' ? 'primary' : 'default'"
+        :plain="excelMode !== 'recognition'"
+        :disabled="importBusy"
+        role="tab"
+        aria-controls="cargo-import-panel"
+        :aria-selected="excelMode === 'recognition'"
+        :tabindex="excelMode === 'recognition' ? 0 : -1"
+        @click="switchExcelMode('recognition')"
+        @keydown.left.prevent="selectImportModeFromKeyboard('manual')"
+        @keydown.right.prevent="selectImportModeFromKeyboard('manual')"
+        @keydown.home.prevent="selectImportModeFromKeyboard('manual')"
+        @keydown.end.prevent="selectImportModeFromKeyboard('recognition')"
+      >
+        <span class="hollow-star button-star" aria-hidden="true">☆</span>
+        {{ ui('excel.smartRecognition') }}
+      </el-button>
     </div>
 
     <div class="excel-workspace-layout">
-      <el-menu
-        class="excel-side-menu"
-        :default-active="excelMode"
-        @select="switchExcelMode"
-      >
-        <el-menu-item index="manual" :disabled="recognitionAgentBusy || preciseImportBusy">
-          <div class="excel-menu-item">
-            <strong>{{ ui('excel.manualImport') }}</strong>
-            <span>{{ ui('excel.manualSubtitle') }}</span>
-          </div>
-        </el-menu-item>
-        <el-menu-item index="recognition">
-          <div class="excel-menu-item">
-            <strong class="recognition-menu-label">
-              <span class="hollow-star" aria-hidden="true">☆</span>
-              {{ ui('excel.smartRecognition') }}
-            </strong>
-            <span>{{ ui('excel.recognitionSubtitle') }}</span>
-          </div>
-        </el-menu-item>
-        <el-menu-item index="reference" :disabled="recognitionAgentBusy || preciseImportBusy">
-          <div class="excel-menu-item">
-            <strong>{{ ui('excel.fieldTemplate') }}</strong>
-            <span>{{ ui('excel.fieldSubtitle') }}</span>
-          </div>
-        </el-menu-item>
-      </el-menu>
 
       <div class="excel-main-pane">
       <div
         v-if="excelMode === 'manual'"
-        class="excel-manual-card"
-        :class="{ 'is-dragging': manualDropActive, 'is-busy': manualImportBusy || recognitionAgentBusy || preciseImportBusy }"
+        id="cargo-import-panel"
+        class="excel-import-card excel-manual-card"
+        role="tabpanel"
+        aria-labelledby="quick-import-tab"
+        :class="{ 'is-dragging': manualDropActive, 'is-busy': importBusy }"
         @dragenter.prevent="handleManualDragEnter"
         @dragover.prevent="handleManualDragOver"
         @dragleave.prevent="handleManualDragLeave"
@@ -55,13 +73,12 @@
               hidden
               type="file"
               :accept="WORKBOOK_FILE_ACCEPT"
-              :disabled="manualImportBusy || recognitionAgentBusy || preciseImportBusy"
+              :disabled="importBusy"
               @change="handleFile"
             />
-            <el-button type="primary" :disabled="recognitionAgentBusy || preciseImportBusy" :loading="manualImportBusy" @click="openManualFilePicker">
+            <el-button type="primary" :disabled="importBusy" :loading="manualImportBusy || previewBusy" @click="openManualFilePicker">
               {{ ui('common.chooseFile') }}
             </el-button>
-            <el-button @click="downloadTemplate">{{ ui('common.downloadTemplate') }}</el-button>
           </div>
         </div>
 
@@ -79,7 +96,7 @@
           :class="{ active: manualDropActive }"
           role="button"
           tabindex="0"
-          :aria-disabled="manualImportBusy || recognitionAgentBusy || preciseImportBusy"
+          :aria-disabled="importBusy"
           @click="openManualFilePicker"
           @keydown.enter.prevent="openManualFilePicker"
           @keydown.space.prevent="openManualFilePicker"
@@ -87,7 +104,7 @@
           <el-icon class="excel-drop-icon"><UploadFilled /></el-icon>
           <div class="excel-drop-copy">
             <strong>
-              {{ ui(manualImportBusy ? 'excel.dropBusy' : manualDropActive ? 'excel.dropRelease' : 'excel.dropToRecognize') }}
+              {{ ui(importBusy ? 'excel.dropBusy' : manualDropActive ? 'excel.dropRelease' : 'excel.dropToRecognize') }}
             </strong>
             <span>{{ ui('excel.dropSupportText') }}</span>
           </div>
@@ -129,7 +146,18 @@
         </div>
       </div>
 
-    <div v-else-if="excelMode === 'recognition'" class="algorithm-note smart-recognition-card">
+    <div
+      v-else-if="excelMode === 'recognition'"
+      id="cargo-import-panel"
+      class="excel-import-card smart-recognition-card"
+      role="tabpanel"
+      aria-labelledby="smart-import-tab"
+      :class="{ 'is-dragging': preciseDropActive, 'is-busy': importBusy }"
+      @dragenter.prevent="handlePreciseDragEnter"
+      @dragover.prevent="handlePreciseDragOver"
+      @dragleave.prevent="handlePreciseDragLeave"
+      @drop.prevent="handlePreciseDrop"
+    >
       <div class="recognition-head">
         <div>
           <strong class="recognition-title">
@@ -144,28 +172,52 @@
             hidden
             type="file"
             :accept="WORKBOOK_FILE_ACCEPT"
-            :disabled="recognitionAgentBusy || preciseImportBusy"
+            :disabled="importBusy"
             @change="handlePreciseFile"
           />
-          <el-button :disabled="recognitionAgentBusy || preciseImportBusy" :loading="preciseImportBusy" @click="openPreciseFilePicker">
-            {{ ui('excel.choosePreciseFile') }}
+          <el-button type="primary" :disabled="importBusy" :loading="preciseImportBusy" @click="openPreciseFilePicker">
+            {{ ui('common.chooseFile') }}
           </el-button>
-          <el-button :disabled="recognitionAgentBusy || preciseImportBusy" @click="fillRecognitionSample">{{ ui('common.useSample') }}</el-button>
-          <el-button :disabled="recognitionAgentBusy || preciseImportBusy" @click="clearRecognition">{{ ui('common.clear') }}</el-button>
-          <el-button type="primary" :disabled="!recognitionText.trim() || recognitionAgentBusy || preciseImportBusy" :loading="recognitionAgentBusy" @click="submitTextRecognitionTask">
-            <span class="hollow-star button-star" aria-hidden="true">☆</span>
-            {{ recognitionAgentBusy ? ui('excel.recognizing') : ui('excel.smartRecognition') }}
-          </el-button>
+          <el-button :disabled="importBusy" @click="fillRecognitionSample">{{ ui('common.useSample') }}</el-button>
+          <el-button :disabled="importBusy" @click="clearRecognition">{{ ui('common.clear') }}</el-button>
         </div>
       </div>
+
+      <div
+        class="excel-drop-zone"
+        :class="{ active: preciseDropActive }"
+        role="button"
+        tabindex="0"
+        :aria-disabled="importBusy"
+        @click="openPreciseFilePicker"
+        @keydown.enter.prevent="openPreciseFilePicker"
+        @keydown.space.prevent="openPreciseFilePicker"
+      >
+        <el-icon class="excel-drop-icon"><UploadFilled /></el-icon>
+        <div class="excel-drop-copy">
+          <strong>
+            {{ ui(importBusy ? 'excel.smartDropBusy' : preciseDropActive ? 'excel.smartDropRelease' : 'excel.smartDropToRecognize') }}
+          </strong>
+          <span>{{ ui('excel.smartDropSupportText') }}</span>
+        </div>
+        <span class="excel-drop-formats">XLSX / XLS / CSV / TSV</span>
+      </div>
+
+      <div class="recognition-text-divider"><span>{{ ui('excel.orPasteText') }}</span></div>
       <el-input
         v-model="recognitionText"
         type="textarea"
-        :disabled="recognitionAgentBusy || preciseImportBusy"
+        :disabled="importBusy"
         @input="resetRecognitionResult"
-        :rows="10"
+        :rows="7"
         :placeholder="t('smartImport.recognitionPlaceholder')"
       />
+      <div class="recognition-submit-row">
+        <el-button type="primary" :disabled="!recognitionText.trim() || importBusy" :loading="recognitionAgentBusy" @click="submitTextRecognitionTask">
+          <span class="hollow-star button-star" aria-hidden="true">☆</span>
+          {{ recognitionAgentBusy ? ui('excel.recognizing') : ui('excel.startSmartRecognition') }}
+        </el-button>
+      </div>
 
       <div v-if="recognitionAgentBusy" class="recognition-loading-panel">
         <span class="recognition-loader"></span>
@@ -190,9 +242,9 @@
         </div>
       </div>
 
-      <div v-if="recognitionMessage" class="recognition-placeholder" :class="{ error: recognitionMessageType === 'error' }">
+      <div v-if="recognitionStatusMessage" class="recognition-placeholder" :class="{ error: recognitionMessageType === 'error' }">
         <span>{{ ui(recognitionMessageType === "error" ? 'excel.needsAction' : 'excel.recognitionTip') }}</span>
-        <strong>{{ recognitionMessage }}</strong>
+        <strong>{{ recognitionStatusMessage }}</strong>
       </div>
 
       <template v-if="recognitionHasResult">
@@ -422,68 +474,6 @@
           </table>
         </div>
       </article>
-    </div>
-
-    <div v-if="excelMode === 'reference'" class="template-grid">
-      <article class="algorithm-note">
-        <strong>{{ ui('excel.requiredFields') }}</strong>
-        <div class="template-table-wrap">
-          <table class="template-table">
-            <thead>
-              <tr>
-                <th>{{ ui('common.fieldName') }}</th>
-                <th>{{ ui('common.meaning') }}</th>
-                <th>{{ ui('common.example') }}</th>
-                <th>{{ ui('common.validationRule') }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="field in requiredFields" :key="field.key">
-                <td><code>{{ field.key }}</code></td>
-                <td>{{ tr(field.label) }}</td>
-                <td>{{ field.example }}</td>
-                <td>{{ tr(field.rule) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </article>
-
-      <article class="algorithm-note">
-        <strong>{{ ui('excel.optionalRules') }}</strong>
-        <ul class="formula-list">
-          <li>{{ ui('excel.rule.type') }}</li>
-          <li>{{ ui('excel.rule.dimensionText') }}</li>
-          <li>{{ ui('excel.rule.model') }}</li>
-          <li>{{ ui('excel.rule.totalWeight') }}</li>
-          <li>{{ ui('excel.rule.duplicateSku') }}</li>
-        </ul>
-      </article>
-    </div>
-
-    <div v-if="excelMode === 'reference'" class="algorithm-note">
-      <strong>{{ ui('excel.standardExample') }}</strong>
-      <div class="template-table-wrap">
-        <table class="template-table sample">
-          <thead>
-            <tr>
-              <th v-for="header in sampleHeaders" :key="header">{{ tr(header) }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in sampleRows" :key="row.id">
-              <td v-for="header in sampleHeaders" :key="header">{{ typeof row[header] === "string" ? tr(row[header]) : row[header] }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div v-if="excelMode === 'reference'" class="algorithm-note">
-      <strong>{{ ui('excel.recognitionPosition') }}</strong>
-      <p>
-        {{ ui('excel.recognitionPositionText') }}
-      </p>
     </div>
 
     <el-dialog
@@ -858,11 +848,10 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, reactive, ref } from "vue";
 import { EditPen, UploadFilled } from "@element-plus/icons-vue";
 import {
   aggregateCargos,
-  downloadTemplateWorkbook,
   formatWorkbookForRecognition,
   importFields,
   validateCargo
@@ -906,6 +895,9 @@ const excelMode = ref("manual");
 const recognitionText = ref("");
 const recognitionPreview = ref(null);
 const recognitionMessage = ref("");
+const recognitionMessageKey = ref("");
+const recognitionMessageParams = ref({});
+const recognitionMessageFactory = ref(null);
 const recognitionMessageType = ref("ok");
 const recognitionAgentBusy = ref(false);
 const recognitionElapsedSeconds = ref(0);
@@ -914,11 +906,16 @@ const sourcePreviewOpen = ref(false);
 const sourcePreviewSheetName = ref("");
 const manualImportBusy = ref(false);
 const manualDropActive = ref(false);
+const preciseDropActive = ref(false);
 const manualFileInput = ref(null);
 const preciseFileInput = ref(null);
+const quickImportTab = ref(null);
+const smartImportTab = ref(null);
 const previewBusy = ref(false);
 const preciseImportBusy = ref(false);
 const manualImportMessage = ref("");
+const manualImportMessageKey = ref("");
+const manualImportMessageParams = ref({});
 const manualImportMessageType = ref("info");
 const recognitionAgentTask = ref(null);
 const recognitionEditIndex = ref(-1);
@@ -966,6 +963,9 @@ const recognitionEditForm = reactive({
 });
 const options = reactive({ dimensionUnit: "auto", weightUnit: "auto" });
 const importMode = ref(props.currentCargoCount > 0 ? "append" : "replace");
+const importBusy = computed(() =>
+  manualImportBusy.value || previewBusy.value || preciseImportBusy.value || recognitionAgentBusy.value
+);
 const visibleMappingFields = computed(() =>
   importFields.filter((field) => field.key !== "totalWeightKg" || mapping.totalWeightKg || activeSheet.value?.headers.length)
 );
@@ -989,14 +989,29 @@ const approvedQuantity = computed(() =>
 );
 const manualValidRowCount = computed(() => previewValidRowCount(preview.value) + manualCorrections.value.length);
 const importStatusMessage = computed(() => {
-  if (!preview.value) return manualImportMessage.value;
+  const explicitMessage = manualImportMessageKey.value
+    ? ui(manualImportMessageKey.value, manualImportMessageParams.value)
+    : tr(manualImportMessage.value);
+  if (manualImportMessageType.value === "error" && explicitMessage) return explicitMessage;
+  if (!preview.value) {
+    return explicitMessage;
+  }
   return preview.value.invalidRows.length
-    ? `已完成预览：${previewValidRowCount(preview.value)} 行有效，${preview.value.invalidRows.length} 行需要确认。`
-    : `已完成预览：${previewValidRowCount(preview.value)} 行全部通过校验。`;
+    ? ui("excel.previewCompleteWithIssues", {
+        valid: previewValidRowCount(preview.value),
+        invalid: preview.value.invalidRows.length
+      })
+    : ui("excel.previewCompleteAllValid", { count: previewValidRowCount(preview.value) });
 });
 const importStatusType = computed(() => {
+  if (manualImportMessageType.value === "error" && (manualImportMessageKey.value || manualImportMessage.value)) return "error";
   if (!preview.value) return manualImportMessageType.value;
   return preview.value.invalidRows.length ? "warning" : "success";
+});
+const recognitionStatusMessage = computed(() => {
+  if (recognitionMessageFactory.value) return recognitionMessageFactory.value();
+  if (recognitionMessageKey.value) return ui(recognitionMessageKey.value, recognitionMessageParams.value);
+  return tr(recognitionMessage.value);
 });
 const recognitionRows = computed(() =>
   (recognitionAgentTask.value?.cleanedRows || []).map((cargo) => {
@@ -1116,32 +1131,30 @@ const recognitionSkippedIssueCount = computed(() =>
 );
 const suggestionSummary = computed(() => {
   if (!suggestionRow.value) return "";
-  const label = suggestionForm.model ? `${suggestionForm.name || "未命名货物"} ${suggestionForm.model}` : suggestionForm.name || "未命名货物";
-  return `${label}，${suggestionForm.lengthCm || "-"} × ${suggestionForm.widthCm || "-"} × ${suggestionForm.heightCm || "-"} cm，${suggestionForm.quantity || 0} 件，${suggestionForm.weightKg || 0} kg/件`;
+  const name = suggestionForm.name || ui("excel.unnamedCargo");
+  const label = suggestionForm.model ? `${name} ${suggestionForm.model}` : name;
+  return cargoEditSummary(label, suggestionForm);
 });
 const recognitionEditSummary = computed(() => {
   if (recognitionEditIndex.value < 0) return "";
+  const name = recognitionEditForm.name || ui("excel.unnamedCargo");
   const label = recognitionEditForm.model
-    ? `${recognitionEditForm.name || "未命名货物"} ${recognitionEditForm.model}`
-    : recognitionEditForm.name || "未命名货物";
-  return `${label}，${recognitionEditForm.lengthCm || "-"} × ${recognitionEditForm.widthCm || "-"} × ${recognitionEditForm.heightCm || "-"} cm，${recognitionEditForm.quantity || 0} 件，${recognitionEditForm.weightKg || 0} kg/件`;
+    ? `${name} ${recognitionEditForm.model}`
+    : name;
+  return cargoEditSummary(label, recognitionEditForm);
 });
 
-const requiredFields = [
-  { key: "name", label: "货物名称", example: "纸箱 B", rule: "不能为空" },
-  { key: "lengthCm", label: "长度 cm", example: "60", rule: "大于 0 的数字" },
-  { key: "widthCm", label: "宽度 cm", example: "40", rule: "大于 0 的数字" },
-  { key: "heightCm", label: "高度 cm", example: "35", rule: "大于 0 的数字" },
-  { key: "quantity", label: "数量", example: "30", rule: "正整数" },
-  { key: "weightKg", label: "单件重量 kg", example: "12", rule: "大于等于 0 的数字" }
-];
+function cargoEditSummary(label, form) {
+  return ui("excel.cargoEditSummary", {
+    label,
+    length: form.lengthCm || "-",
+    width: form.widthCm || "-",
+    height: form.heightCm || "-",
+    quantity: form.quantity || 0,
+    weight: form.weightKg || 0
+  });
+}
 
-const sampleHeaders = ["name", "model", "lengthCm", "widthCm", "heightCm", "quantity", "weightKg", "type", "nonStack", "keepUpright", "color", "remark"];
-const sampleRows = [
-  { id: 1, name: "\u8776\u9600\u6728\u7bb1", model: "100", lengthCm: 110, widthCm: 45, heightCm: 82, quantity: 8, weightKg: 180, type: "pallet", nonStack: false, keepUpright: false, color: "#2a9d8f", remark: "\u6728\u7bb1/\u6258\u76d8\u7c7b" },
-  { id: 2, name: "\u7eb8\u7bb1 B", model: "", lengthCm: 60, widthCm: 40, heightCm: 35, quantity: 30, weightKg: 12, type: "normal", nonStack: false, keepUpright: false, color: "#3b82f6", remark: "\u666e\u901a\u53ef\u5806\u53e0" },
-  { id: 3, name: "\u7cbe\u5bc6\u8bbe\u5907 C", model: "", lengthCm: 55, widthCm: 45, heightCm: 30, quantity: 12, weightKg: 18, type: "normal", nonStack: true, keepUpright: true, color: "#8b5cf6", remark: "\u4e0d\u53ef\u91cd\u538b\uff1b\u4fdd\u6301\u671d\u4e0a" }
-];
 const reviewKeywords = {
   emptyPallet: ["\u7a7a\u6258\u76d8", "\u7a7a\u6258", "\u7a7a\u6728\u6258", "empty pallet", "empty skid"],
   mixedPallet: ["\u62fc\u88c5", "\u62fc\u6258", "\u6df7\u88c5", "\u5408\u62fc", "\u5171\u6258", "mixed pallet", "combined pallet", "mixed skid", "combined skid"],
@@ -1173,14 +1186,15 @@ let workbookVersion = 0;
 let lastPreviewSignature = "";
 let pendingPreviewSignature = "";
 let manualDragDepth = 0;
+let preciseDragDepth = 0;
 
 function openManualFilePicker() {
-  if (manualImportBusy.value || recognitionAgentBusy.value || preciseImportBusy.value) return;
+  if (importBusy.value) return;
   manualFileInput.value?.click();
 }
 
 function openPreciseFilePicker() {
-  if (recognitionAgentBusy.value || preciseImportBusy.value) return;
+  if (importBusy.value) return;
   preciseFileInput.value?.click();
 }
 
@@ -1199,13 +1213,13 @@ async function handlePreciseFile(event) {
 }
 
 function handleManualDragEnter(event) {
-  if (manualImportBusy.value || recognitionAgentBusy.value || preciseImportBusy.value || !dragContainsFiles(event)) return;
+  if (importBusy.value || !dragContainsFiles(event)) return;
   manualDragDepth += 1;
   manualDropActive.value = true;
 }
 
 function handleManualDragOver(event) {
-  if (manualImportBusy.value || recognitionAgentBusy.value || preciseImportBusy.value || !dragContainsFiles(event)) return;
+  if (importBusy.value || !dragContainsFiles(event)) return;
   if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
   manualDropActive.value = true;
 }
@@ -1219,15 +1233,47 @@ function handleManualDragLeave() {
 async function handleManualDrop(event) {
   manualDragDepth = 0;
   manualDropActive.value = false;
-  if (manualImportBusy.value || recognitionAgentBusy.value || preciseImportBusy.value) return;
+  if (importBusy.value) return;
 
   const files = Array.from(event.dataTransfer?.files || []);
   if (!files.length) return;
   if (files.length > 1) {
-    showManualFileError(ui("excel.dropSingleFileOnly"));
+    showManualFileError("excel.dropSingleFileOnly");
     return;
   }
   await loadWorkbookFile(files[0]);
+}
+
+function handlePreciseDragEnter(event) {
+  if (importBusy.value || !dragContainsFiles(event)) return;
+  preciseDragDepth += 1;
+  preciseDropActive.value = true;
+}
+
+function handlePreciseDragOver(event) {
+  if (importBusy.value || !dragContainsFiles(event)) return;
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+  preciseDropActive.value = true;
+}
+
+function handlePreciseDragLeave() {
+  if (!preciseDropActive.value) return;
+  preciseDragDepth = Math.max(0, preciseDragDepth - 1);
+  if (preciseDragDepth === 0) preciseDropActive.value = false;
+}
+
+async function handlePreciseDrop(event) {
+  preciseDragDepth = 0;
+  preciseDropActive.value = false;
+  if (importBusy.value) return;
+
+  const files = Array.from(event.dataTransfer?.files || []);
+  if (!files.length) return;
+  if (files.length > 1) {
+    setRecognitionStatus("error", "excel.dropSingleFileOnly");
+    return;
+  }
+  await loadWorkbookFileForRecognition(files[0]);
 }
 
 function dragContainsFiles(event) {
@@ -1238,15 +1284,41 @@ function isSupportedWorkbookFile(file) {
   return Boolean(file?.name && SUPPORTED_WORKBOOK_FILE_PATTERN.test(file.name));
 }
 
-function showManualFileError(message) {
-  manualImportMessageType.value = "error";
-  manualImportMessage.value = message;
+function setManualImportStatus(type, key = "", params = {}, fallback = "") {
+  manualImportMessageType.value = type;
+  manualImportMessageKey.value = key;
+  manualImportMessageParams.value = params;
+  manualImportMessage.value = fallback;
+}
+
+function showManualFileError(key, params = {}, fallback = "") {
+  setManualImportStatus("error", key, params, fallback);
+}
+
+function setRecognitionStatus(type, key = "", params = {}, fallback = "") {
+  recognitionMessageType.value = type;
+  recognitionMessageKey.value = key;
+  recognitionMessageParams.value = params;
+  recognitionMessage.value = fallback;
+  recognitionMessageFactory.value = null;
+}
+
+function setRecognitionStatusFactory(type, factory) {
+  recognitionMessageType.value = type;
+  recognitionMessageKey.value = "";
+  recognitionMessageParams.value = {};
+  recognitionMessage.value = "";
+  recognitionMessageFactory.value = factory;
+}
+
+function clearRecognitionStatus() {
+  setRecognitionStatus("ok");
 }
 
 async function loadWorkbookFile(file) {
-  if (recognitionAgentBusy.value || preciseImportBusy.value) return;
+  if (importBusy.value) return;
   if (!isSupportedWorkbookFile(file)) {
-    showManualFileError(ui("excel.dropUnsupportedFile", { name: file?.name || "-" }));
+    showManualFileError("excel.dropUnsupportedFile", { name: file?.name || "-" });
     return;
   }
   manualImportBusy.value = true;
@@ -1257,25 +1329,23 @@ async function loadWorkbookFile(file) {
   workbook.value = null;
   preview.value = null;
   activeSheet.value = null;
-  manualImportMessageType.value = "info";
-  manualImportMessage.value = ui("excel.quickImportParsing");
+  setManualImportStatus("info", "excel.quickImportParsing");
   try {
     await loadWorkbookFileLocally(file);
   } catch (error) {
     workbook.value = null;
     activeSheet.value = null;
     preview.value = null;
-    manualImportMessageType.value = "error";
-    manualImportMessage.value = error?.message || ui("excel.quickImportFailed");
+    setManualImportStatus("error", "excel.quickImportFailed", {}, error?.message || "");
   } finally {
     manualImportBusy.value = false;
   }
 }
 
 async function loadWorkbookFileForRecognition(file) {
+  if (importBusy.value) return;
   if (!isSupportedWorkbookFile(file)) {
-    recognitionMessageType.value = "error";
-    recognitionMessage.value = ui("excel.dropUnsupportedFile", { name: file?.name || "-" });
+    setRecognitionStatus("error", "excel.dropUnsupportedFile", { name: file?.name || "-" });
     return;
   }
   preciseImportBusy.value = true;
@@ -1297,8 +1367,7 @@ async function loadWorkbookFileForRecognition(file) {
       keepTimer: true
     });
   } catch (error) {
-    recognitionMessageType.value = "error";
-    recognitionMessage.value = error?.message || ui("excel.excelAgentFailed");
+    setRecognitionStatus("error", "excel.excelAgentFailed");
   } finally {
     preciseImportBusy.value = false;
     if (!recognitionAgentBusy.value) stopRecognitionTimer();
@@ -1306,10 +1375,11 @@ async function loadWorkbookFileForRecognition(file) {
 }
 
 async function loadWorkbookFileLocally(file, backendError) {
-  manualImportMessageType.value = backendError ? "warning" : "info";
-  manualImportMessage.value = backendError
-    ? `后端解析不可用，已切换浏览器本地解析：${backendError.message}`
-    : "正在解析文件，请稍候。大文件会在后台线程处理，页面不会被阻塞。";
+  setManualImportStatus(
+    backendError ? "warning" : "info",
+    backendError ? "excel.localParseFallback" : "excel.localParsing",
+    backendError ? { message: backendError.message } : {}
+  );
   try {
     workbook.value = await readWorkbookInWorker(file);
     workbookVersion += 1;
@@ -1317,15 +1387,13 @@ async function loadWorkbookFileLocally(file, backendError) {
     pendingPreviewSignature = "";
     selectedSheetName.value = workbook.value.sheets[0]?.name || "";
     manualCorrections.value = [];
-    manualImportMessageType.value = "info";
-    manualImportMessage.value = `已读取 ${workbook.value.sheets.length} 个工作表，正在生成预览。`;
+    setManualImportStatus("info", "excel.workbookRead", { count: workbook.value.sheets.length });
     void selectSheet();
   } catch (error) {
     workbook.value = null;
     activeSheet.value = null;
     preview.value = null;
-    manualImportMessageType.value = "error";
-    manualImportMessage.value = error?.message || "文件解析失败，请检查 Excel/CSV 格式。";
+    setManualImportStatus("error", "excel.fileParseFailed", {}, error?.message || "");
   }
 }
 
@@ -1350,8 +1418,19 @@ function applyBackendImportResult(result, file) {
 
 function switchExcelMode(mode) {
   const nextMode = mode === "agent" ? "recognition" : mode;
-  if ((recognitionAgentBusy.value || preciseImportBusy.value) && nextMode !== "recognition") return;
+  if (importBusy.value || !["manual", "recognition"].includes(nextMode)) return;
+  manualDragDepth = 0;
+  preciseDragDepth = 0;
+  manualDropActive.value = false;
+  preciseDropActive.value = false;
   excelMode.value = nextMode;
+}
+
+async function selectImportModeFromKeyboard(mode) {
+  switchExcelMode(mode);
+  await nextTick();
+  const target = mode === "recognition" ? smartImportTab.value : quickImportTab.value;
+  (target?.$el || target)?.focus?.();
 }
 
 async function selectSheet() {
@@ -1388,8 +1467,7 @@ async function refreshPreview() {
   pendingPreviewSignature = signature;
   previewBusy.value = true;
   if (!preview.value) {
-    manualImportMessageType.value = "info";
-    manualImportMessage.value = "正在校验行数据与字段映射...";
+    setManualImportStatus("info", "excel.validatingRows");
   }
   try {
     const nextPreview = await buildPreviewInWorker(sheet, workerMapping, workerOptions);
@@ -1400,8 +1478,7 @@ async function refreshPreview() {
   } catch (error) {
     if (seq !== previewSeq) return;
     preview.value = null;
-    manualImportMessageType.value = "error";
-    manualImportMessage.value = error?.message || "预览校验失败，请检查字段映射。";
+    setManualImportStatus("error", "excel.previewValidationFailed", {}, error?.message || "");
   } finally {
     if (seq === previewSeq) {
       if (pendingPreviewSignature === signature) pendingPreviewSignature = "";
@@ -1426,9 +1503,9 @@ function previewSignature(sheet, workerMapping, workerOptions) {
 
 function applyPreviewMessage(nextPreview) {
   manualImportMessageType.value = nextPreview.invalidRows.length ? "warning" : "success";
-  manualImportMessage.value = nextPreview.invalidRows.length
-    ? `已完成预览：${previewValidRowCount(nextPreview)} 行有效，${nextPreview.invalidRows.length} 行需要确认。`
-    : `已完成预览：${previewValidRowCount(nextPreview)} 行全部通过校验。`;
+  manualImportMessageKey.value = "";
+  manualImportMessageParams.value = {};
+  manualImportMessage.value = "";
 }
 
 function cloneSheetForWorker(sheet) {
@@ -1469,7 +1546,7 @@ function resetRecognitionResult() {
   recognitionPreview.value = null;
   recognitionAgentTask.value = null;
   recognitionReviewIndexOverrides.value = {};
-  recognitionMessage.value = "";
+  clearRecognitionStatus();
   closeRecognitionReviewDialog();
   closeRecognitionEdit();
 }
@@ -1479,7 +1556,7 @@ async function submitTextRecognitionTask(options = {}) {
   if (!text) return;
   if (!options.keepTimer) startRecognitionTimer();
   recognitionAgentBusy.value = true;
-  recognitionMessage.value = "";
+  clearRecognitionStatus();
   recognitionPreview.value = null;
   recognitionAgentTask.value = null;
   recognitionReviewIndexOverrides.value = {};
@@ -1494,29 +1571,31 @@ async function submitTextRecognitionTask(options = {}) {
     recognitionAgentTask.value = task?.id ? await waitForTextRecognitionTask(task.id) : task;
     closeRecognitionEdit();
     const recognitionPartial = recognitionBlockingIssues.value.length > 0;
-    recognitionMessageType.value = recognitionAgentTask.value.status === "FAILED" || recognitionPartial ? "error" : "ok";
-    recognitionMessage.value =
-      recognitionAgentTask.value.status === "FAILED"
-        ? recognitionTaskFailureMessage(recognitionAgentTask.value)
-        : recognitionPartial
-          ? recognitionBlockingMessage()
-        : ui("excel.recognitionCompleteMessage", {
-            types: recognitionRows.value.length,
-            pieces: recognitionQuantity.value,
-            review: recognitionReviewFindings.value.length
-          });
+    if (recognitionAgentTask.value.status === "FAILED") {
+      const task = recognitionAgentTask.value;
+      setRecognitionStatusFactory("error", () => recognitionTaskFailureMessage(task));
+    } else if (recognitionPartial) {
+      setRecognitionStatusFactory("error", () => recognitionBlockingMessage());
+    } else {
+      setRecognitionStatus("ok", "excel.recognitionCompleteMessage", {
+        types: recognitionRows.value.length,
+        pieces: recognitionQuantity.value,
+        review: recognitionReviewFindings.value.length
+      });
+    }
     if (recognitionAgentTask.value.status === "FAILED") {
       closeRecognitionReviewDialog();
     } else {
       openRecognitionReviewDialog();
     }
   } catch (error) {
-    recognitionMessageType.value = "error";
-    recognitionMessage.value = error?.code === "TEXT_RECOGNITION_TIMEOUT"
-      ? ui("excel.recognitionTimeout")
-      : error?.code === "TEXT_RECOGNITION_BACKEND_OUTDATED"
-        ? ui("excel.recognitionBackendOutdated")
-        : ui("excel.recognitionUnavailable", { message: error.message });
+    if (error?.code === "TEXT_RECOGNITION_TIMEOUT") {
+      setRecognitionStatus("error", "excel.recognitionTimeout");
+    } else if (error?.code === "TEXT_RECOGNITION_BACKEND_OUTDATED") {
+      setRecognitionStatus("error", "excel.recognitionBackendOutdated");
+    } else {
+      setRecognitionStatus("error", "excel.recognitionUnavailable", { message: error.message });
+    }
     closeRecognitionReviewDialog();
   } finally {
     recognitionAgentBusy.value = false;
@@ -1630,8 +1709,7 @@ function fillRecognitionSample() {
   recognitionReviewIndexOverrides.value = {};
   closeRecognitionReviewDialog();
   closeRecognitionEdit();
-  recognitionMessage.value = t("smartImport.sampleLoadedMessage");
-  recognitionMessageType.value = "ok";
+  setRecognitionStatusFactory("ok", () => t("smartImport.sampleLoadedMessage"));
 }
 
 function clearRecognition() {
@@ -1644,14 +1722,13 @@ function clearRecognition() {
   recognitionReviewIndexOverrides.value = {};
   closeRecognitionReviewDialog();
   closeRecognitionEdit();
-  recognitionMessage.value = "";
+  clearRecognitionStatus();
 }
 
 function importRecognitionRows() {
   if (!recognitionRows.value.length) return;
   if (recognitionBlockingIssues.value.length) {
-    recognitionMessageType.value = "error";
-    recognitionMessage.value = recognitionBlockingMessage();
+    setRecognitionStatusFactory("error", () => recognitionBlockingMessage());
     openRecognitionReviewDialog();
     return;
   }
@@ -1960,8 +2037,7 @@ async function downloadRecognitionAgentResult() {
   try {
     await downloadTextRecognitionExcel(recognitionAgentTask.value.id, `${recognitionAgentTask.value.taskNo || "text-recognition"}.xlsx`);
   } catch (error) {
-    recognitionMessageType.value = "error";
-    recognitionMessage.value = `下载失败：${error.message}`;
+    setRecognitionStatus("error", "excel.downloadFailed", { message: error.message });
   }
 }
 
@@ -2072,11 +2148,9 @@ function applyRecognitionEdit() {
   }
   recognitionAgentTask.value = { ...recognitionAgentTask.value, cleanedRows: rows };
   if (recognitionBlockingIssues.value.length) {
-    recognitionMessageType.value = "error";
-    recognitionMessage.value = recognitionBlockingMessage();
+    setRecognitionStatusFactory("error", () => recognitionBlockingMessage());
   } else {
-    recognitionMessageType.value = "ok";
-    recognitionMessage.value = ui("excel.recognitionEditSaved", { index: recognitionEditIndex.value + 1 });
+    setRecognitionStatus("ok", "excel.recognitionEditSaved", { index: recognitionEditIndex.value + 1 });
   }
   closeRecognitionEdit();
 }
@@ -2176,10 +2250,6 @@ function normalizeSuggestionCargo() {
 
 function round2(value) {
   return Math.round(Number(value || 0) * 100) / 100;
-}
-
-function downloadTemplate() {
-  downloadTemplateWorkbook(sampleRows);
 }
 
 function typeText(type) {

@@ -1310,7 +1310,9 @@ select {
 
 .embedded-smart-import {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
+  min-width: 0;
   margin: 12px 0 14px;
   padding: 12px;
   border: 1px solid #d7e1ee;
@@ -1324,6 +1326,9 @@ select {
 }
 
 .embedded-smart-import .algorithm-page {
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
   border: 0;
   box-shadow: none;
   background: transparent;
@@ -4298,11 +4303,34 @@ select {
 }
 
 .excel-workspace-layout {
-  display: grid;
-  grid-template-columns: 236px minmax(0, 1fr);
-  gap: 14px;
+  display: block;
   margin-top: 16px;
-  align-items: start;
+}
+
+.excel-import-mode-switch {
+  display: flex;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 6px;
+  width: fit-content;
+  border: 1px solid #d6e2f0;
+  border-radius: 12px;
+  background: #f6f9fd;
+}
+
+.excel-import-mode-switch .el-button {
+  min-width: 190px;
+  height: 48px;
+  margin: 0;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.excel-import-mode-switch .el-button > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
 }
 
 .excel-side-menu {
@@ -4380,6 +4408,26 @@ select {
   margin-top: 0;
 }
 
+.excel-import-card {
+  position: relative;
+  padding: 22px;
+  border: 1px solid #d3deea;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(20, 34, 52, 0.06);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.excel-import-card.is-dragging {
+  border-color: #165dff;
+  background: #f7faff;
+  box-shadow: 0 0 0 3px rgba(22, 93, 255, 0.12), 0 14px 34px rgba(20, 78, 180, 0.14);
+}
+
+.excel-import-card.is-busy .excel-drop-zone {
+  cursor: wait;
+}
+
 .recognition-head {
   display: flex;
   justify-content: space-between;
@@ -4413,7 +4461,32 @@ select {
 }
 
 .smart-recognition-card .el-textarea {
-  margin-top: 14px;
+  margin-top: 0;
+}
+
+.recognition-text-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0 14px;
+  color: #6a7f98;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+}
+
+.recognition-text-divider::before,
+.recognition-text-divider::after {
+  flex: 1;
+  height: 1px;
+  background: #dce6f1;
+  content: "";
+}
+
+.recognition-submit-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 
 .recognition-loading-panel {
@@ -4521,6 +4594,47 @@ select {
   .recognition-elapsed {
     margin-left: 0;
     align-self: flex-start;
+  }
+}
+
+@media (max-width: 720px) {
+  .excel-import-mode-switch {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .excel-import-mode-switch .el-button {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .excel-import-card {
+    padding: 16px;
+  }
+
+  .excel-import-actions,
+  .recognition-actions,
+  .recognition-submit-row {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .excel-import-actions .el-button,
+  .recognition-actions .el-button,
+  .recognition-submit-row .el-button {
+    flex: 1;
+    margin-left: 0;
+  }
+
+  .excel-drop-zone {
+    min-height: 164px;
+    padding: 24px 18px;
+  }
+
+  .excel-drop-icon {
+    width: 56px;
+    height: 56px;
   }
 }
 
@@ -5959,11 +6073,11 @@ body:has(.app-login-shell) .global-language-switcher {
 
 .excel-manual-card {
   position: relative;
-  padding: 18px;
+  padding: 22px;
   border: 1px solid #d3deea;
-  border-radius: 8px;
+  border-radius: 10px;
   background: #fff;
-  box-shadow: 0 8px 22px rgba(20, 34, 52, 0.04);
+  box-shadow: 0 10px 28px rgba(20, 34, 52, 0.06);
   transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
 }
 
@@ -6006,15 +6120,15 @@ body:has(.app-login-shell) .global-language-switcher {
 
 .excel-drop-zone {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) auto;
-  gap: 14px;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  gap: 20px;
   align-items: center;
-  min-height: 88px;
-  margin-top: 16px;
-  padding: 16px 18px;
-  border: 1px dashed #aac3e5;
-  border-radius: 8px;
-  background: #f7faff;
+  min-height: 176px;
+  margin-top: 20px;
+  padding: 28px 32px;
+  border: 2px dashed #9ebbe2;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f8fbff 0%, #f2f7ff 100%);
   cursor: pointer;
   outline: none;
   transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
@@ -6033,12 +6147,12 @@ body:has(.app-login-shell) .global-language-switcher {
 }
 
 .excel-drop-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 8px;
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
   background: #e6efff;
   color: #165dff;
-  font-size: 25px;
+  font-size: 31px;
 }
 
 .excel-drop-copy {
@@ -6049,18 +6163,18 @@ body:has(.app-login-shell) .global-language-switcher {
 
 .excel-drop-copy strong {
   color: #173c67;
-  font-size: 16px;
+  font-size: 19px;
   line-height: 1.35;
 }
 
 .excel-drop-copy span {
   color: #60758e;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.55;
 }
 
 .excel-drop-formats {
-  padding: 7px 10px;
+  padding: 8px 11px;
   border: 1px solid #cfdded;
   border-radius: 6px;
   background: #fff;
@@ -6670,7 +6784,7 @@ body:has(.app-login-shell) .global-language-switcher {
   }
 
   .excel-drop-zone {
-    grid-template-columns: 44px minmax(0, 1fr);
+    grid-template-columns: 64px minmax(0, 1fr);
   }
 
   .excel-drop-formats {
@@ -6703,6 +6817,28 @@ body:has(.app-login-shell) .global-language-switcher {
 }
 
 @media (max-width: 720px) {
+  .embedded-smart-import {
+    padding: 8px;
+  }
+
+  .embedded-smart-import .algorithm-page {
+    padding: 12px;
+  }
+
+  .excel-import-card,
+  .excel-manual-card {
+    padding: 12px;
+  }
+
+  .excel-import-mode-switch .el-button {
+    padding-inline: 8px;
+    font-size: 13px;
+  }
+
+  .excel-drop-zone {
+    padding: 24px 12px;
+  }
+
   .brand h1 {
     font-size: 16px;
   }

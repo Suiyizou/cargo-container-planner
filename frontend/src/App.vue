@@ -405,7 +405,7 @@
             </div>
             <div class="section-actions cargo-list-actions">
               <el-button type="primary" :icon="Plus" @click="openCargoModal()">{{ ui('app.manualEntry') }}</el-button>
-              <el-button :icon="Star" @click="smartImportOpen = !smartImportOpen">{{ smartImportOpen ? ui('app.hideSmartImport') : ui('excel.title') }}</el-button>
+              <el-button data-i18n-ignore :icon="Star" @click="smartImportOpen = !smartImportOpen">{{ smartImportOpen ? ui('app.hideSmartImport') : ui('excel.title') }}</el-button>
               <el-button :icon="Delete" :disabled="!selectedCargoRows.length" @click="deleteSelectedCargos">{{ ui('app.batchDelete') }}</el-button>
               <el-button type="danger" plain :icon="Delete" :disabled="!cargos.length" @click="clearCargos">{{ ui('app.clearAll') }}</el-button>
             </div>
@@ -417,12 +417,13 @@
             </div>
           </el-collapse-transition>
           <el-alert
-            v-if="cargoImportNotice"
+            v-if="cargoImportNoticeText"
+            data-i18n-ignore
             class="cargo-import-check-notice"
             type="warning"
             show-icon
-            :title="cargoImportNotice"
-            @close="cargoImportNotice = ''"
+            :title="cargoImportNoticeText"
+            @close="cargoImportNotice = null"
           />
           <el-table
             v-if="cargos.length"
@@ -981,7 +982,7 @@ const cargoTemplates = ref([]);
 const templateName = ref("");
 const exportingReport = ref(false);
 const toast = ref("");
-const cargoImportNotice = ref("");
+const cargoImportNotice = ref<{ key: string; params?: Record<string, unknown> } | null>(null);
 const apiStatus = ref("本机计算");
 const decisionLogs = ref<any[]>([]);
 const packingWorkerProgress = ref<any | null>(null);
@@ -994,6 +995,10 @@ let calcSeq = 0;
 let calcElapsedTimer = 0;
 
 const sortedEvaluations = computed(() => result.value?.evaluations || []);
+const cargoImportNoticeText = computed(() => {
+  if (!cargoImportNotice.value?.key) return "";
+  return ui(cargoImportNotice.value.key, cargoImportNotice.value.params || {});
+});
 const selectedEvaluation = computed(() => {
   if (!sortedEvaluations.value.length) return null;
   return sortedEvaluations.value.find((item) => item.container.id === selectedContainerId.value) || sortedEvaluations.value[0];
@@ -2966,8 +2971,8 @@ function importExcelCargos({ cargos: importedCargos, mode, skippedRows = 0, impo
   selectedBoxIndex.value = 1;
   router.push("/planner/cargos");
   cargoImportNotice.value = importKind === "quick"
-    ? ui("excel.quickImportPostCheck", { count: normalizedImported.length })
-    : "";
+    ? { key: "excel.quickImportPostCheck", params: { count: normalizedImported.length } }
+    : null;
   showToast(ui("app.importCargoSuccess", {
     action: ui(nextMode === "append" ? "app.importActionAppend" : "app.importActionReplace"),
     count: normalizedImported.length,

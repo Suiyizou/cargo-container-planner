@@ -52,7 +52,7 @@ const uiText = {
 
   "app.currentCargoList": { zh: "当前货物列表", en: "Current Cargo List" },
   "app.manualEntry": { zh: "手动录入", en: "Manual Entry" },
-  "app.hideSmartImport": { zh: "收起智能导入", en: "Hide Smart Import" },
+  "app.hideSmartImport": { zh: "收起导入货物", en: "Hide Import Cargo" },
   "app.importCsv": { zh: "导入 CSV", en: "Import CSV" },
   "app.importActionAppend": { zh: "已追加", en: "Appended" },
   "app.importActionReplace": { zh: "已导入", en: "Imported" },
@@ -271,14 +271,17 @@ const uiText = {
   "container.priority.special": { zh: "特殊设备", en: "Special Equipment" },
   "container.priority.custom": { zh: "自定义", en: "Custom" },
 
-  "excel.title": { zh: "Excel / 智能导入", en: "Excel / Smart Import" },
+  "excel.title": { zh: "导入货物", en: "Import Cargo" },
+  "excel.importCargoEyebrow": { zh: "导入货物", en: "IMPORT CARGO" },
+  "excel.importCargoTitle": { zh: "选择导入方式", en: "Choose an import method" },
+  "excel.importModeChoice": { zh: "货物导入方式", en: "Cargo import method" },
   "excel.manualImport": { zh: "快速导入", en: "Quick Import" },
   "excel.manualSubtitle": { zh: "适合字段清晰、格式规范的表格", en: "For clean tables with clearly labeled fields" },
-  "excel.smartRecognition": { zh: "精确导入", en: "Precise Import" },
+  "excel.smartRecognition": { zh: "智能导入", en: "Smart Import" },
   "excel.recognitionSubtitle": { zh: "适合不规整、杂糅或拼盘表格", en: "For irregular, mixed, or consolidated sheets" },
   "excel.fieldTemplate": { zh: "字段样板", en: "Field Template" },
   "excel.fieldSubtitle": { zh: "标准字段、规则和示例", en: "Standard fields, rules, and examples" },
-  "excel.manualPath": { zh: "路径一：快速导入", en: "Path 1: Quick Import" },
+  "excel.manualPath": { zh: "快速导入", en: "Quick Import" },
   "excel.manualPathText": {
     zh: "在浏览器后台线程中按标准字段映射、校验并直接生成装箱货物，通常几秒内完成。",
     en: "Map and validate standard fields in a browser worker, then create packing cargo directly—usually within seconds."
@@ -287,6 +290,14 @@ const uiText = {
   "excel.quickImportCheckDescription": { zh: "适合表头和条目清晰的表格；复杂包装关系、拼盘信息或特殊约束可能识别不完整，请在导入前后核对名称、尺寸、数量、单重和装箱条件。", en: "Best for clean headers and rows. Complex packaging, consolidated loads, or special constraints may be incomplete; verify names, dimensions, quantities, unit weights, and handling constraints before and after import." },
   "excel.quickImportParsing": { zh: "正在按字段映射快速解析文件。", en: "Parsing the file with field mapping." },
   "excel.quickImportFailed": { zh: "快速导入解析失败，请检查文件格式和字段。", en: "Quick import parsing failed. Check the file format and fields." },
+  "excel.localParseFallback": { zh: "后端解析不可用，已切换浏览器本地解析：{message}", en: "Backend parsing is unavailable. Switched to local browser parsing: {message}" },
+  "excel.localParsing": { zh: "正在解析文件，请稍候。大文件会在后台线程处理，页面不会被阻塞。", en: "Parsing the file. Large files are processed in a background worker so the page remains responsive." },
+  "excel.workbookRead": { zh: "已读取 {count} 个工作表，正在生成预览。", en: "Read {count} worksheet(s). Generating the preview." },
+  "excel.fileParseFailed": { zh: "文件解析失败，请检查 Excel/CSV 格式。", en: "Could not parse the file. Check the Excel/CSV format." },
+  "excel.validatingRows": { zh: "正在校验行数据与字段映射...", en: "Validating rows and field mappings..." },
+  "excel.previewValidationFailed": { zh: "预览校验失败，请检查字段映射。", en: "Preview validation failed. Check the field mappings." },
+  "excel.previewCompleteWithIssues": { zh: "已完成预览：{valid} 行有效，{invalid} 行需要确认。", en: "Preview complete: {valid} valid row(s), {invalid} row(s) need review." },
+  "excel.previewCompleteAllValid": { zh: "已完成预览：{count} 行全部通过校验。", en: "Preview complete: all {count} row(s) passed validation." },
   "excel.quickImportPostCheck": { zh: "已快速导入 {count} 类货物。识别结果可能存在偏差，请检查名称、尺寸、数量、单重、不可重压和保持朝上条件，确认后再进入计算。", en: "Quick-imported {count} cargo types. Results may contain mapping errors; verify names, dimensions, quantities, unit weights, non-stackable, and keep-upright constraints before calculating." },
   "excel.choosePreciseFile": { zh: "选择 Excel 精确识别", en: "Choose Excel for Precise Import" },
   "excel.dropToRecognize": { zh: "拖拽文件到此快速导入", en: "Drop a file here for quick import" },
@@ -295,6 +306,13 @@ const uiText = {
   "excel.dropSupportText": {
     zh: "也可以点击此区域选择文件；快速导入不会调用 Agent。",
     en: "You can also click this area to choose a file. Quick import does not call the Agent."
+  },
+  "excel.smartDropToRecognize": { zh: "拖拽文件到此进行智能导入", en: "Drop a file here for smart import" },
+  "excel.smartDropRelease": { zh: "松开文件，立即开始智能识别", en: "Release to start smart recognition" },
+  "excel.smartDropBusy": { zh: "正在读取并智能识别文件", en: "Reading and recognizing the file" },
+  "excel.smartDropSupportText": {
+    zh: "也可以点击此区域选择文件；系统会交给 Agent 标准化并审查结果。",
+    en: "You can also click this area to choose a file. The Agent will standardize and review the result."
   },
   "excel.dropSingleFileOnly": {
     zh: "每次只能识别一个文件，请重新拖入单个 Excel 或 CSV 文件。",
@@ -323,11 +341,13 @@ const uiText = {
   "excel.issueRows": { zh: "异常行", en: "Issue Rows" },
   "excel.aggregatedCargo": { zh: "聚合后货物", en: "Aggregated Cargo" },
   "excel.importPieces": { zh: "导入件数", en: "Import Pieces" },
-  "excel.recognitionPath": { zh: "路径二：精确导入", en: "Path 2: Precise Import" },
+  "excel.recognitionPath": { zh: "智能导入", en: "Smart Import" },
   "excel.recognitionPathText": {
     zh: "上传不规整、信息杂糅或包含拼盘关系的 Excel，或粘贴聊天/报价文本；系统解析文件后交给 Agent 输出标准清单和逐项审查结果。",
     en: "Upload an irregular, mixed, or consolidated Excel file—or paste chat/quote text. The workbook is parsed, then the Agent returns a standardized list and itemized review."
   },
+  "excel.orPasteText": { zh: "或粘贴货物文本", en: "OR PASTE CARGO TEXT" },
+  "excel.startSmartRecognition": { zh: "开始智能识别", en: "Start Smart Recognition" },
   "excel.recognizing": { zh: "智能识别中...", en: "Recognizing..." },
   "excel.elapsedTime": { zh: "已识别 {time}", en: "Elapsed {time}" },
   "excel.completedIn": { zh: "本次识别耗时 {time}", en: "Completed in {time}" },
@@ -348,6 +368,7 @@ const uiText = {
     zh: "智能识别完成：{types} 类货物，{pieces} 件；{review} 条硬性问题需确认。低风险提示已自动放行，导入后请检查当前货物清单。",
     en: "Smart recognition complete: {types} cargo types, {pieces} pcs; {review} hard issues need confirmation. Low-risk hints were auto-approved; review the current cargo list after importing."
   },
+  "excel.downloadFailed": { zh: "下载失败：{message}", en: "Download failed: {message}" },
   "excel.recognitionTimeout": {
     zh: "智能识别仍在后台处理中，请稍后重新进入当前任务查看结果。",
     en: "Recognition is still running in the background. Reopen the current task later to view the result."
@@ -465,6 +486,11 @@ const uiText = {
     en: "These edits apply to the pre-import recognition result and do not call the Agent again."
   },
   "excel.editUseCase": { zh: "适合修正重量千分位、型号、尺寸或货物类型。", en: "Useful for fixing weight separators, models, dimensions, or cargo types." },
+  "excel.unnamedCargo": { zh: "未命名货物", en: "Unnamed Cargo" },
+  "excel.cargoEditSummary": {
+    zh: "{label}，{length} × {width} × {height} cm，{quantity} 件，{weight} kg/件",
+    en: "{label}, {length} × {width} × {height} cm, {quantity} pcs, {weight} kg/pc"
+  },
   "excel.recognitionReviewEyebrow": { zh: "识别复核", en: "Recognition Review" },
   "excel.recognitionReviewTitle": { zh: "请确认智能识别结果", en: "Review Smart Recognition Results" },
   "excel.recognitionReviewNotice": {
