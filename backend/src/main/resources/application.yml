@@ -31,3 +31,7 @@ management:
 
 app:
   device-limit-per-user: ${APP_DEVICE_LIMIT_PER_USER:5}
+  text-recognition:
+    # Agent providers commonly rate-limit parallel calls. Keep this bounded to 1-4;
+    # use 1 to restore serial execution when a provider has a strict quota.
+    excel-agent-concurrency: ${EXCEL_AGENT_BATCH_CONCURRENCY:3}

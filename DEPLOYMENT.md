@@ -60,9 +60,12 @@ SPRING_AI_CHAT_MODEL=none
 SPRING_AI_OPENAI_API_KEY=你的_API_Key
 SPRING_AI_OPENAI_BASE_URL=https://api.deepseek.com
 SPRING_AI_OPENAI_MODEL=deepseek-v4-flash
+EXCEL_AGENT_BATCH_CONCURRENCY=3
 ```
 
 说明：后台保存后的配置存入 MySQL，修改 LLM 开关、API Key、Base URL、模型名后不需要重新打包。
+
+`EXCEL_AGENT_BATCH_CONCURRENCY` 控制同一个 Excel 识别任务的并发批次数，范围为 `1-4`，默认 `3`。供应商限流严格时可设为 `2`；设为 `1` 可恢复串行识别。后端对 `408/429/502/503/504` 会按 `Retry-After` 或有界指数退避自动重试。该参数属于后端进程配置，修改后需要重启后端。
 
 如果修改了 Java 源码，仅执行 `docker compose restart backend` 不会生成新 JAR，固定镜像标签也不会自动更新。拉取代码后必须重新构建并强制重建后端容器：
 
@@ -73,7 +76,7 @@ docker compose up -d --force-recreate backend
 docker compose logs --tail=100 backend
 ```
 
-登录后访问 `/api/text-recognition/capabilities`，新识别引擎应返回 `adaptiveBatching: true` 和 `engineVersion: excel-agent-batch-v4`。如果前端配置了 `VITE_API_BASE_URL`，还要在浏览器 Network 面板确认识别请求实际发往新后端地址，而不是旧 API 实例。
+登录后访问 `/api/text-recognition/capabilities`，新识别引擎应返回 `adaptiveBatching: true`、`parallelBatching: true`、`maxConcurrentBatchRequests: 3`（或部署值）和 `engineVersion: excel-agent-batch-v5`。如果前端配置了 `VITE_API_BASE_URL`，还要在浏览器 Network 面板确认识别请求实际发往新后端地址，而不是旧 API 实例。
 
 ## 本地开发
 

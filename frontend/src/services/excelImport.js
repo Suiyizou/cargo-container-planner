@@ -585,6 +585,7 @@ function findHeaderRow(rows) {
     const cells = row.map(cleanCell);
     const score = cells.reduce((sum, cell) => {
       const normalized = normalizeHeader(cell);
+      if (!normalized) return sum;
       const matched = Object.values(FIELD_ALIASES).some((aliases) =>
         aliases.map(normalizeHeader).some((alias) => alias && (normalized.includes(alias) || alias.includes(normalized)))
       );

@@ -17,7 +17,10 @@ import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,15 +28,20 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -50,7 +58,7 @@ import org.springframework.web.client.RestTemplate;
 
 @Service
 public class TextRecognitionService {
-  private static final String TEXT_RECOGNITION_ENGINE_VERSION = "excel-agent-batch-v4";
+  private static final String TEXT_RECOGNITION_ENGINE_VERSION = "excel-agent-batch-v5";
   private static final List<String> OUTPUT_HEADERS = List.of(
       "name", "model", "lengthCm", "widthCm", "heightCm", "quantity", "weightKg", "type", "color", "sku", "remark"
   );
@@ -87,8 +95,16 @@ public class TextRecognitionService {
   private static final Pattern EXCEL_ROW_PATTERN = Pattern.compile("^R(\\d+):\\s.*$");
   private static final Pattern EXCEL_SOURCE_ROW_PATTERN = Pattern.compile("(?:^|\\s)R(\\d+):");
   private static final Pattern EXCEL_HEADER_ROW_PATTERN = Pattern.compile("^DETECTED_HEADER_ROW:\\s*(\\d+).*$");
+  private static final Pattern EXCEL_CELL_PATTERN = Pattern.compile(
+      "(?i)(?:^|:\\s*|\\|\\s*)([A-Z]+)=(\"(?:\\\\.|[^\"\\\\])*\")"
+  );
+  private static final Pattern INLINE_DIMENSION_UNIT_PATTERN = Pattern.compile(
+      "(?i)-?\\d+(?:[.,]\\d+)?\\s*(mm|cm|m|毫米|厘米|米)"
+  );
+  private static final Pattern DIMENSION_NUMBER_TOKEN_PATTERN = Pattern.compile("-?\\d+(?:[.,]\\d+)?");
   private static final int EXCEL_AGENT_BATCH_MAX_ROWS = 10;
   private static final int EXCEL_AGENT_BATCH_MAX_TARGET_CHARS = 6_000;
+  private static final int EXCEL_AGENT_MAX_PARALLEL_BATCHES = 4;
   private static final int EXCEL_AGENT_PREVIOUS_CONTEXT_ROWS = 2;
   private static final int EXCEL_AGENT_NEXT_CONTEXT_ROWS = 1;
   private static final int EXCEL_AGENT_MAX_REQUESTS_PER_TASK = 96;
@@ -99,11 +115,15 @@ public class TextRecognitionService {
   private static final Duration EXCEL_AGENT_TASK_DEADLINE = Duration.ofMinutes(8);
   private static final Duration LLM_CONNECT_TIMEOUT = Duration.ofSeconds(15);
   private static final Duration LLM_READ_TIMEOUT = Duration.ofSeconds(90);
+  private static final int LLM_MAX_TRANSIENT_ATTEMPTS = 3;
+  private static final long LLM_MAX_RETRY_DELAY_MS = 10_000;
 
   private final JdbcTemplate jdbcTemplate;
   private final ObjectMapper objectMapper;
   private final LlmSettingsService llmSettingsService;
   private final RestTemplate restTemplate = createLlmRestTemplate();
+  private final int excelAgentBatchConcurrency;
+  private final ExecutorService excelAgentBatchExecutor;
   private final ExecutorService recognitionExecutor = Executors.newFixedThreadPool(2, runnable -> {
     Thread thread = new Thread(runnable, "text-recognition-agent");
     thread.setDaemon(true);
@@ -114,11 +134,18 @@ public class TextRecognitionService {
   public TextRecognitionService(
       JdbcTemplate jdbcTemplate,
       ObjectMapper objectMapper,
-      LlmSettingsService llmSettingsService
+      LlmSettingsService llmSettingsService,
+      @Value("${app.text-recognition.excel-agent-concurrency:3}") int excelAgentBatchConcurrency
   ) {
     this.jdbcTemplate = jdbcTemplate;
     this.objectMapper = objectMapper;
     this.llmSettingsService = llmSettingsService;
+    this.excelAgentBatchConcurrency = Math.max(1, Math.min(EXCEL_AGENT_MAX_PARALLEL_BATCHES, excelAgentBatchConcurrency));
+    this.excelAgentBatchExecutor = Executors.newFixedThreadPool(this.excelAgentBatchConcurrency, runnable -> {
+      Thread thread = new Thread(runnable, "excel-agent-batch");
+      thread.setDaemon(true);
+      return thread;
+    });
   }
 
   private static RestTemplate createLlmRestTemplate() {
@@ -159,6 +186,8 @@ public class TextRecognitionService {
     return Map.of(
         "engineVersion", TEXT_RECOGNITION_ENGINE_VERSION,
         "adaptiveBatching", true,
+        "parallelBatching", true,
+        "maxConcurrentBatchRequests", excelAgentBatchConcurrency,
         "maxTargetRowsPerBatch", EXCEL_AGENT_BATCH_MAX_ROWS,
         "maxTargetCharsPerBatch", EXCEL_AGENT_BATCH_MAX_TARGET_CHARS,
         "maxRequestsPerTask", EXCEL_AGENT_MAX_REQUESTS_PER_TASK,
@@ -215,6 +244,7 @@ public class TextRecognitionService {
   @PreDestroy
   public void shutdownRecognitionExecutor() {
     recognitionExecutor.shutdownNow();
+    excelAgentBatchExecutor.shutdownNow();
   }
 
   public List<Map<String, Object>> listTasks() {
@@ -424,16 +454,76 @@ public class TextRecognitionService {
       return withInputTruncationIssue(recognizeWithOpenAiCompatible(settings, text, languageHint), text);
     }
 
+    AgentRequestBudget requestBudget = new AgentRequestBudget(EXCEL_AGENT_MAX_REQUESTS_PER_TASK, EXCEL_AGENT_TASK_DEADLINE);
+    List<BatchRecognitionResult> batchResults = recognizeExcelBatchesConcurrently(
+        settings,
+        batches,
+        languageHint,
+        requestBudget
+    );
     List<RecognitionResult> results = new ArrayList<>();
     int requestCount = 0;
-    AgentRequestBudget requestBudget = new AgentRequestBudget(EXCEL_AGENT_MAX_REQUESTS_PER_TASK, EXCEL_AGENT_TASK_DEADLINE);
-    for (ExcelAgentBatch batch : batches) {
-      BatchRecognitionResult batchResult = recognizeExcelBatchWithAdaptiveSplit(settings, batch, languageHint, requestBudget);
+    for (BatchRecognitionResult batchResult : batchResults) {
       results.addAll(batchResult.results());
       requestCount += batchResult.requestCount();
     }
-    RecognitionResult merged = mergeExcelBatchResults(results, countFormattedExcelRows(text), requestCount, settings.model());
+    RecognitionResult merged = mergeExcelBatchResults(
+        results,
+        countFormattedExcelRows(text),
+        requestCount,
+        settings.model(),
+        Math.min(excelAgentBatchConcurrency, batches.size())
+    );
     return withInputTruncationIssue(merged, text);
+  }
+
+  private List<BatchRecognitionResult> recognizeExcelBatchesConcurrently(
+      LlmRuntimeSettings settings,
+      List<ExcelAgentBatch> batches,
+      String languageHint,
+      AgentRequestBudget requestBudget
+  ) {
+    if (batches.size() <= 1 || excelAgentBatchConcurrency <= 1) {
+      List<BatchRecognitionResult> results = new ArrayList<>();
+      for (ExcelAgentBatch batch : batches) {
+        results.add(recognizeExcelBatchWithAdaptiveSplit(settings, batch, languageHint, requestBudget));
+      }
+      return results;
+    }
+
+    ExecutorCompletionService<IndexedBatchRecognitionResult> completionService =
+        new ExecutorCompletionService<>(excelAgentBatchExecutor);
+    List<Future<IndexedBatchRecognitionResult>> futures = new ArrayList<>();
+    for (int index = 0; index < batches.size(); index++) {
+      final int batchIndex = index;
+      ExcelAgentBatch batch = batches.get(index);
+      futures.add(completionService.submit(() -> new IndexedBatchRecognitionResult(
+          batchIndex,
+          recognizeExcelBatchWithAdaptiveSplit(settings, batch, languageHint, requestBudget)
+      )));
+    }
+
+    List<BatchRecognitionResult> orderedResults = new ArrayList<>(java.util.Collections.nCopies(batches.size(), null));
+    try {
+      for (int completed = 0; completed < batches.size(); completed++) {
+        IndexedBatchRecognitionResult indexedResult = completionService.take().get();
+        orderedResults.set(indexedResult.index(), indexedResult.result());
+      }
+      return orderedResults;
+    } catch (InterruptedException error) {
+      Thread.currentThread().interrupt();
+      cancelBatchFutures(futures);
+      throw new IllegalStateException("Excel Agent 分批识别被中断，请重试。", error);
+    } catch (ExecutionException error) {
+      cancelBatchFutures(futures);
+      Throwable cause = error.getCause();
+      if (cause instanceof RuntimeException runtimeException) throw runtimeException;
+      throw new IllegalStateException("Excel Agent 分批识别失败：" + trim(cause == null ? "unknown error" : cause.getMessage(), 180), cause);
+    }
+  }
+
+  private void cancelBatchFutures(List<Future<IndexedBatchRecognitionResult>> futures) {
+    futures.forEach(future -> future.cancel(true));
   }
 
   private RecognitionResult withInputTruncationIssue(RecognitionResult result, String text) {
@@ -645,7 +735,8 @@ public class TextRecognitionService {
       List<RecognitionResult> results,
       int sourceRowCount,
       int requestCount,
-      String model
+      String model,
+      int parallelism
   ) {
     List<Map<String, Object>> cleanedRows = new ArrayList<>();
     List<Map<String, Object>> issues = new ArrayList<>();
@@ -656,8 +747,9 @@ public class TextRecognitionService {
       validCount += result.validCount();
     }
     List<Map<String, Object>> aggregatedRows = aggregateCargos(cleanedRows);
+    String parallelNote = parallelism > 1 ? "，最多 " + parallelism + " 路并发" : "";
     String notes = requestCount > 1
-        ? "Excel 已拆分为 " + requestCount + " 个 Agent 请求并合并校验，避免单次输出超限（模型：" + model + "）。"
+        ? "Excel 已拆分为 " + requestCount + " 个 Agent 请求" + parallelNote + "并合并校验，避免单次输出超限（模型：" + model + "）。"
         : "Excel 已完成 Agent 识别与合并校验（模型：" + model + "）。";
     long outputLimitIssueCount = issues.stream()
         .filter(issue -> "AGENT_OUTPUT_LIMIT".equals(cleanCell(issue.get("code"))))
@@ -855,11 +947,21 @@ public class TextRecognitionService {
       if (!targetSourceRows.isEmpty() && !cargoSourceRows.add(sourceRowNumber)) continue;
       if (targetSourceRows.isEmpty()) cargoSourceRows.add(sourceRowNumber);
       if (!targetSourceRows.isEmpty()) coveredSourceRows.add(sourceRowNumber);
-      Map<Long, Double> rowWeightCorrections = thousandSeparatedWeightCorrections(
-          weightCorrectionSourceText(rawRow, sourceRowNumber, text)
-      );
+      String normalizedSourceText = weightCorrectionSourceText(rawRow, sourceRowNumber, text);
+      Map<Long, Double> rowWeightCorrections = thousandSeparatedWeightCorrections(normalizedSourceText);
       if (applyThousandSeparatedWeightCorrection(rawRow, rowWeightCorrections)) correctedWeightCount++;
-      ParsedCargo parsed = normalizeCargo(rawRow, sourceRowNumber, cleanCell(rawRow.get("sourceText")));
+      ParsedCargo parsed = normalizeCargo(rawRow, sourceRowNumber, normalizedSourceText);
+      DimensionParts explicitPalletDimensions = explicitPalletDimensionsFromSource(text, sourceRowNumber);
+      if (explicitPalletDimensions != null && isPalletHandlingUnit(parsed.cargo())) {
+        applyExplicitPalletDimensions(rawRow, explicitPalletDimensions);
+        parsed = normalizeCargo(rawRow, sourceRowNumber, normalizedSourceText);
+      } else if (palletDimensionsAreOnlyInnerPackageSource(text, sourceRowNumber, parsed.cargo())) {
+        markPalletDimensionsMissing(
+            rawRow,
+            innerPackageDimensionsFromSource(text, sourceRowNumber)
+        );
+        parsed = normalizeCargo(rawRow, sourceRowNumber, normalizedSourceText);
+      }
       if (palletDimensionsMissing(rawRow, parsed.cargo())) {
         List<String> palletErrors = new ArrayList<>();
         palletErrors.add("最终搬运单元被识别为托盘，但原始资料未提供明确的托盘装货后外廓长、宽、高。请由用户补录最终托盘尺寸后再导入。");
@@ -903,7 +1005,15 @@ public class TextRecognitionService {
       }
       if (!targetSourceRows.isEmpty() && !targetSourceRows.contains(issueRowNumber)) continue;
       String issueCode = cleanCell(modelIssue.get("code"));
-      String issueText = cleanCell(firstNonBlank(modelIssue.get("text"), modelIssue.get("sourceText")));
+      String issueText = weightCorrectionSourceText(modelIssue, issueRowNumber, text);
+      List<String> errors = stringList(modelIssue.get("errors"));
+      String modelIssueMessage = cleanCell(modelIssue.get("message"));
+      if (errors.isEmpty()) {
+        errors = List.of(modelIssueMessage.isBlank() ? "模型未能确认该行货物规格" : modelIssueMessage);
+      }
+      if (describesPalletDimensionsMissing(issueCode, errors, modelIssueMessage)) {
+        issueCode = "PALLET_DIMENSIONS_MISSING";
+      }
       String issueSourceSignature = normalizedSourceSignature(issueText);
       boolean issueHasReliableSourceRow = modelIssueRowNumber > 0;
       boolean sameReliableSourceRow = issueHasReliableSourceRow
@@ -918,8 +1028,6 @@ public class TextRecognitionService {
       if (!targetSourceRows.isEmpty() && !issueSourceRows.add(issueRowNumber)) continue;
       if (targetSourceRows.isEmpty()) issueSourceRows.add(issueRowNumber);
       if (!targetSourceRows.isEmpty()) coveredSourceRows.add(issueRowNumber);
-      List<String> errors = stringList(modelIssue.get("errors"));
-      if (errors.isEmpty()) errors = List.of(cleanCell(modelIssue.get("message")).isBlank() ? "模型未能确认该行货物规格" : cleanCell(modelIssue.get("message")));
       Map<String, Object> issueCargoInput = modelIssueCargo(modelIssue);
       if ("PALLET_DIMENSIONS_MISSING".equals(issueCode)) {
         if (issueCargoInput.isEmpty()) {
@@ -928,9 +1036,7 @@ public class TextRecognitionService {
         issueCargoInput.put("palletDimensionsMissing", true);
         if (cleanCell(issueCargoInput.get("type")).isBlank()) issueCargoInput.put("type", "pallet");
       }
-      Map<Long, Double> issueWeightCorrections = thousandSeparatedWeightCorrections(
-          weightCorrectionSourceText(modelIssue, issueRowNumber, text)
-      );
+      Map<Long, Double> issueWeightCorrections = thousandSeparatedWeightCorrections(issueText);
       if (applyThousandSeparatedWeightCorrection(issueCargoInput, issueWeightCorrections)) correctedWeightCount++;
       Map<String, Object> issueCargo = issueCargoInput.isEmpty()
           ? Map.of()
@@ -1051,22 +1157,72 @@ public class TextRecognitionService {
       body.put("thinking", Map.of("type", "disabled"));
     }
 
-    try {
-      ResponseEntity<Map> response = restTemplate.postForEntity(
-          URI.create(chatCompletionsUrl(settings.baseUrl())),
-          new HttpEntity<>(body, headers),
-          Map.class
-      );
-      Object responseBody = response.getBody();
-      if (!(responseBody instanceof Map<?, ?> payload)) {
-        throw new IllegalStateException("LLM returned empty response body");
+    for (int attempt = 1; attempt <= LLM_MAX_TRANSIENT_ATTEMPTS; attempt++) {
+      try {
+        ResponseEntity<Map> response = restTemplate.postForEntity(
+            URI.create(chatCompletionsUrl(settings.baseUrl())),
+            new HttpEntity<>(body, headers),
+            Map.class
+        );
+        Object responseBody = response.getBody();
+        if (!(responseBody instanceof Map<?, ?> payload)) {
+          throw new IllegalStateException("LLM returned empty response body");
+        }
+        return extractAssistantContent(payload);
+      } catch (HttpStatusCodeException error) {
+        if (isTransientProviderStatus(error.getStatusCode().value()) && attempt < LLM_MAX_TRANSIENT_ATTEMPTS) {
+          sleepBeforeProviderRetry(retryDelayMillis(error, attempt));
+          continue;
+        }
+        String message = providerErrorMessage(error.getResponseBodyAsString());
+        throw new IllegalStateException("LLM HTTP " + error.getStatusCode().value() + ": " + message, error);
+      } catch (RestClientException error) {
+        if (attempt < LLM_MAX_TRANSIENT_ATTEMPTS) {
+          sleepBeforeProviderRetry(defaultRetryDelayMillis(attempt));
+          continue;
+        }
+        throw new IllegalStateException("LLM request failed after " + attempt + " attempts: " + error.getMessage(), error);
       }
-      return extractAssistantContent(payload);
-    } catch (HttpStatusCodeException error) {
-      String message = providerErrorMessage(error.getResponseBodyAsString());
-      throw new IllegalStateException("LLM HTTP " + error.getStatusCode().value() + ": " + message, error);
-    } catch (RestClientException error) {
-      throw new IllegalStateException("LLM request failed: " + error.getMessage(), error);
+    }
+    throw new IllegalStateException("LLM request failed after transient retries");
+  }
+
+  private boolean isTransientProviderStatus(int status) {
+    return status == 408 || status == 429 || status == 502 || status == 503 || status == 504;
+  }
+
+  private long retryDelayMillis(HttpStatusCodeException error, int attempt) {
+    String retryAfter = error.getResponseHeaders() == null
+        ? ""
+        : cleanCell(error.getResponseHeaders().getFirst(HttpHeaders.RETRY_AFTER));
+    if (!retryAfter.isBlank()) {
+      try {
+        double seconds = Double.parseDouble(retryAfter);
+        if (seconds >= 0) return Math.min(LLM_MAX_RETRY_DELAY_MS, Math.max(250, Math.round(seconds * 1_000)));
+      } catch (NumberFormatException ignored) {
+        try {
+          long millis = Duration.between(Instant.now(), ZonedDateTime.parse(retryAfter, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant()).toMillis();
+          if (millis > 0) return Math.min(LLM_MAX_RETRY_DELAY_MS, Math.max(250, millis));
+        } catch (RuntimeException ignoredDate) {
+          // Fall through to bounded exponential delay.
+        }
+      }
+    }
+    return defaultRetryDelayMillis(attempt);
+  }
+
+  private long defaultRetryDelayMillis(int attempt) {
+    long exponentialDelay = 1_000L << Math.max(0, Math.min(3, attempt - 1));
+    long jitter = ThreadLocalRandom.current().nextLong(100, 401);
+    return Math.min(LLM_MAX_RETRY_DELAY_MS, exponentialDelay + jitter);
+  }
+
+  private void sleepBeforeProviderRetry(long delayMillis) {
+    try {
+      Thread.sleep(Math.max(1, Math.min(LLM_MAX_RETRY_DELAY_MS, delayMillis)));
+    } catch (InterruptedException error) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("LLM retry interrupted", error);
     }
   }
 
@@ -1446,9 +1602,9 @@ public class TextRecognitionService {
       Map<String, Object> cargo = cargoMap(
           name,
           "",
-          convertDimension(parseFlexibleNumber(skid.group("length")), skid.group("dimensionUnit")),
-          convertDimension(parseFlexibleNumber(skid.group("width")), skid.group("dimensionUnit")),
-          convertDimension(parseFlexibleNumber(skid.group("height")), skid.group("dimensionUnit")),
+          convertDimension(parseDimensionNumber(skid.group("length"), skid.group("dimensionUnit")), skid.group("dimensionUnit")),
+          convertDimension(parseDimensionNumber(skid.group("width"), skid.group("dimensionUnit")), skid.group("dimensionUnit")),
+          convertDimension(parseDimensionNumber(skid.group("height"), skid.group("dimensionUnit")), skid.group("dimensionUnit")),
           intValue(skid.group("quantity"), 1),
           parseFlexibleNumber(skid.group("weight")),
           isPalletLike(pack) ? "pallet" : normalizeType(line),
@@ -1485,9 +1641,9 @@ public class TextRecognitionService {
       Map<String, Object> cargo = cargoMap(
           name,
           model,
-          convertDimension(parseFlexibleNumber(dimension.group("length")), dimension.group("dimensionUnit")),
-          convertDimension(parseFlexibleNumber(dimension.group("width")), dimension.group("dimensionUnit")),
-          convertDimension(parseFlexibleNumber(dimension.group("height")), dimension.group("dimensionUnit")),
+          convertDimension(parseDimensionNumber(dimension.group("length"), dimension.group("dimensionUnit")), dimension.group("dimensionUnit")),
+          convertDimension(parseDimensionNumber(dimension.group("width"), dimension.group("dimensionUnit")), dimension.group("dimensionUnit")),
+          convertDimension(parseDimensionNumber(dimension.group("height"), dimension.group("dimensionUnit")), dimension.group("dimensionUnit")),
           quantity == null ? 1 : quantity,
           weightKg == null ? 0 : weightKg,
           normalizeType(line),
@@ -1505,11 +1661,14 @@ public class TextRecognitionService {
   private DimensionParts extractDimensions(String text) {
     Matcher matcher = FLEX_DIMENSION_PATTERN.matcher(cleanCell(text));
     if (!matcher.find()) return null;
-    String unit = firstNonBlank(matcher.group("unit1"), matcher.group("unit2"), matcher.group("unit3"), "cm");
+    String defaultUnit = firstNonBlank(matcher.group("unit1"), matcher.group("unit2"), matcher.group("unit3"), "cm");
+    String lengthUnit = firstNonBlank(matcher.group("unit1"), defaultUnit);
+    String widthUnit = firstNonBlank(matcher.group("unit2"), defaultUnit);
+    String heightUnit = firstNonBlank(matcher.group("unit3"), defaultUnit);
     return new DimensionParts(
-        convertFlexDimension(parseFlexibleNumber(matcher.group("length")), unit),
-        convertFlexDimension(parseFlexibleNumber(matcher.group("width")), unit),
-        convertFlexDimension(parseFlexibleNumber(matcher.group("height")), unit)
+        convertFlexDimension(parseDimensionNumber(matcher.group("length"), lengthUnit), lengthUnit),
+        convertFlexDimension(parseDimensionNumber(matcher.group("width"), widthUnit), widthUnit),
+        convertFlexDimension(parseDimensionNumber(matcher.group("height"), heightUnit), heightUnit)
     );
   }
 
@@ -1576,6 +1735,9 @@ public class TextRecognitionService {
       cargo.put("packageInfo", new LinkedHashMap<>(packageInfo));
     }
     if (booleanValue(row.get("palletDimensionsMissing"))) {
+      cargo.put("lengthCm", 0);
+      cargo.put("widthCm", 0);
+      cargo.put("heightCm", 0);
       @SuppressWarnings("unchecked")
       Map<String, Object> packageInfo = cargo.get("packageInfo") instanceof Map<?, ?> packageInfoRaw
           ? new LinkedHashMap<>((Map<String, Object>) packageInfoRaw)
@@ -1727,6 +1889,243 @@ public class TextRecognitionService {
     return !(dimensionSource.equals("explicit") || explicitFlag);
   }
 
+  private boolean palletDimensionsAreOnlyInnerPackageSource(
+      String rawText,
+      int sourceRowNumber,
+      Map<String, Object> cargo
+  ) {
+    if (sourceRowNumber <= 0 || !isPalletHandlingUnit(cargo)) return false;
+    DimensionParts sourceDimensions = innerPackageDimensionsFromSource(rawText, sourceRowNumber);
+    if (sourceDimensions == null) return false;
+    DimensionParts modelDimensions = new DimensionParts(
+        numberValue(cargo.get("lengthCm")),
+        numberValue(cargo.get("widthCm")),
+        numberValue(cargo.get("heightCm"))
+    );
+    return sameDimensionsIgnoringOrientation(sourceDimensions, modelDimensions);
+  }
+
+  private DimensionParts explicitPalletDimensionsFromSource(String rawText, int sourceRowNumber) {
+    return dimensionsFromSourceColumns(rawText, sourceRowNumber, true);
+  }
+
+  private DimensionParts innerPackageDimensionsFromSource(String rawText, int sourceRowNumber) {
+    return dimensionsFromSourceColumns(rawText, sourceRowNumber, false);
+  }
+
+  private DimensionParts dimensionsFromSourceColumns(String rawText, int sourceRowNumber, boolean palletDimensions) {
+    int headerRowNumber = detectedHeaderRowNumber(rawText);
+    if (headerRowNumber <= 0 || sourceRowNumber <= 0) return null;
+    Map<String, String> headerCells = excelRowCells(sourceRowText(rawText, headerRowNumber));
+    Map<String, String> sourceCells = excelRowCells(sourceRowText(rawText, sourceRowNumber));
+    if (headerCells.isEmpty() || sourceCells.isEmpty()) return null;
+
+    for (Map.Entry<String, String> headerCell : headerCells.entrySet()) {
+      boolean matchesCombinedHeader = palletDimensions
+          ? isExplicitPalletCombinedDimensionHeader(headerCell.getValue())
+          : isInnerPackageCombinedDimensionHeader(headerCell.getValue());
+      if (!matchesCombinedHeader) continue;
+      DimensionParts dimensions = extractDimensionsWithHeaderUnit(
+          sourceCells.get(headerCell.getKey()),
+          headerCell.getValue()
+      );
+      if (positiveDimensions(dimensions)) return dimensions;
+    }
+
+    String lengthColumn = dimensionAxisColumn(headerCells, palletDimensions, "length");
+    String widthColumn = dimensionAxisColumn(headerCells, palletDimensions, "width");
+    String heightColumn = dimensionAxisColumn(headerCells, palletDimensions, "height");
+    if (lengthColumn.isBlank() || widthColumn.isBlank() || heightColumn.isBlank()
+        || lengthColumn.equals(widthColumn)
+        || lengthColumn.equals(heightColumn)
+        || widthColumn.equals(heightColumn)) {
+      return null;
+    }
+    DimensionParts dimensions = new DimensionParts(
+        dimensionCellValue(sourceCells.get(lengthColumn), headerCells.get(lengthColumn)),
+        dimensionCellValue(sourceCells.get(widthColumn), headerCells.get(widthColumn)),
+        dimensionCellValue(sourceCells.get(heightColumn), headerCells.get(heightColumn))
+    );
+    return positiveDimensions(dimensions) ? dimensions : null;
+  }
+
+  private Map<String, String> excelRowCells(String line) {
+    Map<String, String> cells = new LinkedHashMap<>();
+    Matcher matcher = EXCEL_CELL_PATTERN.matcher(String.valueOf(line == null ? "" : line));
+    while (matcher.find()) {
+      String value;
+      try {
+        value = objectMapper.readValue(matcher.group(2), String.class);
+      } catch (JsonProcessingException error) {
+        value = matcher.group(2).replaceAll("^\"|\"$", "");
+      }
+      cells.put(matcher.group(1).toUpperCase(Locale.ROOT), cleanCell(value));
+    }
+    return cells;
+  }
+
+  private boolean isExplicitPalletCombinedDimensionHeader(String value) {
+    String header = cleanCell(value).toLowerCase(Locale.ROOT);
+    boolean palletSignal = containsAny(header, "托盘", "栈板", "木托", "pallet", "skid");
+    boolean dimensionSignal = containsAny(header, "尺寸", "规格", "长宽高", "外廓", "size", "dimension", "l×w×h", "l*w*h");
+    return palletSignal && dimensionSignal;
+  }
+
+  private boolean isInnerPackageCombinedDimensionHeader(String value) {
+    String header = cleanCell(value).toLowerCase(Locale.ROOT);
+    return containsAny(
+        header,
+        "单箱尺寸", "纸箱尺寸", "外箱尺寸", "内箱尺寸", "包装箱尺寸", "箱规",
+        "carton size", "carton dimension", "case size", "case dimension", "box size", "box dimension"
+    );
+  }
+
+  private String dimensionAxisColumn(Map<String, String> headerCells, boolean palletDimensions, String axis) {
+    for (Map.Entry<String, String> entry : headerCells.entrySet()) {
+      if (dimensionAxisHeader(entry.getValue(), palletDimensions, axis)) return entry.getKey();
+    }
+    return "";
+  }
+
+  private boolean dimensionAxisHeader(String value, boolean palletDimensions, String axis) {
+    String header = cleanCell(value).toLowerCase(Locale.ROOT);
+    boolean packageSignal = palletDimensions
+        ? containsAny(header, "托盘", "栈板", "木托", "pallet", "skid")
+        : containsAny(header, "单箱", "纸箱", "外箱", "内箱", "包装箱", "carton", "case", "box");
+    if (!packageSignal) return false;
+    return switch (axis) {
+      case "length" -> containsAny(header, "托盘长", "栈板长", "木托长", "单箱长", "纸箱长", "外箱长", "内箱长", "包装箱长", "外廓长", "长度", "length", "pallet l", "skid l", "carton l", "box l");
+      case "width" -> containsAny(header, "托盘宽", "栈板宽", "木托宽", "单箱宽", "纸箱宽", "外箱宽", "内箱宽", "包装箱宽", "外廓宽", "宽度", "width", "pallet w", "skid w", "carton w", "box w");
+      case "height" -> containsAny(header, "托盘高", "栈板高", "木托高", "单箱高", "纸箱高", "外箱高", "内箱高", "包装箱高", "外廓高", "高度", "height", "pallet h", "skid h", "carton h", "box h");
+      default -> false;
+    };
+  }
+
+  private DimensionParts extractDimensionsWithHeaderUnit(String value, String header) {
+    Matcher matcher = FLEX_DIMENSION_PATTERN.matcher(cleanCell(value));
+    if (!matcher.find()) return null;
+    String defaultUnit = firstNonBlank(
+        matcher.group("unit1"),
+        matcher.group("unit2"),
+        matcher.group("unit3"),
+        dimensionUnitFromHeader(header),
+        "cm"
+    );
+    String lengthUnit = firstNonBlank(matcher.group("unit1"), defaultUnit);
+    String widthUnit = firstNonBlank(matcher.group("unit2"), defaultUnit);
+    String heightUnit = firstNonBlank(matcher.group("unit3"), defaultUnit);
+    return new DimensionParts(
+        convertFlexDimension(parseDimensionNumber(matcher.group("length"), lengthUnit), lengthUnit),
+        convertFlexDimension(parseDimensionNumber(matcher.group("width"), widthUnit), widthUnit),
+        convertFlexDimension(parseDimensionNumber(matcher.group("height"), heightUnit), heightUnit)
+    );
+  }
+
+  private double dimensionCellValue(String value, String header) {
+    Matcher numberMatcher = DIMENSION_NUMBER_TOKEN_PATTERN.matcher(cleanCell(value));
+    if (!numberMatcher.find()) return 0;
+    Matcher inlineUnitMatcher = INLINE_DIMENSION_UNIT_PATTERN.matcher(cleanCell(value));
+    String inlineUnit = inlineUnitMatcher.find() ? inlineUnitMatcher.group(1) : "";
+    String unit = firstNonBlank(inlineUnit, dimensionUnitFromHeader(header), "cm");
+    return convertFlexDimension(parseDimensionNumber(numberMatcher.group(), unit), unit);
+  }
+
+  private double parseDimensionNumber(String value, String unit) {
+    String number = cleanCell(value).replace(" ", "");
+    String normalizedUnit = cleanCell(unit).toLowerCase(Locale.ROOT);
+    if (("m".equals(normalizedUnit) || "米".equals(normalizedUnit))
+        && number.matches("-?\\d+[.,]\\d+")) {
+      return Double.parseDouble(number.replace(',', '.'));
+    }
+    return parseFlexibleNumber(number);
+  }
+
+  private String dimensionUnitFromHeader(String value) {
+    String header = cleanCell(value).toLowerCase(Locale.ROOT);
+    if (containsAny(header, "毫米", "mm")) return "mm";
+    if (containsAny(header, "厘米", "cm")) return "cm";
+    if (header.contains("米") || Pattern.compile("(?:^|[（(\\s])m(?:$|[）)\\s])").matcher(header).find()) return "m";
+    return "";
+  }
+
+  private boolean positiveDimensions(DimensionParts dimensions) {
+    return dimensions != null
+        && dimensions.lengthCm() > 0
+        && dimensions.widthCm() > 0
+        && dimensions.heightCm() > 0;
+  }
+
+  private int detectedHeaderRowNumber(String rawText) {
+    for (String line : textRows(rawText)) {
+      Matcher matcher = EXCEL_HEADER_ROW_PATTERN.matcher(line);
+      if (matcher.matches()) return intValue(matcher.group(1), 0);
+    }
+    return 0;
+  }
+
+  @SuppressWarnings("unchecked")
+  private void markPalletDimensionsMissing(Map<String, Object> modelRow, String sourceText) {
+    markPalletDimensionsMissing(modelRow, extractDimensions(sourceText));
+  }
+
+  @SuppressWarnings("unchecked")
+  private void markPalletDimensionsMissing(
+      Map<String, Object> modelRow,
+      DimensionParts sourceInnerDimensions
+  ) {
+    modelRow.put("palletDimensionsMissing", true);
+    modelRow.put("lengthCm", 0);
+    modelRow.put("widthCm", 0);
+    modelRow.put("heightCm", 0);
+
+    Map<String, Object> packageInfo = modelRow.get("packageInfo") instanceof Map<?, ?> packageInfoRaw
+        ? new LinkedHashMap<>((Map<String, Object>) packageInfoRaw)
+        : new LinkedHashMap<>();
+    packageInfo.putIfAbsent("handlingUnitType", "pallet");
+    packageInfo.put("dimensionSource", "missing");
+    packageInfo.put("handlingUnitDimensionsExplicit", false);
+
+    DimensionParts innerDimensions = sourceInnerDimensions;
+    if (innerDimensions != null) {
+      Map<String, Object> innerCargo = packageInfo.get("innerCargo") instanceof Map<?, ?> innerRaw
+          ? new LinkedHashMap<>((Map<String, Object>) innerRaw)
+          : new LinkedHashMap<>();
+      innerCargo.putIfAbsent("lengthCm", round2(innerDimensions.lengthCm()));
+      innerCargo.putIfAbsent("widthCm", round2(innerDimensions.widthCm()));
+      innerCargo.putIfAbsent("heightCm", round2(innerDimensions.heightCm()));
+      innerCargo.putIfAbsent("dimensionSource", "source inner-package/carton dimensions");
+      packageInfo.put("innerCargo", compactObject(innerCargo));
+    }
+    modelRow.put("packageInfo", compactObject(packageInfo));
+  }
+
+  @SuppressWarnings("unchecked")
+  private void applyExplicitPalletDimensions(Map<String, Object> modelRow, DimensionParts dimensions) {
+    modelRow.put("palletDimensionsMissing", false);
+    modelRow.put("lengthCm", round2(dimensions.lengthCm()));
+    modelRow.put("widthCm", round2(dimensions.widthCm()));
+    modelRow.put("heightCm", round2(dimensions.heightCm()));
+    Map<String, Object> packageInfo = modelRow.get("packageInfo") instanceof Map<?, ?> packageInfoRaw
+        ? new LinkedHashMap<>((Map<String, Object>) packageInfoRaw)
+        : new LinkedHashMap<>();
+    packageInfo.putIfAbsent("handlingUnitType", "pallet");
+    packageInfo.put("dimensionSource", "explicit source pallet columns");
+    packageInfo.put("handlingUnitDimensionsExplicit", true);
+    modelRow.put("packageInfo", compactObject(packageInfo));
+  }
+
+  private boolean sameDimensionsIgnoringOrientation(DimensionParts left, DimensionParts right) {
+    double[] leftValues = {left.lengthCm(), left.widthCm(), left.heightCm()};
+    double[] rightValues = {right.lengthCm(), right.widthCm(), right.heightCm()};
+    Arrays.sort(leftValues);
+    Arrays.sort(rightValues);
+    for (int index = 0; index < leftValues.length; index++) {
+      if (leftValues[index] <= 0 || rightValues[index] <= 0) return false;
+      if (Math.abs(leftValues[index] - rightValues[index]) > 0.01) return false;
+    }
+    return true;
+  }
+
   @SuppressWarnings("unchecked")
   private boolean isPalletHandlingUnit(Map<String, Object> cargo) {
     Object packageInfoValue = cargo.get("packageInfo");
@@ -1847,6 +2246,15 @@ public class TextRecognitionService {
       warnings.add("复核：托盘单重为空或为 0，装箱计算会低估重量，请补全单重。");
     }
     return warnings.stream().distinct().toList();
+  }
+
+  private boolean describesPalletDimensionsMissing(String code, List<String> errors, String message) {
+    if ("PALLET_DIMENSIONS_MISSING".equals(cleanCell(code))) return true;
+    String text = String.join(" ", String.join(" ", errors), cleanCell(message)).toLowerCase(Locale.ROOT);
+    boolean palletSignal = containsAny(text, "托盘", "栈板", "木托", "pallet", "skid");
+    boolean dimensionSignal = containsAny(text, "尺寸", "外廓", "长宽高", "dimension", "size", "length", "width", "height");
+    boolean missingSignal = containsAny(text, "缺少", "缺失", "未提供", "未给", "missing", "not provided", "absent");
+    return palletSignal && dimensionSignal && missingSignal;
   }
 
   private boolean containsAny(String text, String... words) {
@@ -2652,6 +3060,8 @@ public class TextRecognitionService {
 
   private record BatchRecognitionResult(List<RecognitionResult> results, int requestCount) {}
 
+  private record IndexedBatchRecognitionResult(int index, BatchRecognitionResult result) {}
+
   private static final class AgentRequestBudget {
     private final int limit;
     private final long deadlineNanos;
@@ -2662,7 +3072,7 @@ public class TextRecognitionService {
       this.deadlineNanos = System.nanoTime() + Math.max(1, deadline.toNanos());
     }
 
-    private boolean tryAcquire() {
+    private synchronized boolean tryAcquire() {
       if (used >= limit || System.nanoTime() >= deadlineNanos) return false;
       used += 1;
       return true;

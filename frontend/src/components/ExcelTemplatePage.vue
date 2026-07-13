@@ -513,7 +513,7 @@
       v-if="recognitionReviewDialogOpen"
       :model-value="true"
       class="planner-dialog recognition-review-dialog"
-      width="min(920px, calc(100vw - 32px))"
+      width="min(1680px, 94vw)"
       align-center
       destroy-on-close
       @close="closeRecognitionReviewDialog"
@@ -600,7 +600,11 @@
                     </div>
                     <div class="recognition-review-line-content">
                       <div v-if="recognitionReviewSuggestionRows(finding).length" class="recognition-review-inline-fields">
-                        <span v-for="row in recognitionReviewSuggestionRows(finding)" :key="`suggestion-${finding.id}-${row.label}`">
+                        <span
+                          v-for="row in recognitionReviewSuggestionRows(finding)"
+                          :key="`suggestion-${finding.id}-${row.label}`"
+                          :class="{ 'is-missing-dimension': row.missing }"
+                        >
                           <b>{{ row.label }}</b>{{ row.value }}
                         </span>
                       </div>
@@ -620,8 +624,12 @@
                       <strong>{{ ui('excel.reviewImportedCandidate') }}</strong>
                     </div>
                     <div class="recognition-review-line-content">
-                      <div v-if="recognitionReviewCargoRows(finding.cargo).length" class="recognition-review-inline-fields import-fields">
-                        <span v-for="row in recognitionReviewCargoRows(finding.cargo)" :key="`cargo-${finding.id}-${row.label}`">
+                      <div v-if="recognitionReviewCargoRows(finding.cargo, finding).length" class="recognition-review-inline-fields import-fields">
+                        <span
+                          v-for="row in recognitionReviewCargoRows(finding.cargo, finding)"
+                          :key="`cargo-${finding.id}-${row.label}`"
+                          :class="{ 'is-missing-dimension': row.missing }"
+                        >
                           <b>{{ row.label }}</b>{{ row.value }}
                         </span>
                       </div>
@@ -1736,7 +1744,7 @@ function recognitionReviewSourceText(finding) {
 
 function recognitionReviewSuggestionRows(finding) {
   const suggestion = finding?.suggestion || {};
-  const rows = recognitionReviewCargoRows(suggestion.cargo);
+  const rows = recognitionReviewCargoRows(suggestion.cargo, finding);
   const notes = reviewListValue(suggestion.notes);
   if (notes) rows.push({ label: ui("excel.reviewAgentNotes"), value: notes });
   const errors = reviewListValue(suggestion.errors);
@@ -1744,18 +1752,87 @@ function recognitionReviewSuggestionRows(finding) {
   return rows;
 }
 
-function recognitionReviewCargoRows(cargo) {
+function recognitionReviewCargoRows(cargo, finding = null) {
   if (!cargo) return [];
+  const dimensions = recognitionReviewDimensionRows(cargo, finding);
   const rows = [
     { label: ui("common.cargo"), value: cargo.name || "-" },
     { label: ui("common.model"), value: cargo.model || "-" },
-    { label: ui("common.dimensionsCm"), value: recognitionDimensionText(cargo) },
+    ...dimensions,
     { label: ui("common.quantity"), value: cargo.quantity ?? "-" },
     { label: ui("common.unitWeightKg"), value: cargo.weightKg ?? "-" },
     { label: ui("common.type"), value: typeText(cargo.type) }
   ];
   if (cargo.remark) rows.push({ label: ui("common.remark"), value: cargo.remark });
   return rows;
+}
+
+function recognitionReviewDimensionRows(cargo, finding) {
+  if (!isPalletDimensionsMissingFinding(finding)) {
+    return [{ label: ui("common.dimensionsCm"), value: recognitionDimensionText(cargo) }];
+  }
+
+  const rows = [{
+    label: ui("excel.reviewFinalPalletOuterDimensions"),
+    value: ui("excel.reviewDimensionsNotProvided"),
+    missing: true
+  }];
+  const cartonDimensions = recognitionInnerCartonDimensions(cargo)
+    || dimensionsFromText(recognitionReviewSourceText(finding));
+  if (cartonDimensions) {
+    rows.push({
+      label: ui("excel.reviewOriginalCartonDimensions"),
+      value: recognitionDimensionText(cartonDimensions)
+    });
+  }
+  return rows;
+}
+
+function recognitionInnerCartonDimensions(cargo) {
+  const packageInfo = cargo?.packageInfo || {};
+  const innerCargo = packageInfo?.innerCargo || {};
+  const candidates = [
+    innerCargo.cartonDimensionsCm,
+    innerCargo.unitDimensionsCm,
+    innerCargo.packageDimensionsCm,
+    packageInfo.cartonDimensionsCm,
+    packageInfo.innerPackageDimensionsCm
+  ];
+  for (const candidate of candidates) {
+    const dimensions = normalizeReviewDimensions(candidate);
+    if (dimensions) return dimensions;
+  }
+  return normalizeReviewDimensions({
+    lengthCm: innerCargo.cartonLengthCm ?? innerCargo.unitLengthCm ?? innerCargo.lengthCm,
+    widthCm: innerCargo.cartonWidthCm ?? innerCargo.unitWidthCm ?? innerCargo.widthCm,
+    heightCm: innerCargo.cartonHeightCm ?? innerCargo.unitHeightCm ?? innerCargo.heightCm
+  });
+}
+
+function normalizeReviewDimensions(value) {
+  if (!value) return null;
+  if (typeof value === "string") return dimensionsFromText(value);
+  if (Array.isArray(value)) {
+    const [lengthCm, widthCm, heightCm] = value.map(Number);
+    return positiveReviewDimensions(lengthCm, widthCm, heightCm);
+  }
+  if (typeof value !== "object") return null;
+  return positiveReviewDimensions(
+    Number(value.lengthCm ?? value.length ?? value.l),
+    Number(value.widthCm ?? value.width ?? value.w),
+    Number(value.heightCm ?? value.height ?? value.h)
+  );
+}
+
+function dimensionsFromText(value) {
+  const match = String(value || "").match(/(\d+(?:\.\d+)?)\s*(?:cm)?\s*[×xX*]\s*(\d+(?:\.\d+)?)\s*(?:cm)?\s*[×xX*]\s*(\d+(?:\.\d+)?)\s*(?:cm)?/i);
+  if (!match) return null;
+  return positiveReviewDimensions(Number(match[1]), Number(match[2]), Number(match[3]));
+}
+
+function positiveReviewDimensions(lengthCm, widthCm, heightCm) {
+  if (!(lengthCm > 0 && widthCm > 0 && heightCm > 0)) return null;
+  return { lengthCm, widthCm, heightCm };
 }
 
 function recognitionDimensionText(cargo) {
