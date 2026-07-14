@@ -277,6 +277,68 @@
         </article>
       </section>
 
+      <section v-else-if="activeAdminPage === 'files'" class="admin-page-pane">
+        <article class="admin-panel">
+          <div class="admin-panel-head">
+            <div>
+              <p>Workspace Files</p>
+              <h2>{{ ui('admin.files.title') }}</h2>
+            </div>
+            <div class="admin-inline-actions">
+              <label class="admin-files-expired-filter">
+                <input v-model="includeExpiredFiles" type="checkbox" @change="loadAdminWorkspaceFiles" />
+                <span>{{ ui('admin.files.includeExpired') }}</span>
+              </label>
+              <span>{{ ui('admin.files.total', { count: adminWorkspaceFileTotal }) }}</span>
+              <button type="button" @click="loadAdminWorkspaceFiles">{{ ui('admin.files.refresh') }}</button>
+            </div>
+          </div>
+          <div class="admin-table-wrap">
+            <table class="admin-table admin-files-table">
+              <thead>
+                <tr>
+                  <th>{{ ui('admin.files.user') }}</th>
+                  <th>{{ ui('admin.files.fileName') }}</th>
+                  <th>{{ ui('admin.files.size') }}</th>
+                  <th>{{ ui('admin.files.uploadedAt') }}</th>
+                  <th>{{ ui('admin.files.expiresAt') }}</th>
+                  <th>{{ ui('admin.files.status') }}</th>
+                  <th>{{ ui('admin.files.action') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="file in adminWorkspaceFiles" :key="file.id">
+                  <td>
+                    <b>{{ file.ownerDisplayName || '-' }}</b>
+                    <small>ID {{ file.userId || '-' }}</small>
+                  </td>
+                  <td>
+                    <b>{{ file.originalFileName }}</b>
+                    <small>{{ file.source || '-' }}</small>
+                  </td>
+                  <td>{{ formatFileSize(file.sizeBytes) }}</td>
+                  <td>{{ formatDate(file.uploadedAt) }}</td>
+                  <td>{{ formatDate(file.expiresAt) }}</td>
+                  <td>
+                    <span class="admin-status" :class="{ off: file.expired }">
+                      {{ ui(file.expired ? 'admin.files.expired' : 'admin.files.active') }}
+                    </span>
+                  </td>
+                  <td>
+                    <div class="table-actions">
+                      <button type="button" :disabled="file.expired" @click="handleDownloadWorkspaceFile(file)">{{ ui('admin.files.download') }}</button>
+                    </div>
+                  </td>
+                </tr>
+                <tr v-if="!adminWorkspaceFiles.length">
+                  <td colspan="7">{{ ui('admin.files.empty') }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
       <section v-else-if="activeAdminPage === 'system'" class="admin-page-pane">
         <div class="admin-dashboard-grid">
           <article class="admin-panel">
@@ -476,6 +538,7 @@ import {
   deleteDevice,
   deleteEmployee,
   fetchAdminMe,
+  fetchAdminWorkspaceFiles,
   fetchDevices,
   fetchEmployees,
   fetchLlmSettings,
@@ -484,6 +547,7 @@ import {
   loginAdmin,
   resetEmployeePassword,
   storedAdminToken,
+  downloadAdminWorkspaceFile,
   updateEmployee,
   updateLlmSettings
 } from "../services/adminApi";
@@ -500,7 +564,8 @@ const rawAdminPages = [
   { key: "overview", no: "01", label: "后台概览", description: "指标与运行监控", eyebrow: "Admin Console", title: "后台总览", subtitle: "查看账号、设备、接口运行的关键状态。" },
   { key: "employees", no: "02", label: "员工管理", description: "账号与角色", eyebrow: "Employee Management", title: "员工管理", subtitle: "创建员工账号，调整角色与启用状态。" },
   { key: "devices", no: "03", label: "设备登录", description: "IP 与在线设备", eyebrow: "Device Sessions", title: "设备与登录", subtitle: "查看当前登录设备、IP、会话状态并执行下线。" },
-  { key: "system", no: "04", label: "系统管理", description: "策略与服务状态", eyebrow: "System Settings", title: "系统管理", subtitle: "集中放置账号策略、服务状态和后续运维入口。" },
+  { key: "files", no: "04", labelKey: "admin.files.navLabel", descriptionKey: "admin.files.navDescription", eyebrow: "Workspace Files", titleKey: "admin.files.title", subtitleKey: "admin.files.subtitle" },
+  { key: "system", no: "05", label: "\u7cfb\u7edf\u7ba1\u7406", description: "\u7b56\u7565\u4e0e\u670d\u52a1\u72b6\u6001", eyebrow: "System Settings", title: "\u7cfb\u7edf\u7ba1\u7406", subtitle: "\u96c6\u4e2d\u653e\u7f6e\u8d26\u53f7\u7b56\u7565\u3001\u670d\u52a1\u72b6\u6001\u548c\u540e\u7eed\u8fd0\u7ef4\u5165\u53e3\u3002" },
   { key: "audit", no: "06", label: "审计日志", description: "登录与接口记录", eyebrow: "Audit Log", title: "审计日志", subtitle: "追踪登录事件和接口访问热度。" }
 ];
 
@@ -510,6 +575,9 @@ const hasError = ref(false);
 const currentUser = ref(props.currentUser);
 const employees = ref([]);
 const devices = ref([]);
+const adminWorkspaceFiles = ref([]);
+const adminWorkspaceFileTotal = ref(0);
+const includeExpiredFiles = ref(false);
 const monitoring = ref(null);
 const llmSettings = ref(null);
 const activeAdminPage = ref("overview");
@@ -526,10 +594,10 @@ const llmForm = reactive({
 
 const adminPages = computed(() => rawAdminPages.map((item) => ({
   ...item,
-  label: tr(item.label),
-  description: tr(item.description),
-  title: tr(item.title),
-  subtitle: tr(item.subtitle)
+  label: item.labelKey ? ui(item.labelKey) : tr(item.label),
+  description: item.descriptionKey ? ui(item.descriptionKey) : tr(item.description),
+  title: item.titleKey ? ui(item.titleKey) : tr(item.title),
+  subtitle: item.subtitleKey ? ui(item.subtitleKey) : tr(item.subtitle)
 })));
 const activePageMeta = computed(() =>
   adminPages.value.find((item) => item.key === activeAdminPage.value) || adminPages.value[0]
@@ -591,16 +659,22 @@ async function loadDashboard(showSuccess = true) {
   await withLoading(async () => {
     currentUser.value = normalizeDisplayName(await fetchAdminMe());
     emit("user-updated", currentUser.value);
-    const [employeeRows, deviceRows, monitoringData, llmData] = await Promise.all([
+    const [employeeRows, deviceRows, monitoringData, llmData, workspaceFileData] = await Promise.all([
       fetchEmployees(),
       fetchDevices(),
       fetchMonitoring(),
-      fetchLlmSettings()
+      fetchLlmSettings(),
+      fetchAdminWorkspaceFiles({ page: 0, size: 200, includeExpired: includeExpiredFiles.value })
+        .catch(() => null)
     ]);
     employees.value = employeeRows;
     devices.value = deviceRows;
     monitoring.value = monitoringData;
     llmSettings.value = llmData;
+    if (workspaceFileData) {
+      adminWorkspaceFiles.value = Array.isArray(workspaceFileData.items) ? workspaceFileData.items : [];
+      adminWorkspaceFileTotal.value = Number(workspaceFileData.total ?? adminWorkspaceFiles.value.length);
+    }
     syncLlmForm(llmData);
     if (showSuccess) showMessage("后台数据已刷新");
   });
@@ -678,6 +752,24 @@ async function handleDeleteDevice(device) {
     await deleteDevice(device.id);
     await loadDashboard(false);
     showMessage("设备记录已删除");
+  });
+}
+
+async function loadAdminWorkspaceFiles() {
+  await withLoading(async () => {
+    const response = await fetchAdminWorkspaceFiles({
+      page: 0,
+      size: 200,
+      includeExpired: includeExpiredFiles.value
+    });
+    adminWorkspaceFiles.value = Array.isArray(response?.items) ? response.items : [];
+    adminWorkspaceFileTotal.value = Number(response?.total ?? adminWorkspaceFiles.value.length);
+  });
+}
+
+async function handleDownloadWorkspaceFile(file) {
+  await withLoading(async () => {
+    await downloadAdminWorkspaceFile(file.id, file.originalFileName || `workspace-${file.id}.xlsx`);
   });
 }
 
@@ -795,6 +887,13 @@ function formatDate(value) {
     hour: "2-digit",
     minute: "2-digit"
   }).format(new Date(value));
+}
+
+function formatFileSize(bytes) {
+  const value = Number(bytes || 0);
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function tr(value) {

@@ -162,3 +162,26 @@ npm run desktop:build
 ```text
 frontend/release/
 ```
+
+## Workspace upload storage
+
+Authenticated Excel/CSV uploads are retained for 14 days by default. Files are stored below a
+per-user directory named from the account display name plus the immutable user id; database rows
+hold metadata only. Re-uploading the same content under the same name refreshes its expiry without
+creating another copy, while changed content receives the next version number.
+
+Docker Compose mounts the named volume `workspace-files` at `/app/uploads`, so uploads survive
+backend container rebuilds. The relevant environment variables are:
+
+```env
+APP_WORKSPACE_FILE_RETENTION=14d
+APP_WORKSPACE_FILE_CLEANUP_INTERVAL_MS=3600000
+APP_WORKSPACE_FILE_MAX_SIZE_BYTES=83886080
+```
+
+When the backend runs outside Docker, set `APP_WORKSPACE_FILE_ROOT` to an absolute writable path;
+otherwise it uses `./uploads`. Expired files are removed by an hourly scheduled cleanup.
+
+User APIs are rooted at `/api/workspace-files`. Administrators can list and inspect all users'
+uploads through `/api/admin/workspace-files`. Existing databases must apply the
+`cp_workspace_files` statement from `backend/sql/schema.sql` once during upgrade.

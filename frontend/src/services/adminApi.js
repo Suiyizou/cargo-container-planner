@@ -1,4 +1,4 @@
-import { requestJson } from "./apiClient";
+import { fetchWithApiFallback, requestJson } from "./apiClient";
 import {
   clearSession,
   getDeviceId,
@@ -86,6 +86,32 @@ export async function fetchLlmSettings() {
 
 export async function updateLlmSettings(payload) {
   return request("/admin/settings/llm", { method: "PATCH", body: payload });
+}
+
+export async function fetchAdminWorkspaceFiles(options = {}) {
+  const params = new URLSearchParams();
+  params.set("page", String(Math.max(0, Number(options.page || 0))));
+  params.set("size", String(Math.max(1, Number(options.size || 200))));
+  if (options.userId) params.set("userId", options.userId);
+  if (options.includeExpired != null) params.set("includeExpired", String(Boolean(options.includeExpired)));
+  return request(`/admin/workspace-files?${params.toString()}`);
+}
+
+export async function downloadAdminWorkspaceFile(id, fileName = "workspace-file.xlsx") {
+  const response = await fetchWithApiFallback(
+    `/admin/workspace-files/${encodeURIComponent(id)}/download`,
+    {},
+    configuredBase
+  );
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 async function request(path, options = {}) {

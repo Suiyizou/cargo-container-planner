@@ -4,6 +4,7 @@ frontend/dist/
 frontend/release/
 backend/target/
 backend/uploads/
+uploads/
 *.log
 *.err.log
 .env

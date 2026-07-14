@@ -72,13 +72,15 @@
               ref="manualFileInput"
               hidden
               type="file"
+              multiple
               :accept="WORKBOOK_FILE_ACCEPT"
-              :disabled="importBusy"
               @change="handleFile"
             />
-            <el-button type="primary" :disabled="importBusy" :loading="manualImportBusy || previewBusy" @click="openManualFilePicker">
+            <el-button type="primary" :loading="manualImportBusy || previewBusy" @click="openManualFilePicker">
               {{ ui('common.chooseFile') }}
             </el-button>
+            <el-button :disabled="!workbook" @click="openManualWorkbookPreview">{{ ui('excel.previewWorkbook') }}</el-button>
+            <el-button @click="openWorkspaceFiles('manual')">{{ ui('excel.workspaceFiles') }}</el-button>
           </div>
         </div>
 
@@ -96,7 +98,6 @@
           :class="{ active: manualDropActive }"
           role="button"
           tabindex="0"
-          :aria-disabled="importBusy"
           @click="openManualFilePicker"
           @keydown.enter.prevent="openManualFilePicker"
           @keydown.space.prevent="openManualFilePicker"
@@ -109,6 +110,27 @@
             <span>{{ ui('excel.dropSupportText') }}</span>
           </div>
           <span class="excel-drop-formats">XLSX / XLS / CSV / TSV</span>
+        </div>
+
+        <div v-if="manualFileQueue.length" class="import-file-queue">
+          <header>
+            <strong>{{ ui('excel.fileQueue') }}</strong>
+            <span>{{ ui('excel.fileQueueCount', { count: manualFileQueue.length }) }}</span>
+          </header>
+          <div class="import-file-queue-list">
+            <button
+              v-for="item in manualFileQueue"
+              :key="item.id"
+              type="button"
+              class="import-file-queue-item"
+              :class="{ active: item.id === activeManualFileId }"
+              @click="selectManualQueueItem(item)"
+            >
+              <span class="import-file-name">{{ item.file.name }}</span>
+              <small>{{ formatFileSize(item.file.size) }}</small>
+              <em :class="`status-${item.status}`">{{ queueStatusText(item.status) }}</em>
+            </button>
+          </div>
         </div>
 
         <el-alert
@@ -171,13 +193,14 @@
             ref="preciseFileInput"
             hidden
             type="file"
+            multiple
             :accept="WORKBOOK_FILE_ACCEPT"
-            :disabled="importBusy"
             @change="handlePreciseFile"
           />
-          <el-button type="primary" :disabled="importBusy" :loading="preciseImportBusy" @click="openPreciseFilePicker">
+          <el-button type="primary" :loading="preciseImportBusy" @click="openPreciseFilePicker">
             {{ ui('common.chooseFile') }}
           </el-button>
+          <el-button @click="openWorkspaceFiles('recognition')">{{ ui('excel.workspaceFiles') }}</el-button>
           <el-button :disabled="importBusy" @click="fillRecognitionSample">{{ ui('common.useSample') }}</el-button>
           <el-button :disabled="importBusy" @click="clearRecognition">{{ ui('common.clear') }}</el-button>
         </div>
@@ -188,7 +211,6 @@
         :class="{ active: preciseDropActive }"
         role="button"
         tabindex="0"
-        :aria-disabled="importBusy"
         @click="openPreciseFilePicker"
         @keydown.enter.prevent="openPreciseFilePicker"
         @keydown.space.prevent="openPreciseFilePicker"
@@ -201,6 +223,40 @@
           <span>{{ ui('excel.smartDropSupportText') }}</span>
         </div>
         <span class="excel-drop-formats">XLSX / XLS / CSV / TSV</span>
+      </div>
+
+      <div v-if="preciseFileQueue.length" class="import-file-queue">
+        <header>
+          <strong>{{ ui('excel.fileQueue') }}</strong>
+          <span>{{ ui('excel.smartQueueHint') }}</span>
+        </header>
+        <div class="import-file-queue-list">
+          <article
+            v-for="item in preciseFileQueue"
+            :key="item.id"
+            class="import-file-queue-item"
+            :class="{ active: item.id === activePreciseFileId }"
+          >
+            <button
+              type="button"
+              class="import-file-queue-select"
+              :title="item.error || item.file.name"
+              @click="selectPreciseQueueItem(item)"
+            >
+              <span class="import-file-name">{{ item.file.name }}</span>
+              <small>{{ formatFileSize(item.file.size) }}</small>
+              <em :class="`status-${item.status}`">{{ queueStatusText(item.status) }}</em>
+            </button>
+            <el-button
+              v-if="item.status === 'queued' && !preciseQueueProcessing"
+              link
+              type="primary"
+              @click.stop="processPreciseQueueItem(item)"
+            >
+              {{ ui('excel.recognizeThisFile') }}
+            </el-button>
+          </article>
+        </div>
       </div>
 
       <div class="recognition-text-divider"><span>{{ ui('excel.orPasteText') }}</span></div>
@@ -289,7 +345,7 @@
           <el-button :disabled="!recognitionHasResult" @click="openRecognitionReviewDialog">
             {{ ui('excel.openRecognitionReview') }}
           </el-button>
-          <el-button type="primary" :disabled="!recognitionRows.length || recognitionBlockingIssues.length" @click="importRecognitionRows">
+          <el-button type="primary" :disabled="!recognitionRows.length || recognitionBlockingIssues.length > 0" @click="importRecognitionRows">
             {{ ui('common.import') }} {{ recognitionRows.length }} {{ ui('unit.classes') }} / {{ recognitionQuantity }} {{ ui('unit.cargoPieces') }}
           </el-button>
         </div>
@@ -349,66 +405,34 @@
       </div>
     </div>
 
-    <div v-if="excelMode === 'manual' && workbook && !backendImportActive" class="template-grid">
-      <article class="algorithm-note">
-        <strong>{{ ui('excel.workbookAndUnits') }}</strong>
-        <div class="excel-control-grid">
-          <el-form-item :label="ui('excel.worksheet')">
-            <el-select v-model="selectedSheetName" @change="selectSheet">
-              <el-option
-                v-for="sheet in workbook.sheets"
-                :key="sheet.name"
-                :label="`${sheet.name} / ${sheet.rows.length} ${ui('unit.rows')}`"
-                :value="sheet.name"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item :label="ui('excel.dimensionUnit')">
-            <el-select v-model="options.dimensionUnit" @change="refreshPreview">
-              <el-option :label="ui('excel.autoDetect')" value="auto" />
-              <el-option label="cm" value="cm" />
-              <el-option label="mm" value="mm" />
-              <el-option label="m" value="m" />
-            </el-select>
-          </el-form-item>
-          <el-form-item :label="ui('excel.weightUnit')">
-            <el-select v-model="options.weightUnit" @change="refreshPreview">
-              <el-option :label="ui('excel.autoDetect')" value="auto" />
-              <el-option label="kg" value="kg" />
-              <el-option label="g" value="g" />
-              <el-option label="t" value="t" />
-            </el-select>
-          </el-form-item>
-          <el-form-item :label="ui('excel.importMode')">
-            <el-select v-model="importMode">
-              <el-option :label="ui('excel.replaceCargo')" value="replace" />
-              <el-option :label="ui('excel.appendCargo')" value="append" />
-            </el-select>
-          </el-form-item>
-        </div>
-      </article>
-
-      <article class="algorithm-note">
-        <strong>{{ ui('excel.fieldMapping') }}</strong>
-        <div class="mapping-grid">
-          <el-form-item v-for="field in visibleMappingFields" :key="field.key" :label="field.required ? `${tr(field.label)}*` : tr(field.label)">
-            <el-select v-model="mapping[field.key]" @change="refreshPreview">
-              <el-option :label="ui('excel.unmapped')" value="" />
-              <el-option v-for="header in activeSheet.headers" :key="header" :label="header" :value="header" />
-            </el-select>
-          </el-form-item>
-        </div>
-      </article>
-    </div>
-
     <div v-if="excelMode === 'manual' && preview" class="excel-preview-actions">
       <p v-if="unresolvedInvalidRows.length" class="excel-warning">
         {{ ui('common.has') }} {{ unresolvedInvalidRows.length }} {{ ui('excel.rowsFailedValidation') }}
       </p>
       <p v-else class="excel-ok">{{ ui('excel.allRowsValid') }}</p>
-      <el-button type="primary" :disabled="!approvedAggregated.length" @click="importPreview">
-        {{ ui('common.import') }} {{ approvedAggregated.length }} {{ ui('unit.classes') }} / {{ approvedQuantity }} {{ ui('unit.cargoPieces') }}
-      </el-button>
+      <div class="excel-preview-compact-controls">
+        <el-select
+          v-if="workbook?.sheets?.length > 1"
+          v-model="selectedSheetName"
+          :aria-label="ui('excel.worksheet')"
+          @change="selectSheet"
+        >
+          <el-option
+            v-for="sheet in workbook.sheets"
+            :key="sheet.name"
+            :label="`${sheet.name} / ${sheet.rows.length} ${ui('unit.rows')}`"
+            :value="sheet.name"
+          />
+        </el-select>
+        <el-select v-model="importMode" :aria-label="ui('excel.importMode')">
+          <el-option :label="ui('excel.replaceCargo')" value="replace" />
+          <el-option :label="ui('excel.appendCargo')" value="append" />
+        </el-select>
+        <el-button @click="openManualWorkbookPreview">{{ ui('excel.previewWorkbook') }}</el-button>
+        <el-button type="primary" :disabled="!approvedAggregated.length" @click="importPreview">
+          {{ ui('common.import') }} {{ approvedAggregated.length }} {{ ui('unit.classes') }} / {{ approvedQuantity }} {{ ui('unit.cargoPieces') }}
+        </el-button>
+      </div>
     </div>
 
     <div v-if="excelMode === 'manual' && preview" class="template-grid">
@@ -485,13 +509,13 @@
       <template #header>
         <div class="dialog-title">
           <p>{{ ui('excel.onlinePreview') }}</p>
-          <h2>{{ sourceWorkbookFile?.name || ui('excel.sourceWorkbook') }}</h2>
+          <h2>{{ sourcePreviewFile?.name || ui('excel.sourceWorkbook') }}</h2>
         </div>
       </template>
       <div class="source-preview-toolbar">
         <el-select v-model="sourcePreviewSheetName">
           <el-option
-            v-for="sheet in recognitionWorkbook?.sheets || []"
+            v-for="sheet in sourcePreviewWorkbook?.sheets || []"
             :key="sheet.name"
             :label="`${sheet.name} / ${sourceSheetRowCount(sheet)} ${ui('unit.rows')}`"
             :value="sheet.name"
@@ -505,7 +529,7 @@
             <tr v-for="(row, rowIndex) in sourcePreviewRows" :key="`source-row-${rowIndex}`">
               <th>{{ rowIndex + 1 }}</th>
               <td v-for="(cell, columnIndex) in row" :key="`source-cell-${rowIndex}-${columnIndex}`">
-                {{ cell || '' }}
+                {{ cell ?? '' }}
               </td>
             </tr>
             <tr v-if="!sourcePreviewRows.length">
@@ -515,8 +539,62 @@
         </table>
       </div>
       <template #footer>
-        <el-button @click="downloadSourceWorkbook">{{ ui('excel.downloadOriginalWorkbook') }}</el-button>
+        <el-button :disabled="!sourcePreviewFile" @click="downloadPreviewWorkbook">{{ ui('excel.downloadOriginalWorkbook') }}</el-button>
         <el-button type="primary" @click="sourcePreviewOpen = false">{{ ui('common.close') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="workspaceFilesOpen"
+      class="planner-dialog workspace-files-dialog"
+      width="min(1080px, calc(100vw - 32px))"
+      destroy-on-close
+    >
+      <template #header>
+        <div class="dialog-title">
+          <p>{{ ui('excel.workspaceFilesEyebrow') }}</p>
+          <h2>{{ ui('excel.workspaceFiles') }}</h2>
+        </div>
+      </template>
+      <div class="workspace-files-toolbar">
+        <span>{{ ui('excel.workspaceFilesRetention') }}</span>
+        <el-button :loading="workspaceFilesBusy" @click="loadWorkspaceFiles">{{ ui('excel.refreshFiles') }}</el-button>
+      </div>
+      <el-alert
+        v-if="workspaceFilesError"
+        type="warning"
+        :closable="false"
+        show-icon
+        :title="workspaceFilesError"
+      />
+      <div v-if="workspaceFilesBusy && !workspaceFileGroups.length" class="workspace-files-loading">
+        <el-skeleton :rows="5" animated />
+      </div>
+      <div v-else-if="workspaceFileGroups.length" class="workspace-file-groups">
+        <section v-for="group in workspaceFileGroups" :key="group.date" class="workspace-file-group">
+          <header>
+            <strong>{{ displayWorkspaceDate(group.date) }}</strong>
+            <span>{{ ui('excel.fileQueueCount', { count: group.items.length }) }}</span>
+          </header>
+          <div class="workspace-file-list">
+            <article v-for="file in group.items" :key="file.id" class="workspace-file-row">
+              <div>
+                <strong>{{ file.originalFileName }}</strong>
+                <small>{{ formatFileSize(file.sizeBytes) }} · {{ displayWorkspaceTime(file.uploadedAt) }}</small>
+              </div>
+              <span class="workspace-file-expiry">{{ ui('excel.workspaceFileDaysRemaining', { count: file.daysRemaining ?? 0 }) }}</span>
+              <div class="workspace-file-actions">
+                <el-button link type="primary" @click="previewWorkspaceFile(file)">{{ ui('excel.previewWorkbook') }}</el-button>
+                <el-button link type="primary" @click="useWorkspaceFile(file)">{{ ui(workspaceFilesTargetMode === 'recognition' ? 'excel.useForSmartImport' : 'excel.useForQuickImport') }}</el-button>
+                <el-button link type="danger" @click="removeWorkspaceFile(file)">{{ ui('common.delete') }}</el-button>
+              </div>
+            </article>
+          </div>
+        </section>
+      </div>
+      <p v-else class="recognition-review-empty">{{ ui('excel.workspaceFilesEmpty') }}</p>
+      <template #footer>
+        <el-button type="primary" @click="workspaceFilesOpen = false">{{ ui('common.close') }}</el-button>
       </template>
     </el-dialog>
 
@@ -610,14 +688,23 @@
                       <strong>{{ ui('excel.reviewAgentSuggestion') }}</strong>
                     </div>
                     <div class="recognition-review-line-content">
-                      <div v-if="recognitionReviewSuggestionRows(finding).length" class="recognition-review-inline-fields">
-                        <span
-                          v-for="row in recognitionReviewSuggestionRows(finding)"
-                          :key="`suggestion-${finding.id}-${row.label}`"
-                          :class="{ 'is-missing-dimension': row.missing }"
+                      <div v-if="recognitionReviewSuggestionGroups(finding).length" class="recognition-review-groups">
+                        <section
+                          v-for="group in recognitionReviewSuggestionGroups(finding)"
+                          :key="`suggestion-${finding.id}-${group.key}`"
+                          class="recognition-review-group"
                         >
-                          <b>{{ row.label }}</b>{{ row.value }}
-                        </span>
+                          <strong>{{ group.title }}</strong>
+                          <div class="recognition-review-inline-fields">
+                            <span
+                              v-for="row in group.rows"
+                              :key="`suggestion-${finding.id}-${group.key}-${row.label}`"
+                              :class="{ 'is-missing-dimension': row.missing }"
+                            >
+                              <b>{{ row.label }}</b>{{ row.value }}
+                            </span>
+                          </div>
+                        </section>
                       </div>
                       <p v-else class="recognition-review-card-empty">{{ ui('excel.reviewNoSuggestion') }}</p>
                       <div class="recognition-review-reason">
@@ -635,14 +722,23 @@
                       <strong>{{ ui('excel.reviewImportedCandidate') }}</strong>
                     </div>
                     <div class="recognition-review-line-content">
-                      <div v-if="recognitionReviewCargoRows(finding.cargo, finding).length" class="recognition-review-inline-fields import-fields">
-                        <span
-                          v-for="row in recognitionReviewCargoRows(finding.cargo, finding)"
-                          :key="`cargo-${finding.id}-${row.label}`"
-                          :class="{ 'is-missing-dimension': row.missing }"
+                      <div v-if="recognitionReviewCargoGroups(finding.cargo, finding).length" class="recognition-review-groups import-fields">
+                        <section
+                          v-for="group in recognitionReviewCargoGroups(finding.cargo, finding)"
+                          :key="`cargo-${finding.id}-${group.key}`"
+                          class="recognition-review-group"
                         >
-                          <b>{{ row.label }}</b>{{ row.value }}
-                        </span>
+                          <strong>{{ group.title }}</strong>
+                          <div class="recognition-review-inline-fields">
+                            <span
+                              v-for="row in group.rows"
+                              :key="`cargo-${finding.id}-${group.key}-${row.label}`"
+                              :class="{ 'is-missing-dimension': row.missing }"
+                            >
+                              <b>{{ row.label }}</b>{{ row.value }}
+                            </span>
+                          </div>
+                        </section>
                       </div>
                       <p v-else class="recognition-review-card-empty">{{ ui('excel.reviewNotImportedYet') }}</p>
                     </div>
@@ -853,7 +949,6 @@ import { EditPen, UploadFilled } from "@element-plus/icons-vue";
 import {
   aggregateCargos,
   formatWorkbookForRecognition,
-  importFields,
   validateCargo
 } from "../services/excelImport";
 import { buildPreviewInWorker, readWorkbookInWorker } from "../services/excelImportClient";
@@ -863,6 +958,13 @@ import {
   fetchTextRecognitionCapabilities,
   waitForTextRecognitionTask
 } from "../services/excelAgentApi";
+import {
+  deleteWorkspaceFile,
+  fetchWorkspaceFileBlob,
+  fetchWorkspaceFiles,
+  reuseWorkspaceFile,
+  uploadWorkspaceFiles
+} from "../services/workspaceFileApi";
 import { currentLocale, t } from "../i18n";
 import { translateLegacyText } from "../i18n/legacyText";
 import { translateUiText } from "../i18n/uiText";
@@ -904,6 +1006,9 @@ const recognitionElapsedSeconds = ref(0);
 const sourceWorkbookFile = ref(null);
 const sourcePreviewOpen = ref(false);
 const sourcePreviewSheetName = ref("");
+const sourcePreviewWorkbook = ref(null);
+const sourcePreviewFile = ref(null);
+const manualSourceWorkbookFile = ref(null);
 const manualImportBusy = ref(false);
 const manualDropActive = ref(false);
 const preciseDropActive = ref(false);
@@ -913,6 +1018,16 @@ const quickImportTab = ref(null);
 const smartImportTab = ref(null);
 const previewBusy = ref(false);
 const preciseImportBusy = ref(false);
+const manualFileQueue = ref([]);
+const preciseFileQueue = ref([]);
+const activeManualFileId = ref("");
+const activePreciseFileId = ref("");
+const preciseQueueProcessing = ref(false);
+const workspaceFilesOpen = ref(false);
+const workspaceFilesBusy = ref(false);
+const workspaceFilesError = ref("");
+const workspaceFiles = ref([]);
+const workspaceFilesTargetMode = ref("manual");
 const manualImportMessage = ref("");
 const manualImportMessageKey = ref("");
 const manualImportMessageParams = ref({});
@@ -965,9 +1080,6 @@ const options = reactive({ dimensionUnit: "auto", weightUnit: "auto" });
 const importMode = ref(props.currentCargoCount > 0 ? "append" : "replace");
 const importBusy = computed(() =>
   manualImportBusy.value || previewBusy.value || preciseImportBusy.value || recognitionAgentBusy.value
-);
-const visibleMappingFields = computed(() =>
-  importFields.filter((field) => field.key !== "totalWeightKg" || mapping.totalWeightKg || activeSheet.value?.headers.length)
 );
 const backendImportActive = computed(() => workbook.value?.source === "backend");
 const correctedRowNumbers = computed(() => new Set(manualCorrections.value.map((cargo) => cargo.sourceRowNumber)));
@@ -1045,10 +1157,19 @@ const recognitionMissingPalletDimensionIssues = computed(() =>
 const recognitionElapsedText = computed(() => formatElapsedTime(recognitionElapsedSeconds.value));
 const sourceWorkbookFileSize = computed(() => formatFileSize(sourceWorkbookFile.value?.size || 0));
 const sourcePreviewSheet = computed(() =>
-  recognitionWorkbook.value?.sheets?.find((sheet) => sheet.name === sourcePreviewSheetName.value)
-  || recognitionWorkbook.value?.sheets?.[0]
+  sourcePreviewWorkbook.value?.sheets?.find((sheet) => sheet.name === sourcePreviewSheetName.value)
+  || sourcePreviewWorkbook.value?.sheets?.[0]
   || null
 );
+const workspaceFileGroups = computed(() => {
+  const groups = new Map();
+  for (const item of workspaceFiles.value) {
+    const date = item.uploadedDate || String(item.uploadedAt || "").slice(0, 10) || ui("excel.unknownDate");
+    if (!groups.has(date)) groups.set(date, []);
+    groups.get(date).push(item);
+  }
+  return [...groups.entries()].map(([date, items]) => ({ date, items }));
+});
 const SOURCE_PREVIEW_ROW_LIMIT = 200;
 const sourcePreviewRows = computed(() => {
   const sheet = sourcePreviewSheet.value;
@@ -1189,37 +1310,33 @@ let manualDragDepth = 0;
 let preciseDragDepth = 0;
 
 function openManualFilePicker() {
-  if (importBusy.value) return;
   manualFileInput.value?.click();
 }
 
 function openPreciseFilePicker() {
-  if (importBusy.value) return;
   preciseFileInput.value?.click();
 }
 
-async function handleFile(event) {
-  const file = event.target.files?.[0];
+function handleFile(event) {
+  const files = Array.from(event.target.files || []);
   event.target.value = "";
-  if (!file) return;
-  await loadWorkbookFile(file);
+  enqueueManualFiles(files);
 }
 
-async function handlePreciseFile(event) {
-  const file = event.target.files?.[0];
+function handlePreciseFile(event) {
+  const files = Array.from(event.target.files || []);
   event.target.value = "";
-  if (!file) return;
-  await loadWorkbookFileForRecognition(file);
+  enqueuePreciseFiles(files);
 }
 
 function handleManualDragEnter(event) {
-  if (importBusy.value || !dragContainsFiles(event)) return;
+  if (!dragContainsFiles(event)) return;
   manualDragDepth += 1;
   manualDropActive.value = true;
 }
 
 function handleManualDragOver(event) {
-  if (importBusy.value || !dragContainsFiles(event)) return;
+  if (!dragContainsFiles(event)) return;
   if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
   manualDropActive.value = true;
 }
@@ -1233,25 +1350,19 @@ function handleManualDragLeave() {
 async function handleManualDrop(event) {
   manualDragDepth = 0;
   manualDropActive.value = false;
-  if (importBusy.value) return;
-
   const files = Array.from(event.dataTransfer?.files || []);
   if (!files.length) return;
-  if (files.length > 1) {
-    showManualFileError("excel.dropSingleFileOnly");
-    return;
-  }
-  await loadWorkbookFile(files[0]);
+  enqueueManualFiles(files);
 }
 
 function handlePreciseDragEnter(event) {
-  if (importBusy.value || !dragContainsFiles(event)) return;
+  if (!dragContainsFiles(event)) return;
   preciseDragDepth += 1;
   preciseDropActive.value = true;
 }
 
 function handlePreciseDragOver(event) {
-  if (importBusy.value || !dragContainsFiles(event)) return;
+  if (!dragContainsFiles(event)) return;
   if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
   preciseDropActive.value = true;
 }
@@ -1265,15 +1376,213 @@ function handlePreciseDragLeave() {
 async function handlePreciseDrop(event) {
   preciseDragDepth = 0;
   preciseDropActive.value = false;
-  if (importBusy.value) return;
-
   const files = Array.from(event.dataTransfer?.files || []);
   if (!files.length) return;
-  if (files.length > 1) {
-    setRecognitionStatus("error", "excel.dropSingleFileOnly");
-    return;
+  enqueuePreciseFiles(files);
+}
+
+function enqueueManualFiles(files) {
+  const items = appendQueueFiles(manualFileQueue, files, "manual");
+  if (!items.length) return;
+  void persistWorkspaceQueueItems(items, "QUICK_IMPORT");
+  void processManualFileQueue();
+}
+
+function enqueuePreciseFiles(files) {
+  const items = appendQueueFiles(preciseFileQueue, files, "recognition");
+  if (!items.length) return;
+  void persistWorkspaceQueueItems(items, "AGENT_IMPORT");
+  if (!preciseQueueProcessing.value) void processPreciseQueueItem(items[0]);
+}
+
+function appendQueueFiles(queueRef, files, mode = "manual") {
+  const existing = new Set(queueRef.value.map((item) => fileQueueKey(item.file)));
+  const items = [];
+  for (const file of Array.from(files || [])) {
+    if (!isSupportedWorkbookFile(file)) {
+      if (mode === "recognition") {
+        setRecognitionStatus("error", "excel.dropUnsupportedFile", { name: file?.name || "-" });
+      } else {
+        showManualFileError("excel.dropUnsupportedFile", { name: file?.name || "-" });
+      }
+      continue;
+    }
+    const key = fileQueueKey(file);
+    if (existing.has(key)) continue;
+    existing.add(key);
+    const item = {
+      id: uid("import-file"),
+      file,
+      status: "queued",
+      error: "",
+      snapshot: null,
+      workspaceFile: null
+    };
+    queueRef.value.push(item);
+    items.push(item);
   }
-  await loadWorkbookFileForRecognition(files[0]);
+  return items;
+}
+
+function fileQueueKey(file) {
+  return [file?.name || "", Number(file?.size || 0), Number(file?.lastModified || 0)].join("|");
+}
+
+async function persistWorkspaceQueueItems(items, source) {
+  try {
+    const response = await uploadWorkspaceFiles(items.map((item) => item.file), source);
+    const saved = Array.isArray(response?.items) ? response.items : [];
+    items.forEach((item, index) => {
+      item.workspaceFile = saved.find((entry) => entry.originalFileName === item.file.name) || saved[index] || null;
+    });
+    if (workspaceFilesOpen.value) await loadWorkspaceFiles();
+  } catch {
+    // The import remains available locally when file-library persistence is temporarily unavailable.
+  }
+}
+
+let manualQueueProcessing = false;
+
+async function processManualFileQueue() {
+  if (manualQueueProcessing) return;
+  manualQueueProcessing = true;
+  try {
+    let item;
+    while ((item = manualFileQueue.value.find((entry) => entry.status === "queued"))) {
+      activeManualFileId.value = item.id;
+      item.status = "processing";
+      item.error = "";
+      await loadWorkbookFile(item.file);
+      if (workbook.value && preview.value) {
+        item.status = "ready";
+        item.snapshot = captureManualSnapshot(item.file);
+      } else {
+        item.status = "failed";
+        item.error = importStatusMessage.value;
+      }
+    }
+  } finally {
+    manualQueueProcessing = false;
+  }
+}
+
+function captureManualSnapshot(file) {
+  return {
+    file,
+    workbook: workbook.value,
+    selectedSheetName: selectedSheetName.value,
+    activeSheet: activeSheet.value,
+    preview: preview.value,
+    mapping: { ...mapping },
+    options: { ...options },
+    manualCorrections: [...manualCorrections.value],
+    messageType: manualImportMessageType.value,
+    messageKey: manualImportMessageKey.value,
+    messageParams: { ...manualImportMessageParams.value },
+    message: manualImportMessage.value
+  };
+}
+
+function selectManualQueueItem(item) {
+  if (activeManualFileId.value && activeManualFileId.value !== item.id) {
+    syncActiveManualQueueSnapshot();
+  }
+  activeManualFileId.value = item.id;
+  const snapshot = item.snapshot;
+  if (!snapshot) return;
+  manualSourceWorkbookFile.value = snapshot.file;
+  workbook.value = snapshot.workbook;
+  selectedSheetName.value = snapshot.selectedSheetName;
+  activeSheet.value = snapshot.activeSheet;
+  preview.value = snapshot.preview;
+  Object.keys(mapping).forEach((key) => delete mapping[key]);
+  Object.assign(mapping, snapshot.mapping);
+  Object.assign(options, snapshot.options);
+  manualCorrections.value = [...snapshot.manualCorrections];
+  manualImportMessageType.value = snapshot.messageType;
+  manualImportMessageKey.value = snapshot.messageKey;
+  manualImportMessageParams.value = { ...snapshot.messageParams };
+  manualImportMessage.value = snapshot.message;
+}
+
+function syncActiveManualQueueSnapshot() {
+  const activeItem = manualFileQueue.value.find((item) => item.id === activeManualFileId.value);
+  if (!activeItem?.snapshot || activeItem.status !== "ready") return;
+  activeItem.snapshot = captureManualSnapshot(activeItem.file);
+}
+
+async function processPreciseQueueItem(item) {
+  if (!item || preciseQueueProcessing.value || item.status === "processing") return;
+  if (activePreciseFileId.value && activePreciseFileId.value !== item.id) {
+    syncActivePreciseQueueSnapshot();
+  }
+  preciseQueueProcessing.value = true;
+  activePreciseFileId.value = item.id;
+  item.status = "processing";
+  item.error = "";
+  try {
+    await loadWorkbookFileForRecognition(item.file);
+    item.snapshot = capturePreciseSnapshot(item.file);
+    item.status = recognitionAgentTask.value?.status === "SUCCEEDED" ? "ready" : "failed";
+    if (item.status === "failed") item.error = recognitionStatusMessage.value;
+  } catch (error) {
+    item.status = "failed";
+    item.error = error?.message || "";
+  } finally {
+    preciseQueueProcessing.value = false;
+  }
+}
+
+function capturePreciseSnapshot(file) {
+  return {
+    file,
+    workbook: recognitionWorkbook.value,
+    text: recognitionText.value,
+    task: recognitionAgentTask.value,
+    elapsedSeconds: recognitionElapsedSeconds.value,
+    message: recognitionMessage.value,
+    messageKey: recognitionMessageKey.value,
+    messageParams: { ...recognitionMessageParams.value },
+    messageFactory: recognitionMessageFactory.value,
+    messageType: recognitionMessageType.value,
+    indexOverrides: { ...recognitionReviewIndexOverrides.value }
+  };
+}
+
+function selectPreciseQueueItem(item) {
+  if (activePreciseFileId.value && activePreciseFileId.value !== item.id) {
+    syncActivePreciseQueueSnapshot();
+  }
+  activePreciseFileId.value = item.id;
+  const snapshot = item.snapshot;
+  if (!snapshot) return;
+  sourceWorkbookFile.value = snapshot.file;
+  recognitionWorkbook.value = snapshot.workbook;
+  recognitionText.value = snapshot.text;
+  recognitionAgentTask.value = snapshot.task;
+  recognitionElapsedSeconds.value = snapshot.elapsedSeconds;
+  recognitionMessage.value = snapshot.message;
+  recognitionMessageKey.value = snapshot.messageKey;
+  recognitionMessageParams.value = { ...snapshot.messageParams };
+  recognitionMessageFactory.value = snapshot.messageFactory;
+  recognitionMessageType.value = snapshot.messageType;
+  recognitionReviewIndexOverrides.value = { ...snapshot.indexOverrides };
+}
+
+function syncActivePreciseQueueSnapshot() {
+  const activeItem = preciseFileQueue.value.find((item) => item.id === activePreciseFileId.value);
+  if (!activeItem?.snapshot || !["ready", "failed"].includes(activeItem.status)) return;
+  activeItem.snapshot = capturePreciseSnapshot(activeItem.file);
+}
+
+function queueStatusText(status) {
+  const key = {
+    queued: "excel.queueQueued",
+    processing: "excel.queueProcessing",
+    ready: "excel.queueReady",
+    failed: "excel.queueFailed"
+  }[status] || "excel.queueQueued";
+  return ui(key);
 }
 
 function dragContainsFiles(event) {
@@ -1316,12 +1625,12 @@ function clearRecognitionStatus() {
 }
 
 async function loadWorkbookFile(file) {
-  if (importBusy.value) return;
   if (!isSupportedWorkbookFile(file)) {
     showManualFileError("excel.dropUnsupportedFile", { name: file?.name || "-" });
     return;
   }
   manualImportBusy.value = true;
+  manualSourceWorkbookFile.value = file;
   sourceWorkbookFile.value = null;
   recognitionWorkbook.value = null;
   sourcePreviewOpen.value = false;
@@ -1343,7 +1652,6 @@ async function loadWorkbookFile(file) {
 }
 
 async function loadWorkbookFileForRecognition(file) {
-  if (importBusy.value) return;
   if (!isSupportedWorkbookFile(file)) {
     setRecognitionStatus("error", "excel.dropUnsupportedFile", { name: file?.name || "-" });
     return;
@@ -1388,7 +1696,7 @@ async function loadWorkbookFileLocally(file, backendError) {
     selectedSheetName.value = workbook.value.sheets[0]?.name || "";
     manualCorrections.value = [];
     setManualImportStatus("info", "excel.workbookRead", { count: workbook.value.sheets.length });
-    void selectSheet();
+    await selectSheet();
   } catch (error) {
     workbook.value = null;
     activeSheet.value = null;
@@ -1681,7 +1989,18 @@ function sourceSheetRowCount(sheet) {
 
 function openSourceWorkbookPreview() {
   if (!recognitionWorkbook.value) return;
-  sourcePreviewSheetName.value = recognitionWorkbook.value.sheets?.[0]?.name || "";
+  openWorkbookPreview(recognitionWorkbook.value, sourceWorkbookFile.value);
+}
+
+function openManualWorkbookPreview() {
+  if (!workbook.value) return;
+  openWorkbookPreview(workbook.value, manualSourceWorkbookFile.value);
+}
+
+function openWorkbookPreview(nextWorkbook, nextFile) {
+  sourcePreviewWorkbook.value = nextWorkbook;
+  sourcePreviewFile.value = nextFile || null;
+  sourcePreviewSheetName.value = nextWorkbook?.sheets?.[0]?.name || "";
   sourcePreviewOpen.value = true;
 }
 
@@ -1695,6 +2014,114 @@ function downloadSourceWorkbook() {
   link.click();
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function downloadPreviewWorkbook() {
+  if (!sourcePreviewFile.value) return;
+  downloadBrowserFile(sourcePreviewFile.value);
+}
+
+function downloadBrowserFile(file) {
+  const url = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = file.name || "source-workbook.xlsx";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+async function openWorkspaceFiles(mode = "manual") {
+  workspaceFilesTargetMode.value = mode === "recognition" ? "recognition" : "manual";
+  workspaceFilesOpen.value = true;
+  await loadWorkspaceFiles();
+}
+
+async function loadWorkspaceFiles() {
+  workspaceFilesBusy.value = true;
+  workspaceFilesError.value = "";
+  try {
+    const response = await fetchWorkspaceFiles({ page: 0, size: 200 });
+    workspaceFiles.value = Array.isArray(response?.items) ? response.items : [];
+  } catch (error) {
+    workspaceFilesError.value = ui("excel.workspaceFilesLoadFailed", { message: error?.message || "-" });
+  } finally {
+    workspaceFilesBusy.value = false;
+  }
+}
+
+async function useWorkspaceFile(item) {
+  workspaceFilesBusy.value = true;
+  workspaceFilesError.value = "";
+  try {
+    await reuseWorkspaceFile(item.id);
+    const blob = await fetchWorkspaceFileBlob(item.id, "download");
+    const file = new File([blob], item.originalFileName || `workspace-${item.id}.xlsx`, {
+      type: item.contentType || blob.type || "application/octet-stream",
+      lastModified: Date.now()
+    });
+    workspaceFilesOpen.value = false;
+    if (workspaceFilesTargetMode.value === "recognition") {
+      switchExcelMode("recognition");
+      const queued = appendQueueFiles(preciseFileQueue, [file], "recognition");
+      if (queued[0]) queued[0].workspaceFile = item;
+      if (!preciseQueueProcessing.value && queued[0]) void processPreciseQueueItem(queued[0]);
+    } else {
+      switchExcelMode("manual");
+      const queued = appendQueueFiles(manualFileQueue, [file], "manual");
+      if (queued[0]) queued[0].workspaceFile = item;
+      if (queued.length) void processManualFileQueue();
+    }
+  } catch (error) {
+    workspaceFilesError.value = ui("excel.workspaceFileReuseFailed", { message: error?.message || "-" });
+  } finally {
+    workspaceFilesBusy.value = false;
+  }
+}
+
+async function previewWorkspaceFile(item) {
+  workspaceFilesBusy.value = true;
+  workspaceFilesError.value = "";
+  try {
+    const blob = await fetchWorkspaceFileBlob(item.id, "preview");
+    const file = new File([blob], item.originalFileName || `workspace-${item.id}.xlsx`, {
+      type: item.contentType || blob.type || "application/octet-stream",
+      lastModified: Date.now()
+    });
+    const nextWorkbook = await readWorkbookInWorker(file);
+    openWorkbookPreview(nextWorkbook, file);
+  } catch (error) {
+    workspaceFilesError.value = ui("excel.workspaceFilePreviewFailed", { message: error?.message || "-" });
+  } finally {
+    workspaceFilesBusy.value = false;
+  }
+}
+
+async function removeWorkspaceFile(item) {
+  workspaceFilesBusy.value = true;
+  workspaceFilesError.value = "";
+  try {
+    await deleteWorkspaceFile(item.id);
+    workspaceFiles.value = workspaceFiles.value.filter((entry) => entry.id !== item.id);
+  } catch (error) {
+    workspaceFilesError.value = ui("excel.workspaceFileDeleteFailed", { message: error?.message || "-" });
+  } finally {
+    workspaceFilesBusy.value = false;
+  }
+}
+
+function displayWorkspaceDate(value) {
+  const text = String(value || "");
+  const date = new Date(`${text}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return text || ui("excel.unknownDate");
+  return new Intl.DateTimeFormat(currentLocale.value, { year: "numeric", month: "long", day: "numeric" }).format(date);
+}
+
+function displayWorkspaceTime(value) {
+  const date = new Date(value || "");
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat(currentLocale.value, { hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
 onBeforeUnmount(stopRecognitionTimer);
@@ -1896,29 +2323,91 @@ function recognitionReviewSourceText(finding) {
   return issue.text || issue.rawText || finding?.source || finding?.cargo?.remark || "-";
 }
 
-function recognitionReviewSuggestionRows(finding) {
+function recognitionReviewSuggestionGroups(finding) {
   const suggestion = finding?.suggestion || {};
-  const rows = recognitionReviewCargoRows(suggestion.cargo, finding);
+  const groups = recognitionReviewCargoGroups(suggestion.cargo, finding);
+  const noteRows = [];
   const notes = reviewListValue(suggestion.notes);
-  if (notes) rows.push({ label: ui("excel.reviewAgentNotes"), value: notes });
+  if (notes) noteRows.push({ label: ui("excel.reviewAgentNotes"), value: notes });
   const errors = reviewListValue(suggestion.errors);
-  if (errors) rows.push({ label: ui("excel.reviewValidation"), value: errors });
-  return rows;
+  if (errors) noteRows.push({ label: ui("excel.reviewValidation"), value: errors });
+  if (noteRows.length) mergeReviewNotesGroup(groups, noteRows);
+  return groups;
 }
 
-function recognitionReviewCargoRows(cargo, finding = null) {
+function recognitionReviewCargoGroups(cargo, finding = null) {
   if (!cargo) return [];
-  const dimensions = recognitionReviewDimensionRows(cargo, finding);
-  const rows = [
-    { label: ui("common.cargo"), value: cargo.name || "-" },
-    { label: ui("common.model"), value: cargo.model || "-" },
-    ...dimensions,
-    { label: ui("common.quantity"), value: cargo.quantity ?? "-" },
-    { label: ui("common.unitWeightKg"), value: cargo.weightKg ?? "-" },
-    { label: ui("common.type"), value: cargoRuleText(cargo) }
-  ];
-  if (cargo.remark) rows.push({ label: ui("common.remark"), value: cargo.remark });
-  return rows;
+  const packageInfo = cargo.packageInfo || {};
+  const innerCargo = packageInfo.innerCargo || {};
+  const pallet = isPalletRecognitionCargo(cargo);
+  const innerDimensions = recognitionInnerCartonDimensions(cargo);
+  const cargoDimensions = pallet ? innerDimensions : normalizeReviewDimensions(cargo);
+  const innerQuantity = firstReviewValue(
+    innerCargo.totalQuantity,
+    innerCargo.cartonCount,
+    innerCargo.totalCartons,
+    innerCargo.pieceCount
+  );
+  const innerUnitWeight = firstReviewValue(
+    innerCargo.unitNetWeightKg,
+    innerCargo.netWeightKg,
+    innerCargo.cartonGrossWeightKg,
+    innerCargo.unitGrossWeightKg,
+    innerCargo.unitWeightKg
+  );
+  const groups = [{
+    key: "cargo",
+    title: ui("excel.reviewCargoUnitInfo"),
+    rows: [
+      { label: ui("common.cargo"), value: innerCargo.name || cargo.name || "-" },
+      { label: ui("common.model"), value: innerCargo.model || cargo.model || "-" },
+      { label: ui("common.dimensionsCm"), value: cargoDimensions ? recognitionDimensionText(cargoDimensions) : "-" },
+      { label: ui("common.quantity"), value: innerQuantity ?? cargo.quantity ?? "-" },
+      { label: ui("common.unitWeightKg"), value: innerUnitWeight ?? (pallet ? "-" : cargo.weightKg ?? "-") }
+    ]
+  }];
+
+  if (pallet) {
+    const piecesPerPallet = firstReviewValue(
+      innerCargo.piecesPerPackage,
+      innerCargo.cartonsPerPallet,
+      packageInfo.packagesPerPallet,
+      packageInfo.cartonsPerPallet
+    );
+    const dimensions = recognitionReviewDimensionRows(cargo, finding);
+    groups.push({
+      key: "pallet",
+      title: ui("excel.reviewPalletInfo"),
+      rows: [
+        { label: ui("excel.reviewPiecesPerPallet"), value: piecesPerPallet == null ? "-" : ui("excel.reviewPiecesCount", { count: piecesPerPallet }) },
+        ...dimensions,
+        { label: ui("excel.reviewPalletCount"), value: cargo.quantity ?? packageInfo.packageQuantity ?? "-" },
+        { label: ui("common.unitWeightKg"), value: cargo.weightKg ?? "-" },
+        { label: ui("common.type"), value: cargoRuleText(cargo) }
+      ]
+    });
+  } else {
+    groups[0].rows.push({ label: ui("common.type"), value: cargoRuleText(cargo) });
+  }
+
+  const noteRows = [];
+  if (cargo.remark) noteRows.push({ label: ui("common.remark"), value: cargo.remark });
+  const packageNotes = firstReviewValue(packageInfo.notes, packageInfo.remark, packageInfo.handlingRequirements);
+  if (packageNotes && packageNotes !== cargo.remark) {
+    noteRows.push({ label: ui("excel.reviewPackageInfo"), value: reviewValue(packageNotes) });
+  }
+  if (noteRows.length) mergeReviewNotesGroup(groups, noteRows);
+  return groups;
+}
+
+function mergeReviewNotesGroup(groups, rows) {
+  const existing = groups.find((group) => group.key === "notes");
+  if (existing) existing.rows.push(...rows);
+  else groups.push({ key: "notes", title: ui("excel.reviewNotesInfo"), rows: [...rows] });
+}
+
+function firstReviewValue(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== "");
 }
 
 function recognitionReviewDimensionRows(cargo, finding) {

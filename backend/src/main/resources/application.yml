@@ -31,6 +31,12 @@ management:
 
 app:
   device-limit-per-user: ${APP_DEVICE_LIMIT_PER_USER:5}
+  workspace-files:
+    root: ${APP_WORKSPACE_FILE_ROOT:./uploads}
+    retention: ${APP_WORKSPACE_FILE_RETENTION:14d}
+    cleanup-interval-ms: ${APP_WORKSPACE_FILE_CLEANUP_INTERVAL_MS:3600000}
+    max-file-size-bytes: ${APP_WORKSPACE_FILE_MAX_SIZE_BYTES:83886080}
+    allowed-extensions: ${APP_WORKSPACE_FILE_ALLOWED_EXTENSIONS:xlsx,xls,csv,tsv}
   text-recognition:
     # Agent providers commonly rate-limit parallel calls. Keep this bounded to 1-4;
     # use 1 to restore serial execution when a provider has a strict quota.

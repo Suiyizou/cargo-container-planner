@@ -5887,11 +5887,11 @@ body:has(.app-login-shell) .global-language-switcher {
 
 .recognition-review-line {
   display: grid;
-  grid-template-columns: 148px minmax(0, 1fr) auto;
-  gap: 16px;
+  grid-template-columns: 124px minmax(0, 1fr) auto;
+  gap: 12px;
   align-items: start;
   min-width: 0;
-  padding: 15px 16px;
+  padding: 12px 14px;
   border-bottom: 1px solid #e8eef5;
 }
 
@@ -5957,9 +5957,33 @@ body:has(.app-login-shell) .global-language-switcher {
 
 .recognition-review-inline-fields {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 9px 18px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px 12px;
   min-width: 0;
+}
+
+.recognition-review-groups {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.recognition-review-group {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #e1e9f3;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.recognition-review-group > strong {
+  color: #174777;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .recognition-review-inline-fields > span {
@@ -6025,7 +6049,7 @@ body:has(.app-login-shell) .global-language-switcher {
 
 @media (min-width: 1201px) {
   .recognition-review-inline-fields {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 }
 
@@ -6041,6 +6065,10 @@ body:has(.app-login-shell) .global-language-switcher {
 
   .recognition-review-inline-fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .recognition-review-group {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -6293,6 +6321,213 @@ body:has(.app-login-shell) .global-language-switcher {
 .excel-preview-actions p {
   margin: 0;
   color: #40546b;
+}
+
+.excel-preview-compact-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.excel-preview-compact-controls .el-select {
+  width: 220px;
+}
+
+.import-file-queue {
+  display: grid;
+  gap: 9px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #d7e3f1;
+  border-radius: 10px;
+  background: #f8fbff;
+}
+
+.import-file-queue > header,
+.workspace-file-group > header,
+.workspace-files-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.import-file-queue > header strong {
+  color: #173c67;
+}
+
+.import-file-queue > header span {
+  color: #657a93;
+  font-size: 12px;
+}
+
+.import-file-queue-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 8px;
+}
+
+.import-file-queue-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid #d7e1ee;
+  border-radius: 8px;
+  background: #fff;
+  color: #31465d;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.import-file-queue-select {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.import-file-queue-select:focus-visible {
+  outline: 2px solid #165dff;
+  outline-offset: 2px;
+}
+
+.import-file-queue-item.active {
+  border-color: #5b8ff9;
+  box-shadow: 0 0 0 2px rgba(22, 93, 255, 0.1);
+}
+
+.import-file-name {
+  overflow: hidden;
+  color: #173c67;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-file-queue-item small {
+  grid-column: 1;
+  color: #7a8da3;
+}
+
+.import-file-queue-item em {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.import-file-queue-item .el-button {
+  grid-column: 1 / -1;
+  justify-self: start;
+  padding: 0;
+}
+
+.status-queued { color: #64748b; }
+.status-processing { color: #b45309; }
+.status-ready { color: #047857; }
+.status-failed { color: #be123c; }
+
+.workspace-files-toolbar {
+  margin-bottom: 14px;
+  color: #526981;
+}
+
+.workspace-files-loading {
+  padding: 16px;
+}
+
+.workspace-file-groups {
+  display: grid;
+  gap: 16px;
+  max-height: min(62vh, 680px);
+  overflow: auto;
+}
+
+.workspace-file-group {
+  overflow: hidden;
+  border: 1px solid #d7e1ee;
+  border-radius: 10px;
+}
+
+.workspace-file-group > header {
+  padding: 10px 14px;
+  background: #f4f8fd;
+  color: #24415f;
+}
+
+.workspace-file-group > header span {
+  color: #70849b;
+  font-size: 12px;
+}
+
+.workspace-file-list {
+  display: grid;
+}
+
+.workspace-file-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 14px;
+  border-top: 1px solid #e8eef5;
+}
+
+.workspace-file-row:first-child {
+  border-top: 0;
+}
+
+.workspace-file-row > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.workspace-file-row strong {
+  overflow: hidden;
+  color: #173c67;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-file-row small,
+.workspace-file-expiry {
+  color: #70849b;
+  font-size: 12px;
+}
+
+.workspace-file-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+@media (max-width: 760px) {
+  .workspace-file-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .workspace-file-actions {
+    justify-content: flex-start;
+  }
 }
 
 .excel-warning {
@@ -8013,6 +8248,23 @@ select,
 
 .admin-table.endpoints {
   min-width: 520px;
+}
+
+.admin-table.admin-files-table {
+  min-width: 1040px;
+}
+
+.admin-files-expired-filter {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  color: #526981;
+  font-size: 13px;
+}
+
+.admin-files-expired-filter input {
+  width: 16px;
+  height: 16px;
 }
 
 .admin-table th,

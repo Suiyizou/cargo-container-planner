@@ -472,7 +472,7 @@ public class TextRecognitionService {
     }
     RecognitionResult merged = mergeExcelBatchResults(
         results,
-        countFormattedExcelRows(text),
+        batches.stream().mapToInt(batch -> batch.targetRows().size()).sum(),
         requestCount,
         settings.model(),
         Math.min(excelAgentBatchConcurrency, batches.size())
@@ -801,14 +801,30 @@ public class TextRecognitionService {
     }
     if (current != null) sections.add(current.build());
 
+    List<StructuredSheetSelection> structuredSelections = sections.stream()
+        .map(this::structuredSheetSelection)
+        .toList();
+    boolean hasCompleteCargoTable = structuredSelections.stream()
+        .anyMatch(selection -> selection.completeCargoTable() && !selection.cargoRows().isEmpty());
+    Map<ExcelSheetSection, List<ExcelAgentRow>> selectedRows = new LinkedHashMap<>();
+    for (StructuredSheetSelection selection : structuredSelections) {
+      if (selection.completeCargoTable() && !selection.cargoRows().isEmpty()) {
+        selectedRows.put(selection.section(), selection.cargoRows());
+      } else if (!hasCompleteCargoTable || !selection.summaryTable()) {
+        selectedRows.put(selection.section(), selection.section().rows());
+      }
+    }
+
+    List<ExcelSheetSection> selectedSections = new ArrayList<>(selectedRows.keySet());
     List<ExcelAgentBatch> batches = new ArrayList<>();
-    for (ExcelSheetSection section : sections) {
+    for (ExcelSheetSection section : selectedSections) {
+      List<ExcelAgentRow> targetRows = selectedRows.getOrDefault(section, section.rows());
       int start = 0;
-      while (start < section.rows().size()) {
+      while (start < targetRows.size()) {
         int end = start;
         int targetChars = 0;
-        while (end < section.rows().size() && end - start < EXCEL_AGENT_BATCH_MAX_ROWS) {
-          int nextChars = targetChars + section.rows().get(end).line().length();
+        while (end < targetRows.size() && end - start < EXCEL_AGENT_BATCH_MAX_ROWS) {
+          int nextChars = targetChars + targetRows.get(end).line().length();
           if (end > start && nextChars > EXCEL_AGENT_BATCH_MAX_TARGET_CHARS) break;
           targetChars = nextChars;
           end += 1;
@@ -817,12 +833,116 @@ public class TextRecognitionService {
         batches.add(new ExcelAgentBatch(
             List.copyOf(preamble),
             section,
-            new ArrayList<>(section.rows().subList(start, end))
+            new ArrayList<>(targetRows.subList(start, end))
         ));
         start = end;
       }
     }
     return batches;
+  }
+
+  private StructuredSheetSelection structuredSheetSelection(ExcelSheetSection section) {
+    ExcelAgentRow headerRow = section.rows().stream()
+        .filter(row -> row.rowNumber() == section.headerRowNumber())
+        .findFirst()
+        .orElse(null);
+    if (headerRow == null) return new StructuredSheetSelection(section, false, false, List.of());
+    Map<String, String> headers = excelRowCells(headerRow.line());
+    if (headers.isEmpty()) return new StructuredSheetSelection(section, false, false, List.of());
+
+    Set<String> identityColumns = headerColumns(headers, "identity");
+    boolean hasDimensions = hasStructuredDimensionHeaders(headers);
+    boolean hasWeight = !headerColumns(headers, "weight").isEmpty();
+    boolean completeCargoTable = !identityColumns.isEmpty()
+        && hasDimensions
+        && !headerColumns(headers, "quantity").isEmpty()
+        && hasWeight;
+    boolean summaryTable = !hasDimensions && !hasWeight
+        && headers.values().stream().filter(this::isSummaryRelationshipHeader).count() >= 2;
+    if (!completeCargoTable) {
+      return new StructuredSheetSelection(section, false, summaryTable, List.of());
+    }
+
+    List<ExcelAgentRow> cargoRows = section.rows().stream()
+        .filter(row -> row.rowNumber() > section.headerRowNumber())
+        .filter(row -> isStructuredCargoDataRow(row, identityColumns))
+        .toList();
+    return new StructuredSheetSelection(section, true, false, cargoRows);
+  }
+
+  private boolean isSummaryRelationshipHeader(String value) {
+    String header = cleanCell(value).toLowerCase(Locale.ROOT).replaceAll("[\\s_()（）\\-:/\\\\]+", "");
+    return containsAny(header,
+        "包装组", "原始散件", "每托内装", "每箱内装", "最终托盘", "压缩倍数", "包装关系", "约束",
+        "packinggroup", "loosepieces", "piecesperpallet", "piecesperpackage", "finalpallet", "compressionratio");
+  }
+
+  private boolean hasStructuredDimensionHeaders(Map<String, String> headers) {
+    if (!headerColumns(headers, "combinedDimension").isEmpty()) return true;
+    return !headerColumns(headers, "length").isEmpty()
+        && !headerColumns(headers, "width").isEmpty()
+        && !headerColumns(headers, "height").isEmpty();
+  }
+
+  private boolean isStructuredCargoDataRow(ExcelAgentRow row, Set<String> identityColumns) {
+    Map<String, String> cells = excelRowCells(row.line());
+    for (String column : identityColumns) {
+      String value = cleanCell(cells.get(column));
+      if (value.isBlank()) continue;
+      String normalized = value.toLowerCase(Locale.ROOT).replaceAll("\\s+", "");
+      if (!Set.of("合计", "总计", "小计", "汇总", "total", "subtotal", "summary").contains(normalized)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private Set<String> headerColumns(Map<String, String> headers, String role) {
+    Set<String> columns = new LinkedHashSet<>();
+    for (Map.Entry<String, String> entry : headers.entrySet()) {
+      if (matchesHeaderRole(entry.getValue(), role)) columns.add(entry.getKey());
+    }
+    return columns;
+  }
+
+  private boolean matchesHeaderRole(String value, String role) {
+    String header = cleanCell(value).toLowerCase(Locale.ROOT).replaceAll("[\\s_()（）\\-:/\\\\]+", "");
+    if (header.isBlank()) return false;
+    return switch (role) {
+      case "identity" -> containsAny(header,
+          "货物名称", "货物品名", "品名", "产品名称", "物料名称", "cargo", "cargoname", "goodsname", "productname",
+          "托盘编号", "栈板编号", "货物编号", "物料编号", "sku", "cargoid", "palletid");
+      case "name" -> containsAny(header,
+          "货物名称", "货物品名", "品名", "产品名称", "物料名称", "cargoname", "goodsname", "productname");
+      case "sku" -> containsAny(header,
+          "托盘编号", "栈板编号", "货物编号", "物料编号", "sku", "cargoid", "palletid");
+      case "model" -> containsAny(header, "型号规格", "规格型号", "产品型号", "货物型号", "model", "spec")
+          || header.equals("型号") || header.equals("规格");
+      case "combinedDimension" -> !containsAny(header, "体积", "volume")
+          && (containsAny(header, "尺寸", "长宽高", "size", "dimension", "l×w×h", "l*w*h")
+              || header.equals("外廓") || header.equals("装货后外廓"));
+      case "length" -> containsAny(header, "外廓长", "托盘长", "栈板长", "木托长", "单箱长", "纸箱长", "包装箱长", "长度", "length")
+          || header.equals("长") || header.equals("l");
+      case "width" -> containsAny(header, "外廓宽", "托盘宽", "栈板宽", "木托宽", "单箱宽", "纸箱宽", "包装箱宽", "宽度", "width")
+          || header.equals("宽") || header.equals("w");
+      case "height" -> containsAny(header, "外廓高", "托盘高", "栈板高", "木托高", "单箱高", "纸箱高", "包装箱高", "高度", "height")
+          || header.equals("高") || header.equals("h");
+      case "quantity" -> !containsAny(header, "原始", "散件", "内装", "每托", "每箱", "order")
+          && (containsAny(header, "最终搬运单元数量", "最终托盘", "托盘数量", "栈板数量", "托数", "箱数", "packagequantity", "palletquantity")
+              || header.equals("数量") || header.equals("qty") || header.equals("quantity"));
+      case "weight" -> !containsAny(header, "总重量", "总重", "合计", "自重", "皮重", "净重", "tare", "netweight")
+          && (containsAny(header, "单托总毛重", "单箱毛重", "单件重量", "单位重量", "单重", "unitweight", "grossweightper", "weightkg")
+              || header.equals("毛重") || header.equals("重量"));
+      case "type" -> containsAny(header, "货物类型", "包装类型", "搬运单元类型", "cargotype", "packagetype") || header.equals("类型");
+      case "nonStack" -> containsAny(header, "不可重压", "禁止重压", "不可堆叠", "nonstack");
+      case "keepUpright" -> containsAny(header, "保持朝上", "不可倒置", "keepupright", "upright");
+      case "remark" -> containsAny(header, "包装关系", "装箱备注", "备注", "说明", "remark", "note");
+      case "originalQuantity" -> containsAny(header, "原始散件数量", "原始件数", "散件总数", "loosequantity", "piecequantity");
+      case "piecesPerPackage" -> containsAny(header, "每托内装件数", "每箱内装件数", "每托装", "每箱装", "piecesperpallet", "piecesperpackage");
+      case "tareWeight" -> containsAny(header, "托盘木箱自重", "托盘自重", "木箱自重", "包装自重", "皮重", "tareweight");
+      case "innerUnitWeight" -> containsAny(header, "内装单件净重", "散件单重", "内件单重", "innerunitweight", "piecenetweight");
+      default -> false;
+    };
   }
 
   private String renderExcelAgentBatch(ExcelAgentBatch batch, boolean compactSingleRowRetry) {
@@ -951,6 +1071,7 @@ public class TextRecognitionService {
       if (targetSourceRows.isEmpty()) cargoSourceRows.add(sourceRowNumber);
       if (!targetSourceRows.isEmpty()) coveredSourceRows.add(sourceRowNumber);
       String normalizedSourceText = weightCorrectionSourceText(rawRow, sourceRowNumber, text);
+      applyExplicitSourceFields(rawRow, text, sourceRowNumber);
       Map<Long, Double> rowWeightCorrections = thousandSeparatedWeightCorrections(normalizedSourceText);
       if (applyThousandSeparatedWeightCorrection(rawRow, rowWeightCorrections)) correctedWeightCount++;
       ParsedCargo parsed = normalizeCargo(rawRow, sourceRowNumber, normalizedSourceText);
@@ -1017,6 +1138,27 @@ public class TextRecognitionService {
       if (describesPalletDimensionsMissing(issueCode, errors, modelIssueMessage)) {
         issueCode = "PALLET_DIMENSIONS_MISSING";
       }
+      if ("PALLET_DIMENSIONS_MISSING".equals(issueCode)
+          && explicitPalletDimensionsFromSource(text, issueRowNumber) != null) {
+        if (cargoSourceRows.contains(issueRowNumber)) continue;
+        Map<String, Object> recoveredInput = modelIssueCargo(modelIssue);
+        applyExplicitSourceFields(recoveredInput, text, issueRowNumber);
+        Map<Long, Double> recoveredWeightCorrections = thousandSeparatedWeightCorrections(issueText);
+        if (applyThousandSeparatedWeightCorrection(recoveredInput, recoveredWeightCorrections)) {
+          correctedWeightCount++;
+        }
+        ParsedCargo recovered = normalizeCargo(recoveredInput, issueRowNumber, issueText);
+        if (recovered.errors().isEmpty() && !palletDimensionsMissing(recoveredInput, recovered.cargo())) {
+          cargoSourceRows.add(issueRowNumber);
+          if (!targetSourceRows.isEmpty()) coveredSourceRows.add(issueRowNumber);
+          validRows.add(recovered.cargo());
+          List<String> reviewWarnings = reviewWarnings(recovered.cargo(), recovered.text());
+          if (!reviewWarnings.isEmpty()) {
+            issues.add(buildIssue(issueRowNumber, recovered.text(), reviewWarnings, recovered.cargo()));
+          }
+          continue;
+        }
+      }
       String issueSourceSignature = normalizedSourceSignature(issueText);
       boolean issueHasReliableSourceRow = modelIssueRowNumber > 0;
       boolean sameReliableSourceRow = issueHasReliableSourceRow
@@ -1039,6 +1181,7 @@ public class TextRecognitionService {
         issueCargoInput.put("palletDimensionsMissing", true);
         if (cleanCell(issueCargoInput.get("type")).isBlank()) issueCargoInput.put("type", "pallet");
       }
+      applyExplicitSourceFields(issueCargoInput, text, issueRowNumber);
       Map<Long, Double> issueWeightCorrections = thousandSeparatedWeightCorrections(issueText);
       if (applyThousandSeparatedWeightCorrection(issueCargoInput, issueWeightCorrections)) correctedWeightCount++;
       Map<String, Object> issueCargo = issueCargoInput.isEmpty()
@@ -1924,6 +2067,108 @@ public class TextRecognitionService {
 
   private DimensionParts innerPackageDimensionsFromSource(String rawText, int sourceRowNumber) {
     return dimensionsFromSourceColumns(rawText, sourceRowNumber, false);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void applyExplicitSourceFields(Map<String, Object> modelRow, String rawText, int sourceRowNumber) {
+    if (modelRow == null || sourceRowNumber <= 0) return;
+    int headerRowNumber = detectedHeaderRowNumber(rawText);
+    if (headerRowNumber <= 0) return;
+    Map<String, String> headerCells = excelRowCells(sourceRowText(rawText, headerRowNumber));
+    Map<String, String> sourceCells = excelRowCells(sourceRowText(rawText, sourceRowNumber));
+    if (headerCells.isEmpty() || sourceCells.isEmpty()) return;
+
+    putSourceText(modelRow, "name", sourceValueForRole(headerCells, sourceCells, "name"));
+    putSourceText(modelRow, "model", sourceValueForRole(headerCells, sourceCells, "model"));
+    putSourceText(modelRow, "sku", sourceValueForRole(headerCells, sourceCells, "sku"));
+    putSourceText(modelRow, "remark", sourceValueForRole(headerCells, sourceCells, "remark"));
+
+    String sourceType = sourceValueForRole(headerCells, sourceCells, "type");
+    if (!sourceType.isBlank()) modelRow.put("type", normalizeType(sourceType));
+    Integer quantity = positiveSourceInteger(sourceValueForRole(headerCells, sourceCells, "quantity"));
+    Double weightKg = positiveSourceNumber(sourceValueForRole(headerCells, sourceCells, "weight"));
+    if (quantity != null) modelRow.put("quantity", quantity);
+    if (weightKg != null) modelRow.put("weightKg", round2(weightKg));
+
+    String nonStack = sourceValueForRole(headerCells, sourceCells, "nonStack");
+    String keepUpright = sourceValueForRole(headerCells, sourceCells, "keepUpright");
+    Boolean explicitNonStack = firstExplicitBoolean(nonStack);
+    Boolean explicitKeepUpright = firstExplicitBoolean(keepUpright);
+    if (explicitNonStack != null) modelRow.put("nonStack", explicitNonStack);
+    if (explicitKeepUpright != null) modelRow.put("keepUpright", explicitKeepUpright);
+
+    Map<String, Object> packageInfo = modelRow.get("packageInfo") instanceof Map<?, ?> packageInfoRaw
+        ? new LinkedHashMap<>((Map<String, Object>) packageInfoRaw)
+        : new LinkedHashMap<>();
+    Map<String, Object> innerCargo = packageInfo.get("innerCargo") instanceof Map<?, ?> innerRaw
+        ? new LinkedHashMap<>((Map<String, Object>) innerRaw)
+        : new LinkedHashMap<>();
+    if (quantity != null) packageInfo.put("packageQuantity", quantity);
+    if (weightKg != null) packageInfo.put("packageGrossWeightKg", round2(weightKg));
+
+    Integer originalQuantity = positiveSourceInteger(sourceValueForRole(headerCells, sourceCells, "originalQuantity"));
+    Integer piecesPerPackage = positiveSourceInteger(sourceValueForRole(headerCells, sourceCells, "piecesPerPackage"));
+    Double tareWeight = positiveSourceNumber(sourceValueForRole(headerCells, sourceCells, "tareWeight"));
+    Double innerUnitWeight = positiveSourceNumber(sourceValueForRole(headerCells, sourceCells, "innerUnitWeight"));
+    if (originalQuantity != null) {
+      innerCargo.put("totalQuantity", originalQuantity);
+      innerCargo.put("quantityUnit", "pcs");
+    }
+    if (piecesPerPackage != null) {
+      innerCargo.put("piecesPerPackage", piecesPerPackage);
+      innerCargo.put("piecesPerPallet", piecesPerPackage);
+    }
+    if (innerUnitWeight != null) innerCargo.put("unitNetWeightKg", round2(innerUnitWeight));
+    if (tareWeight != null) packageInfo.put("palletTareWeightKg", round2(tareWeight));
+    if (!innerCargo.isEmpty()) packageInfo.put("innerCargo", compactObject(innerCargo));
+
+    DimensionParts dimensions = explicitPalletDimensionsFromSource(rawText, sourceRowNumber);
+    boolean palletSource = hasPalletHandlingUnitSignal(sourceType, modelRow.get("type"), modelRow.get("name"));
+    if (palletSource) {
+      modelRow.put("type", "pallet");
+      packageInfo.put("handlingUnitType", "pallet");
+      packageInfo.put("packageUnit", "pallet");
+    }
+    if (!packageInfo.isEmpty()) modelRow.put("packageInfo", compactObject(packageInfo));
+    if (dimensions != null) applyExplicitPalletDimensions(modelRow, dimensions);
+  }
+
+  private void putSourceText(Map<String, Object> target, String key, String value) {
+    String text = cleanCell(value);
+    if (!text.isBlank()) target.put(key, text);
+  }
+
+  private String sourceValueForRole(
+      Map<String, String> headers,
+      Map<String, String> sourceCells,
+      String role
+  ) {
+    for (Map.Entry<String, String> header : headers.entrySet()) {
+      if (!matchesHeaderRole(header.getValue(), role)) continue;
+      String value = cleanCell(sourceCells.get(header.getKey()));
+      if (!value.isBlank()) return value;
+    }
+    return "";
+  }
+
+  private Integer positiveSourceInteger(String value) {
+    Double number = positiveSourceNumber(value);
+    if (number == null) return null;
+    int rounded = (int) Math.round(number);
+    return rounded > 0 ? rounded : null;
+  }
+
+  private Double positiveSourceNumber(String value) {
+    String text = cleanCell(value);
+    if (text.isBlank()) return null;
+    Matcher matcher = DIMENSION_NUMBER_TOKEN_PATTERN.matcher(text);
+    if (!matcher.find()) return null;
+    try {
+      double number = parseFlexibleNumber(matcher.group());
+      return number > 0 ? number : null;
+    } catch (NumberFormatException error) {
+      return null;
+    }
   }
 
   private DimensionParts dimensionsFromSourceColumns(String rawText, int sourceRowNumber, boolean palletDimensions) {
@@ -3117,6 +3362,13 @@ public class TextRecognitionService {
       List<String> metadata,
       List<ExcelAgentRow> rows,
       int headerRowNumber
+  ) {}
+
+  private record StructuredSheetSelection(
+      ExcelSheetSection section,
+      boolean completeCargoTable,
+      boolean summaryTable,
+      List<ExcelAgentRow> cargoRows
   ) {}
 
   private static final class ExcelSheetSectionBuilder {
