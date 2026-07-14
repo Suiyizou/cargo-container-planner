@@ -71,6 +71,18 @@
           <strong>#{{ tooltip.item.displayNo }} {{ tooltip.item.name }}</strong>
           <span>{{ tr("尺寸") }} {{ tooltip.item.lengthCm }} × {{ tooltip.item.widthCm }} × {{ tooltip.item.heightCm }} cm</span>
           <span>{{ tr("数量") }} {{ tooltip.item.quantity }} {{ tr("件") }} · {{ tr("重量") }} {{ formatWeight(tooltip.item.weightKg) }}</span>
+          <span class="tooltip-constraint-tags">
+            <el-tag
+              size="small"
+              :type="tooltip.item.nonStack ? 'warning' : 'success'"
+              effect="light"
+            >
+              {{ t(tooltip.item.nonStack ? "sceneOptions.nonStackable" : "sceneOptions.loadBearing") }}
+            </el-tag>
+            <el-tag v-if="tooltip.item.keepUpright" size="small" type="primary" effect="plain">
+              {{ t("sceneOptions.keepUpright") }}
+            </el-tag>
+          </span>
           <span>{{ tr(tooltip.item.orientationLabel || tooltip.item.bottomFaceDetail || "按算法输出坐标摆放") }}</span>
           <span>{{ tr("坐标") }} X{{ tooltip.item.xCm }} / Y{{ tooltip.item.yCm }} / Z{{ tooltip.item.zCm }} cm</span>
         </div>
@@ -84,7 +96,7 @@
               <el-button v-if="hiddenSkuKeys.size" link type="primary" @click="showAllSku">{{ tr("全部显示") }}</el-button>
             </div>
           </template>
-          <el-scrollbar max-height="260">
+          <el-scrollbar max-height="300">
             <button
               v-for="item in sceneData.legend"
               :key="item.key"
@@ -97,6 +109,25 @@
               <span>
                 <b>{{ item.label }}</b>
                 <small>{{ item.quantity }} {{ tr("件") }} · {{ formatWeight(item.weightKg) }}</small>
+                <span class="legend-constraint-tags">
+                  <el-tag
+                    class="legend-constraint-tag"
+                    size="small"
+                    :type="item.nonStack ? 'warning' : 'success'"
+                    effect="light"
+                  >
+                    {{ t(item.nonStack ? "sceneOptions.nonStackable" : "sceneOptions.loadBearing") }}
+                  </el-tag>
+                  <el-tag
+                    v-if="item.keepUpright"
+                    class="legend-constraint-tag"
+                    size="small"
+                    type="primary"
+                    effect="plain"
+                  >
+                    {{ t("sceneOptions.keepUpright") }}
+                  </el-tag>
+                </span>
               </span>
               <em>{{ hiddenSkuKeys.has(item.key) ? tr("隐藏") : tr("显示") }}</em>
             </button>

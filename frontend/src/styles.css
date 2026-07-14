@@ -3043,6 +3043,34 @@ select {
   font-style: normal;
 }
 
+.legend-row > span {
+  min-width: 0;
+}
+
+.legend-constraint-tags,
+.tooltip-constraint-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+}
+
+.legend-constraint-tag.el-tag {
+  height: 20px;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.legend-row.muted .legend-constraint-tags {
+  opacity: 0.55;
+  text-decoration: none;
+}
+
+.tooltip-constraint-tags {
+  margin-top: 2px;
+}
+
 .packing-bottom-actions .el-card__body > div:first-child {
   display: flex;
   flex-wrap: wrap;

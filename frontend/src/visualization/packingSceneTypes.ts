@@ -26,6 +26,10 @@ export interface PlacementLike {
   name: string;
   color?: string;
   type?: string;
+  nonStack?: boolean;
+  nonStackable?: boolean;
+  keepUpright?: boolean;
+  upright?: boolean;
   xCm: number;
   yCm: number;
   zCm: number;
@@ -64,6 +68,8 @@ export interface SceneLegendItem {
   color: string;
   quantity: number;
   weightKg: number;
+  nonStack: boolean;
+  keepUpright: boolean;
 }
 
 export interface SceneStats {

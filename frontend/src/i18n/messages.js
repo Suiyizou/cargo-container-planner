@@ -77,7 +77,10 @@ export const messages = {
       axisScale: "坐标轴大小",
       axisSmall: "小",
       axisNormal: "中",
-      axisLarge: "大"
+      axisLarge: "大",
+      loadBearing: "可承重",
+      nonStackable: "不可重压",
+      keepUpright: "保持朝上"
     },
     duration: {
       secondsShort: "{value} 秒",
@@ -356,7 +359,10 @@ export const messages = {
       axisScale: "Axis Size",
       axisSmall: "Small",
       axisNormal: "Medium",
-      axisLarge: "Large"
+      axisLarge: "Large",
+      loadBearing: "Load-bearing",
+      nonStackable: "Non-stackable",
+      keepUpright: "Keep Upright"
     },
     duration: {
       secondsShort: "{value}s",

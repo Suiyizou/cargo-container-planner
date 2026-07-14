@@ -62,6 +62,9 @@ function normalizeCargo(placement: PlacementLike, index: number, colorMap: Map<s
   const yCm = Number(placement.yCm || 0);
   const zCm = Number(placement.zCm || 0);
   const quantity = Math.max(1, Number(placement.groupQuantity || 1));
+  const legacyType = String(placement.type || "").trim().toLowerCase();
+  const nonStack = Boolean(placement.nonStack ?? placement.nonStackable ?? (legacyType === "nonstack"));
+  const keepUpright = Boolean(placement.keepUpright ?? placement.upright ?? (legacyType === "upright"));
   const displayNo = placement.unitKey
     ? String(placement.unitKey).replace(/^unit-?/i, "")
     : String(index + 1).padStart(3, "0");
@@ -81,6 +84,8 @@ function normalizeCargo(placement: PlacementLike, index: number, colorMap: Map<s
     widthCm,
     heightCm,
     weightKg: Number(placement.weightKg || 0),
+    nonStack,
+    keepUpright,
     center: {
       xCm: xCm + lengthCm / 2,
       yCm: yCm + widthCm / 2,
@@ -99,6 +104,8 @@ function buildLegend(cargos: SceneCargo[]): SceneLegendItem[] {
     if (current) {
       current.quantity += cargo.quantity;
       current.weightKg += Number(cargo.weightKg || 0);
+      current.nonStack = current.nonStack || Boolean(cargo.nonStack);
+      current.keepUpright = current.keepUpright || Boolean(cargo.keepUpright);
       return;
     }
     map.set(cargo.skuKey, {
@@ -107,7 +114,9 @@ function buildLegend(cargos: SceneCargo[]): SceneLegendItem[] {
       name: cargo.name,
       color: cargo.color,
       quantity: cargo.quantity,
-      weightKg: Number(cargo.weightKg || 0)
+      weightKg: Number(cargo.weightKg || 0),
+      nonStack: Boolean(cargo.nonStack),
+      keepUpright: Boolean(cargo.keepUpright)
     });
   });
   return [...map.values()];

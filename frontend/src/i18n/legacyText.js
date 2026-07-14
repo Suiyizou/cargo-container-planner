@@ -214,6 +214,7 @@ const exactEn = {
   "普通货物": "General Cargo",
   "保持朝上": "Keep Upright",
   "不可重压": "Non-stackable",
+  "可承重": "Load-bearing",
   "托盘/木箱": "Pallet/Wooden Crate",
   "常用箱型": "Common Container",
   "少量使用": "Limited Use",
