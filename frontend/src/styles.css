@@ -1,4 +1,5 @@
 :root {
+  --app-font-family: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
   --el-color-primary: #165DFF;
   --el-color-primary-light-3: #5f8fff;
   --el-color-primary-light-5: #8bb0ff;
@@ -6,9 +7,10 @@
   --el-color-primary-light-9: #eef4ff;
   --el-color-primary-dark-2: #0f49cc;
   --el-bg-color-page: #f8fafc;
-  --el-font-size-base: 15px;
-  --el-font-size-small: 13px;
-  --el-font-size-extra-small: 13px;
+  --el-font-family: var(--app-font-family);
+  --el-font-size-base: 14px;
+  --el-font-size-small: 12px;
+  --el-font-size-extra-small: 12px;
   --el-border-radius-base: 10px;
   --el-border-radius-small: 8px;
   --app-bg: #f8fafc;
@@ -22,8 +24,8 @@
   --app-border: #d8e4f2;
   color: #172235;
   background: var(--app-bg);
-  font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
-  font-size: 15px;
+  font-family: var(--app-font-family);
+  font-size: 14px;
 }
 
 * {
@@ -35,8 +37,8 @@ body {
   min-width: 0;
   background: var(--app-bg);
   color: #172235;
-  font-size: 15px;
-  line-height: 1.55;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 button,
@@ -900,7 +902,7 @@ select {
   gap: 2px;
   width: 100%;
   min-height: 52px;
-  padding: 9px 12px 9px 16px;
+  padding: 9px 34px 9px 16px;
   border: 1px solid #cbd9ea;
   border-radius: 8px !important;
   text-align: left;
@@ -921,10 +923,16 @@ select {
 }
 
 .priority-container-grid .el-checkbox-button__inner:hover {
-  border-color: #8fb7ea;
-  background: #f8fbff;
-  box-shadow: 0 12px 26px rgba(22, 93, 255, 0.1);
+  border-color: #8fb9ad;
+  background: #f8fcfa;
+  box-shadow: 0 12px 26px rgba(23, 109, 91, 0.09);
   transform: translateY(-1px);
+}
+
+.priority-container-grid .el-checkbox-button__original:focus-visible + .el-checkbox-button__inner,
+.priority-container-grid .el-checkbox-button.is-focus .el-checkbox-button__inner {
+  outline: 3px solid #17806a;
+  outline-offset: 2px;
 }
 
 .priority-container-grid .el-checkbox-button__inner span {
@@ -943,19 +951,44 @@ select {
 
 .priority-container-grid .el-checkbox-button.is-checked .el-checkbox-button__inner span,
 .priority-container-grid .el-checkbox-button.is-checked .el-checkbox-button__inner small {
-  color: #fff;
+  color: #154b40;
 }
 
 .priority-container-grid .el-checkbox-button.is-checked .el-checkbox-button__inner {
-  border-color: #165dff;
-  background: linear-gradient(135deg, #165dff 0%, #2c7df6 62%, #0f6ccf 100%);
-  box-shadow: 0 14px 28px rgba(22, 93, 255, 0.2), inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+  border-color: #4c9a87;
+  background: linear-gradient(135deg, #f1fbf7 0%, #e5f6ef 100%);
+  box-shadow: 0 0 0 1px rgba(47, 143, 123, 0.12) inset, 0 10px 22px rgba(23, 109, 91, 0.11);
   transform: translateY(-1px);
 }
 
 .priority-container-grid .el-checkbox-button.is-checked .el-checkbox-button__inner::before {
   width: 4px;
-  background: #ffffff;
+  background: #17806a;
+}
+
+.priority-container-grid .el-checkbox-button__inner::after {
+  content: "\2713";
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid #cbd9d5;
+  border-radius: 50%;
+  color: transparent;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  transform: translateY(-50%);
+  transition: color 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.priority-container-grid .el-checkbox-button.is-checked .el-checkbox-button__inner::after {
+  border-color: #17806a;
+  background: #17806a;
+  color: #fff;
 }
 
 .balance-settings-head {
@@ -6369,6 +6402,8 @@ body:has(.app-login-shell) .global-language-switcher {
 }
 
 .import-file-queue-item {
+  position: relative;
+  overflow: hidden;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 3px 10px;
@@ -6382,6 +6417,24 @@ body:has(.app-login-shell) .global-language-switcher {
   font: inherit;
   text-align: left;
   cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.import-file-queue-item::before {
+  content: "";
+  position: absolute;
+  inset: 7px auto 7px 5px;
+  width: 3px;
+  border-radius: 999px;
+  background: transparent;
+  transition: background 0.16s ease, width 0.16s ease;
+}
+
+.import-file-queue-item:hover {
+  border-color: #9bbeb5;
+  background: #fcfffe;
+  box-shadow: 0 8px 18px rgba(23, 109, 91, 0.08);
+  transform: translateY(-1px);
 }
 
 .import-file-queue-select {
@@ -6401,13 +6454,30 @@ body:has(.app-login-shell) .global-language-switcher {
 }
 
 .import-file-queue-select:focus-visible {
-  outline: 2px solid #165dff;
+  outline: 3px solid #17806a;
   outline-offset: 2px;
 }
 
-.import-file-queue-item.active {
-  border-color: #5b8ff9;
-  box-shadow: 0 0 0 2px rgba(22, 93, 255, 0.1);
+.import-file-queue .import-file-queue-item:focus-visible {
+  outline: 3px solid #17806a;
+  outline-offset: 2px;
+}
+
+.import-file-queue .import-file-queue-item.active {
+  border-color: #4c9a87;
+  background: linear-gradient(135deg, #f1fbf7 0%, #e7f6f0 100%);
+  color: #24483f;
+  box-shadow: 0 0 0 1px rgba(47, 143, 123, 0.1) inset, 0 8px 18px rgba(23, 109, 91, 0.1);
+  transform: none;
+}
+
+.import-file-queue .import-file-queue-item.active::before {
+  width: 4px;
+  background: #17806a;
+}
+
+.import-file-queue .import-file-queue-item.active .import-file-name {
+  color: #154b40;
 }
 
 .import-file-name {
@@ -7308,16 +7378,16 @@ body,
 }
 
 .el-button {
-  min-height: 38px;
+  min-height: 36px;
   border-radius: var(--app-control-radius);
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 650;
 }
 
 .el-button--small {
-  min-height: 32px;
+  min-height: 30px;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .el-button--primary:not(.is-plain):not(.is-link):not(.is-text) {
@@ -7356,14 +7426,14 @@ input:not(.el-input__inner),
 select,
 .admin-form-grid input {
   border-radius: var(--app-control-radius);
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .el-input__wrapper,
 .el-select__wrapper,
 .el-textarea__inner {
   border-radius: var(--app-control-radius);
-  font-size: 15px;
+  font-size: 14px;
   box-shadow: 0 0 0 1px var(--app-border) inset;
 }
 
@@ -7432,7 +7502,7 @@ select,
 .section-head h2,
 .admin-panel-head h2 {
   color: #132033;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 800;
 }
 
@@ -7452,7 +7522,7 @@ select,
 .agent-note-text,
 .admin-hint,
 .top-user small {
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .topbar {
@@ -7483,11 +7553,12 @@ select,
 
 .side-menu .el-menu-item,
 .side-menu .el-sub-menu__title {
-  height: 48px;
+  height: 44px;
+  line-height: 44px;
   margin: 5px 0;
   border-radius: 10px;
-  font-size: 15px;
-  font-weight: 800;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .side-menu .el-menu-item.is-active {
@@ -7519,7 +7590,7 @@ select,
 }
 
 .step-title-button.el-button {
-  font-size: 17px;
+  font-size: 16px;
 }
 
 .slider-row {
@@ -7547,7 +7618,7 @@ select,
 
 .el-tag {
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -7570,7 +7641,7 @@ select,
 
 .el-statistic__head {
   color: #64748b;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .el-statistic__content,
@@ -7587,28 +7658,28 @@ select,
 .el-table {
   overflow: hidden;
   border-radius: var(--app-card-radius);
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .el-table th.el-table__cell {
   background: #f2f6fc;
   color: #24415f;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 800;
 }
 
 .el-table .cell {
-  line-height: 1.55;
+  line-height: 1.5;
 }
 
 .template-table-wrap table {
   border-radius: var(--app-card-radius);
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .template-table-wrap th {
   background: #f2f6fc;
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .smart-recognition-card {
@@ -7617,7 +7688,7 @@ select,
 
 .recognition-placeholder {
   border-radius: var(--app-card-radius);
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .recognition-loading-panel,
@@ -7649,7 +7720,7 @@ select,
 
 .visual-loading span {
   color: #24415f;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 800;
 }
 
@@ -7676,7 +7747,12 @@ select,
 .packing-visual-layout {
   grid-template-columns: minmax(0, 1fr) 340px;
   gap: 16px;
+  align-items: start;
   min-height: clamp(620px, calc(100vh - 270px), 760px);
+}
+
+.packing-canvas-panel {
+  height: clamp(620px, calc(100vh - 270px), 760px);
 }
 
 .packing-canvas-panel,
@@ -7689,6 +7765,7 @@ select,
 }
 
 .packing-scene-canvas {
+  min-height: 0;
   border-radius: inherit;
 }
 
@@ -7706,7 +7783,7 @@ select,
 
 .balance-summary p,
 .balance-metric-list b {
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .legend-card .el-card__body {
@@ -7726,7 +7803,7 @@ select,
 
 .visual-tooltip {
   border-radius: 10px;
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .toolbar-left,
