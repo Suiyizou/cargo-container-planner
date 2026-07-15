@@ -9,7 +9,7 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-cargo_planner_pwd}
       TZ: Asia/Shanghai
     ports:
-      - "${MYSQL_PORT:-3306}:3306"
+      - "${MYSQL_BIND_ADDRESS:-127.0.0.1}:${MYSQL_PORT:-3306}:3306"
     volumes:
       - mysql-data:/var/lib/mysql
       - ./backend/sql/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
@@ -42,7 +42,7 @@ services:
       APP_WORKSPACE_FILE_MAX_SIZE_BYTES: ${APP_WORKSPACE_FILE_MAX_SIZE_BYTES:-83886080}
       TZ: Asia/Shanghai
     ports:
-      - "${BACKEND_PORT:-8080}:8080"
+      - "${BACKEND_BIND_ADDRESS:-127.0.0.1}:${BACKEND_PORT:-8080}:8080"
     volumes:
       - workspace-files:/app/uploads
     depends_on:
@@ -50,16 +50,46 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  tracking:
+    build:
+      context: ./tracking-service
+      dockerfile: Dockerfile
+    image: cargo-platform-tracking:0.1.0
+    container_name: cargo-platform-tracking
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      PLAYWRIGHT_HEADLESS: "true"
+      PLAYWRIGHT_BROWSER_CHANNEL: chromium
+      CHANNEL_C_MONITOR_ENABLED: ${CHANNEL_C_MONITOR_ENABLED:-true}
+      TZ: Asia/Shanghai
+    expose:
+      - "3000"
+    init: true
+    shm_size: "1gb"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    restart: unless-stopped
+
   frontend:
     build:
       context: .
       dockerfile: docker/frontend.Dockerfile
+      args:
+        VITE_TRACKING_WORKBENCH_URL: ${VITE_TRACKING_WORKBENCH_URL:-/tracking/}
     image: cargo-planner-frontend:0.1.0
     container_name: cargo-planner-frontend
     ports:
       - "${FRONTEND_PORT:-80}:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_started
+      tracking:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

@@ -1,10 +1,21 @@
 # Deployment
 
-当前项目采用前后端分离部署：
+当前项目采用单仓库、统一入口、分服务容器部署：
 
-- `frontend`：Nginx 静态前端，代理 `/api` 到后端。
+- `frontend`：Nginx 静态前端与统一网关。
 - `backend`：Spring Boot 管理账号、设备登录、监控接口。
+- `tracking`：Node.js + Playwright 货物追踪适配器，仅在 Compose 网络暴露 `3000`。
 - `mysql`：保存用户、设备、登录事件和管理员审计日志。
+
+路由关系：
+
+| 外部路径 | 目标 |
+| --- | --- |
+| `/`、`/planner/*`、`/admin`、`/workbenches` | Vue 前端 |
+| `/api/*` | Spring Boot |
+| `/tracking/*` | Node.js 追踪服务 |
+
+`/tracking/` 页面与 API 会先通过 Nginx `auth_request` 调用 Spring 校验登录 token。前端登录后把 token 同步到同域 Cookie，供网关校验；未登录访问追踪页面会返回统一登录入口。
 
 ## Docker 部署
 
@@ -27,9 +38,11 @@ backend/sql/schema.sql
 
 生产环境请先复制 `.env.example` 为 `.env`，修改数据库密码和端口后再启动。
 
+首次构建 `tracking` 会拉取 Playwright Chromium 基础镜像，下载体积较大。Compose 已为浏览器兜底通道设置 `1gb` 共享内存和健康检查；服务器还需要能够访问船司查询站点。
+
 ## 前端路由刷新
 
-前端使用 Vue Router history 模式，线上 Nginx 必须把非 `/api`、非静态资源的路径回退到 `index.html`。否则直接刷新 `/planner/results`、`/smart-import`、`/admin` 等地址会由 Nginx 当作真实文件路径处理，从而出现 404/405。
+前端使用 Vue Router history 模式，线上 Nginx 必须把非 `/api`、非 `/tracking`、非静态资源的路径回退到 `index.html`。否则直接刷新 `/planner/results`、`/smart-import`、`/admin` 等地址会由 Nginx 当作真实文件路径处理，从而出现 404/405。
 
 `docker/nginx.conf` 已包含必要配置：
 
@@ -42,6 +55,21 @@ location / {
 ```
 
 如果服务器没有走 Docker 内置 Nginx，需把同等配置同步到线上站点配置后执行 `nginx -t && nginx -s reload`。
+
+## 更新与排查
+
+拉取 `combine` 分支后可统一重建：
+
+```bash
+git pull origin combine
+docker compose up -d --build
+docker compose ps
+docker compose logs --tail=100 frontend backend tracking
+```
+
+追踪容器内部健康接口为 `http://127.0.0.1:3000/api/health`，Compose 会自动探测。浏览器侧的成功查询历史保存在 LocalStorage；服务端短期响应缓存位于 Node 进程内，重建追踪容器后会清空。
+
+生产环境只需对外开放 Nginx 的 `80/443`。Compose 中后端 `8080` 与 MySQL `3306` 默认绑定 `127.0.0.1`，用于服务器本机排查；如确需远程直连，必须同时调整绑定地址、强密码和防火墙规则。
 
 ## LLM 文本识别
 
@@ -93,6 +121,14 @@ npm run dev
 ```bash
 cd backend
 mvn spring-boot:run
+```
+
+货物追踪：
+
+```bash
+cd tracking-service
+npm ci
+npm start
 ```
 
 MySQL 可以使用本机服务，也可以只启动 compose 里的数据库：

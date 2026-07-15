@@ -950,10 +950,11 @@ const todayText = computed(() => new Intl.DateTimeFormat(currentLocale.value ===
 }
 
 .portal-hero-copy h1 {
-  max-width: 620px;
+  max-width: 680px;
   color: #123352;
-  font-size: clamp(30px, 2.8vw, 42px);
+  font-size: clamp(28px, 2.4vw, 36px);
   letter-spacing: -0.035em;
+  text-wrap: balance;
 }
 
 .portal-hero-copy > p {
@@ -1116,7 +1117,7 @@ const todayText = computed(() => new Intl.DateTimeFormat(currentLocale.value ===
   }
 
   .portal-hero-copy h1 {
-    font-size: clamp(29px, 8.5vw, 38px);
+    font-size: clamp(27px, 7.5vw, 34px);
   }
 
   .portal-hero-meta {

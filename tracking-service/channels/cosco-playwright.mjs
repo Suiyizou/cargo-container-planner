@@ -16,11 +16,16 @@ let sharedBrowserPromise = null;
 
 async function launchSharedBrowser() {
   const channel = process.env.PLAYWRIGHT_BROWSER_CHANNEL ?? "chrome";
-  const browser = await chromium.launch({
-    channel,
+  const launchOptions = {
     headless:
       String(process.env.PLAYWRIGHT_HEADLESS ?? "true").toLowerCase() !== "false"
-  });
+  };
+
+  if (channel && channel !== "chromium") {
+    launchOptions.channel = channel;
+  }
+
+  const browser = await chromium.launch(launchOptions);
 
   browser.once("disconnected", () => {
     sharedBrowserPromise = null;

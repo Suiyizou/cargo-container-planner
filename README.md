@@ -1,6 +1,6 @@
-# 货代装箱体积规划系统
+# 货代业务平台（装箱规划 + 货物追踪）
 
-这是一个面向货代装箱估算、箱型选择和可视化剖析的系统。当前版本仍然保留浏览器端 WebWorker 本地装箱计算，同时新增了 Spring Boot + MySQL 后端，用于公司员工账号、设备登录限制和总管理员后台。
+这是一个面向货代装箱估算、箱型选择、可视化剖析与货物追踪的统一业务平台。装箱工作台保留浏览器端 WebWorker 本地计算；货物追踪工作台使用 Node.js 双通道适配器；Spring Boot + MySQL 统一负责公司员工账号、设备登录限制和总管理员后台。
 
 ## 当前架构
 
@@ -9,9 +9,10 @@
 - 装箱计算：WebWorker 本地计算
 - 桌面打包：Electron
 - 后端：Spring Boot 3 + JDBC
+- 货物追踪：Node.js + Playwright，源码位于 `tracking-service/`
 - 智能导入：后台可控制 LLM 开关、API Key、Base URL 和模型，未配置 Key 时使用规则兜底
 - 数据库：MySQL 8
-- 部署：Docker Compose，Nginx 代理 `/api` 到后端
+- 部署：单仓库 Docker Compose；Nginx 代理 `/api/` 到 Spring、`/tracking/` 到追踪服务
 
 ## 已有能力
 
@@ -26,15 +27,17 @@
 
 ## 统一工作台入口
 
-登录成功后默认进入 `/workbenches`，用户可以选择装箱规划或货物追踪工作台。装箱规划继续使用站内 `/planner` 路由；货物追踪默认跳转到网关代理路径 `/tracking/`，两套业务服务保持独立运行。
+企业员工登录成功后进入 `/workbenches`，可选择装箱规划或货物追踪工作台；总管理员登录后直接进入 `/admin`，也可从后台返回工作台入口。装箱规划继续使用站内 `/planner` 路由，货物追踪使用同域路径 `/tracking/`。两个模块的源码、入口、网关和 Compose 编排已合入本仓库的 `combine` 分支，运行时仍按清晰的业务边界使用 Spring 与 Node 两个服务容器。
 
-如网关使用了其他追踪路径，可在构建前端时设置：
+进入任一工作台后都可以返回工作台入口。Nginx 在代理 `/tracking/` 页面和 API 前会调用 Spring 的 `/api/auth/me` 校验当前登录 token；未登录或会话失效时会回到统一登录页。
+
+前端入口链接的构建时变量为：
 
 ```env
 VITE_TRACKING_WORKBENCH_URL=/tracking/
 ```
 
-进入装箱规划后，可通过左侧“切换工作台”返回统一入口。
+默认部署路径固定为 `/tracking/`。如果修改它，还需同步调整 `docker/nginx.conf` 与 `frontend/vite.config.js` 中的代理路径，不能只修改这个变量。
 
 ## 后端与数据库
 
@@ -112,6 +115,21 @@ mvn spring-boot:run
 http://127.0.0.1:8080/api
 ```
 
+再启动仓库内的货物追踪服务：
+
+```bash
+cd tracking-service
+npm ci
+npm start
+```
+
+Vite 会把 `/tracking/` 代理到 `http://127.0.0.1:3000`。追踪模块测试可运行：
+
+```bash
+cd tracking-service
+npm test
+```
+
 ## 构建前端
 
 ```bash
@@ -147,10 +165,13 @@ docker compose up -d --build
 默认端口：
 
 ```text
-前端：http://服务器IP/
-后端：http://服务器IP:8080/
-MySQL：服务器IP:3306
+统一入口：http://服务器IP/
+货物追踪：http://服务器IP/tracking/
+后端（服务器本机）：http://127.0.0.1:8080/
+MySQL（服务器本机）：127.0.0.1:3306
 ```
+
+后端与 MySQL 默认只绑定服务器环回地址，公网仅需开放统一入口的 `80/443`。追踪服务的 `3000` 端口只暴露在 Compose 内部网络，不需要单独映射或手工启动。首次构建会拉取含 Chromium 的 Playwright 镜像，体积和内存占用会高于普通 Node 镜像；Chromium 仅在浏览器兜底通道实际使用时启动。
 
 可复制 `.env.example` 为 `.env` 后修改数据库密码、端口和设备登录上限。
 

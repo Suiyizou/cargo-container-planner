@@ -21,6 +21,7 @@ const ELEMENT_PLUS_CSS = join(
 );
 const FLAG_ICONS_DIR = join(ROOT_DIR, "node_modules", "flag-icons", "flags");
 const PORT = Number.parseInt(process.env.PORT ?? "3000", 10);
+const HOST = process.env.HOST ?? "127.0.0.1";
 
 const COSCO_TRACKING_BASE =
   "https://elines.coscoshipping.com/scct/scct_customer/public/cargoTracking";
@@ -1224,8 +1225,8 @@ server.on("close", () => {
 });
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  server.listen(PORT, "127.0.0.1", () => {
-    console.log(`Dual-channel COSCO tracker running at http://127.0.0.1:${PORT}`);
+  server.listen(PORT, HOST, () => {
+    console.log(`Dual-channel COSCO tracker running at http://${HOST}:${PORT}`);
     startChannelCMonitor();
   });
 }

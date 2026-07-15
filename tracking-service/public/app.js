@@ -37,6 +37,19 @@ const CACHE_INDEX_KEY = "shipment-track:v3:index";
 const LEGACY_CACHE_INDEX_KEY = "shipment-track:v2:index";
 const MIGRATION_KEY = "shipment-track:v3:migrated";
 const LANGUAGE_KEY = "shipment-track:language";
+const APP_BASE_URL = new URL("./", document.baseURI);
+
+function appUrl(path) {
+  return new URL(String(path).replace(/^\/+/, ""), APP_BASE_URL).toString();
+}
+
+function requireAuthorizedResponse(response) {
+  if (response.status === 401) {
+    window.location.replace("/");
+    throw new Error("Platform session expired");
+  }
+  return response;
+}
 
 const CARRIERS = Object.freeze({
   COSCO: {
@@ -84,6 +97,7 @@ const MESSAGES = {
     "brand.subtitle": "Carrier intelligence desk",
     "nav.ariaLabel": "Primary navigation",
     "nav.workspace": "Workspace",
+    "nav.portal": "All workbenches",
     "nav.overview": "Overview",
     "nav.tracking": "Shipment tracking",
     "nav.carriers": "Carrier adapters",
@@ -259,6 +273,7 @@ const MESSAGES = {
     "brand.subtitle": "船司数据工作台",
     "nav.ariaLabel": "主导航",
     "nav.workspace": "工作区",
+    "nav.portal": "返回工作台主页",
     "nav.overview": "总览",
     "nav.tracking": "货物跟踪",
     "nav.carriers": "船司适配器",
@@ -545,7 +560,7 @@ function setCountryFlag(element, countryCode) {
   element.replaceChildren();
   if (code) {
     const image = document.createElement("img");
-    image.src = `/vendor/flags/4x3/${code.toLowerCase()}.svg`;
+    image.src = appUrl(`vendor/flags/4x3/${code.toLowerCase()}.svg`);
     image.alt = "";
     image.loading = "lazy";
     image.addEventListener("error", () => {
@@ -1693,10 +1708,12 @@ function renderChannelStatus(status) {
 
 async function refreshChannelStatus() {
   try {
-    const response = await fetch("/api/channels/network/status", {
-      headers: { Accept: "application/json" },
-      cache: "no-store"
-    });
+    const response = requireAuthorizedResponse(
+      await fetch(appUrl("api/channels/network/status"), {
+        headers: { Accept: "application/json" },
+        cache: "no-store"
+      })
+    );
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     renderChannelStatus(await response.json());
   } catch {
@@ -1857,11 +1874,13 @@ function applyLanguage(language, { persist = true } = {}) {
 }
 
 async function postTrackingRequest(path, query) {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(query)
-  });
+  const response = requireAuthorizedResponse(
+    await fetch(appUrl(path), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(query)
+    })
+  );
   const payload = await response.json().catch(() => ({}));
   return { response, payload };
 }
@@ -1889,14 +1908,16 @@ checkChannelsButton.addEventListener("click", async () => {
 
   setChannelCheckLoading(true);
   try {
-    const response = await fetch("/api/channels/check", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        type: trackingType.value || "BILLOFLADING",
-        number: trackingNumber.value.trim() || "6502077380"
+    const response = requireAuthorizedResponse(
+      await fetch(appUrl("api/channels/check"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: trackingType.value || "BILLOFLADING",
+          number: trackingNumber.value.trim() || "6502077380"
+        })
       })
-    });
+    );
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       throw new Error(payload?.error?.message || t("error.http", { status: response.status }));
