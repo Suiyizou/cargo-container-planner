@@ -10,6 +10,7 @@ import {
   normalizeQueryChannel,
   runCoscoChannelChecks,
   runChannelCHealthCheck,
+  server,
   normalizeCoscoSnapshot,
   normalizeTrackingRequest
 } from "../server.mjs";
@@ -34,6 +35,25 @@ test("decodes COSCO Base64 + XOR payloads", () => {
 test("passes through plain JSON upstream errors", () => {
   const fixture = { code: "429", success: false, message: "limited" };
   assert.deepEqual(decodeCoscoPayload(JSON.stringify(fixture)), fixture);
+});
+
+test("serves flag icons through the tracking API path", async (context) => {
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  context.after(
+    () => new Promise((resolve) => server.close(resolve))
+  );
+
+  const address = server.address();
+  const response = await fetch(
+    `http://127.0.0.1:${address.port}/api/flags/4x3/cn`
+  );
+
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type") ?? "", /^image\/svg\+xml/);
+  assert.match(await response.text(), /<svg\b/);
 });
 
 test("normalizes and validates tracking input", () => {

@@ -1076,6 +1076,21 @@ async function handleTrackRequest(request, response, forcedCarrier, forcedChanne
   sendJson(response, 200, { ...value, cached: false });
 }
 
+async function serveFlag(response, ratio, countryCode) {
+  try {
+    const content = await readFile(join(FLAG_ICONS_DIR, ratio, `${countryCode}.svg`));
+    setCommonHeaders(response);
+    response.writeHead(200, {
+      "Content-Type": MIME_TYPES[".svg"],
+      "Cache-Control": "public, max-age=86400"
+    });
+    response.end(content);
+  } catch (error) {
+    if (error?.code === "ENOENT") throw new HttpError(404, "国旗资源不存在");
+    throw error;
+  }
+}
+
 async function serveStatic(request, response) {
   const url = new URL(request.url, "http://localhost");
   if (url.pathname === "/vendor/element-plus.css") {
@@ -1092,19 +1107,8 @@ async function serveStatic(request, response) {
   const flagMatch = url.pathname.match(/^\/vendor\/flags\/(1x1|4x3)\/([a-z]{2})\.svg$/);
   if (flagMatch) {
     const [, ratio, countryCode] = flagMatch;
-    try {
-      const content = await readFile(join(FLAG_ICONS_DIR, ratio, `${countryCode}.svg`));
-      setCommonHeaders(response);
-      response.writeHead(200, {
-        "Content-Type": MIME_TYPES[".svg"],
-        "Cache-Control": "public, max-age=86400"
-      });
-      response.end(content);
-      return;
-    } catch (error) {
-      if (error?.code === "ENOENT") throw new HttpError(404, "国旗资源不存在");
-      throw error;
-    }
+    await serveFlag(response, ratio, countryCode);
+    return;
   }
 
   const requestedPath = url.pathname === "/" ? "/index.html" : url.pathname;
@@ -1151,6 +1155,13 @@ export const server = createServer(async (request, response) => {
         },
         time: new Date().toISOString()
       });
+      return;
+    }
+
+    const flagApiMatch = url.pathname.match(/^\/api\/flags\/(1x1|4x3)\/([a-z]{2})$/);
+    if (request.method === "GET" && flagApiMatch) {
+      const [, ratio, countryCode] = flagApiMatch;
+      await serveFlag(response, ratio, countryCode);
       return;
     }
 

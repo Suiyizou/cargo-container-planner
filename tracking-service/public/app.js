@@ -231,6 +231,7 @@ const MESSAGES = {
     "routing.loadPort": "Load port",
     "routing.dischargePort": "Discharge port",
     "routing.estimatedDeparture": "Est. departure",
+    "routing.truckInfoProvided": "Trucking information is provided by the trucking company.",
     "routing.actualDeparture": "Actual departure",
     "routing.estimatedArrival": "Est. arrival",
     "routing.actualArrival": "Actual arrival",
@@ -407,6 +408,7 @@ const MESSAGES = {
     "routing.loadPort": "装载港",
     "routing.dischargePort": "卸载港",
     "routing.estimatedDeparture": "预计离港",
+    "routing.truckInfoProvided": "拖车信息由拖车公司提供。",
     "routing.actualDeparture": "实际离港",
     "routing.estimatedArrival": "预计到港",
     "routing.actualArrival": "实际到港",
@@ -560,7 +562,7 @@ function setCountryFlag(element, countryCode) {
   element.replaceChildren();
   if (code) {
     const image = document.createElement("img");
-    image.src = appUrl(`vendor/flags/4x3/${code.toLowerCase()}.svg`);
+    image.src = appUrl(`api/flags/4x3/${code.toLowerCase()}`);
     image.alt = "";
     image.loading = "lazy";
     image.addEventListener("error", () => {
@@ -1008,7 +1010,15 @@ function renderRoutingLegs(legs) {
       valueOrDash(leg.dischargePort)
     );
     row.append(dischargePort);
-    appendCell(row, formatDateTime(leg.estimatedDeparture));
+    const isTruckLeg = String(leg.mode ?? "").trim().toUpperCase() === "TRUCK";
+    const showTruckInfoNote = isTruckLeg && !leg.estimatedDeparture;
+    appendCell(
+      row,
+      showTruckInfoNote
+        ? t("routing.truckInfoProvided")
+        : formatDateTime(leg.estimatedDeparture),
+      showTruckInfoNote ? "truck-source-note" : ""
+    );
     appendCell(
       row,
       leg.actualDeparture ? formatDateTime(leg.actualDeparture) : t("metrics.notDeparted"),
