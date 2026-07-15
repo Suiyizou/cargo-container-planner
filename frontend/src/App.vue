@@ -13,6 +13,12 @@
     @logout="handleLogout"
     @user-updated="handleUserUpdated"
   />
+  <WorkbenchPortal
+    v-else-if="activePage === 'workbenches'"
+    key="workbenches"
+    :current-user="currentUser"
+    @logout="handleLogout"
+  />
   <div v-else class="app-shell">
     <header class="topbar">
       <div class="brand">
@@ -59,6 +65,10 @@
           :collapse-transition="false"
           @select="handleMenuSelect"
         >
+          <el-menu-item index="/workbenches">
+            <el-icon><Grid /></el-icon>
+            <span>{{ t("portal.switchWorkbench") }}</span>
+          </el-menu-item>
           <el-menu-item index="/home">
             <el-icon><House /></el-icon>
             <span>工作台首页</span>
@@ -829,6 +839,7 @@ import {
   Download,
   Expand,
   Fold,
+  Grid,
   House,
   MagicStick,
   Operation,
@@ -844,6 +855,7 @@ import AlgorithmPage from "./components/AlgorithmPage.vue";
 import ExcelTemplatePage from "./components/ExcelTemplatePage.vue";
 import HomePage from "./components/HomePage.vue";
 import LoginPage from "./components/LoginPage.vue";
+import WorkbenchPortal from "./components/WorkbenchPortal.vue";
 import CargoModal from "./components/CargoModal.vue";
 import ContainerModal from "./components/ContainerModal.vue";
 import ContainerReferencePage from "./components/ContainerReferencePage.vue";
@@ -924,6 +936,7 @@ const activePlannerStepLabelRaw = computed(() =>
 );
 const activePlannerStepLabel = computed(() => tr(activePlannerStepLabelRaw.value));
 const activeMenuIndex = computed(() => {
+  if (activePage.value === "workbenches") return "/workbenches";
   if (activePage.value === "planner") return activePlannerStep.value === "results" ? "/planner/results" : "/planner/config";
   if (activePage.value === "algorithm") return "/algorithm";
   if (activePage.value === "containers") return "/containers";
@@ -1196,7 +1209,7 @@ watch([workspaceReady, activePage, plannerMode, cargoTypeCount], () => {
 });
 watch([activePage, currentUser, authChecked], () => {
   if (authChecked.value && activePage.value === "admin" && currentUser.value?.role !== "ADMIN") {
-    router.replace("/home");
+    router.replace("/workbenches");
   }
 });
 
@@ -1226,8 +1239,8 @@ async function initializeAuth() {
 async function handleLoggedIn(user) {
   currentUser.value = user;
   profileVersion.value += 1;
-  const target = user?.role === "ADMIN" ? "/admin" : "/home";
-  loginRedirectText.value = user?.role === "ADMIN" ? "正在进入后台管理" : "正在进入个人工作台";
+  const target = "/workbenches";
+  loginRedirectText.value = t("portal.entering");
   loginRedirecting.value = true;
   await new Promise((resolve) => window.setTimeout(resolve, 520));
   await router.replace(target);
@@ -1244,7 +1257,7 @@ async function handleLogout() {
   }
   currentUser.value = null;
   profileOpen.value = false;
-  router.push("/home");
+  router.push("/workbenches");
 }
 
 function handleAuthExpired() {

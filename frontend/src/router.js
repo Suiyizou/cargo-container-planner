@@ -11,7 +11,8 @@ if (window.location.hash?.startsWith("#/")) {
 export const router = createRouter({
   history: createWebHistory("/"),
   routes: [
-    { path: "/", redirect: "/home" },
+    { path: "/", redirect: "/workbenches" },
+    { path: "/workbenches", name: "workbenches", component: PageStub },
     { path: "/home", name: "home", component: PageStub },
     { path: "/planner", redirect: "/planner/config" },
     { path: "/planner/config", name: "planner-config", component: PageStub },
@@ -22,6 +23,6 @@ export const router = createRouter({
     { path: "/excel", redirect: "/planner/cargos" },
     { path: "/smart-import", redirect: "/planner/cargos" },
     { path: "/admin", name: "admin", component: PageStub },
-    { path: "/:pathMatch(.*)*", redirect: "/home" }
+    { path: "/:pathMatch(.*)*", redirect: "/workbenches" }
   ]
 });
