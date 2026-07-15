@@ -82,6 +82,7 @@ export const messages = {
       enterWorkbench: "进入工作台",
       switchWorkbench: "切换工作台",
       entering: "正在进入工作台入口",
+      enteringAdmin: "正在进入总管理后台",
       footerHint: "统一入口 · 独立工作台 · 清晰业务边界",
       planner: {
         label: "装箱决策",
@@ -407,6 +408,7 @@ export const messages = {
       enterWorkbench: "Enter workbench",
       switchWorkbench: "Switch workbench",
       entering: "Opening workbench portal",
+      enteringAdmin: "Opening administration console",
       footerHint: "One entry · Independent workbenches · Clear boundaries",
       planner: {
         label: "Load planning",

@@ -854,6 +854,221 @@ const todayText = computed(() => new Intl.DateTimeFormat(currentLocale.value ===
   text-transform: uppercase;
 }
 
+/* Light operations theme */
+.workbench-portal {
+  --portal-ink: #102a46;
+  --portal-muted: #68819b;
+  --portal-line: rgba(77, 119, 160, 0.16);
+  color: var(--portal-ink);
+  background:
+    radial-gradient(circle at 76% 2%, rgba(91, 167, 255, 0.16), transparent 30%),
+    radial-gradient(circle at 3% 68%, rgba(85, 208, 219, 0.11), transparent 28%),
+    linear-gradient(145deg, #ffffff 0%, #f5f9ff 55%, #eef5fd 100%);
+}
+
+.portal-grid {
+  opacity: 0.42;
+  background-image:
+    linear-gradient(rgba(59, 112, 164, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59, 112, 164, 0.07) 1px, transparent 1px);
+}
+
+.portal-glow--one {
+  background: radial-gradient(circle, rgba(77, 186, 224, 0.12), transparent 68%);
+}
+
+.portal-glow--two {
+  background: radial-gradient(circle, rgba(69, 119, 231, 0.11), transparent 67%);
+}
+
+.portal-header {
+  border-bottom-color: rgba(58, 103, 148, 0.13);
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 8px 26px rgba(31, 74, 119, 0.055);
+}
+
+.portal-brand-mark {
+  color: #1475bf;
+  border-color: rgba(32, 128, 194, 0.24);
+  background: linear-gradient(145deg, #edf8ff, #e4f1ff);
+  box-shadow: inset 0 0 18px rgba(37, 144, 204, 0.08);
+}
+
+.portal-brand-copy strong {
+  color: #173957;
+}
+
+.portal-brand-copy strong span,
+.portal-kicker,
+.portal-section-head span,
+.portal-card-label {
+  color: #087ec1;
+}
+
+.portal-brand-copy small,
+.portal-live-status,
+.portal-user small {
+  color: #7088a1;
+}
+
+.portal-language :deep(.language-switcher-trigger) {
+  color: #36536e;
+  border-color: rgba(67, 111, 153, 0.2);
+  background: #f5f9fe;
+}
+
+.portal-admin-link,
+.portal-logout {
+  color: #45647f;
+  border-color: rgba(59, 107, 151, 0.19);
+  background: rgba(245, 249, 254, 0.92);
+}
+
+.portal-admin-link:hover,
+.portal-logout:hover {
+  color: #0c6eaf;
+  border-color: rgba(25, 126, 190, 0.42);
+  background: #edf7ff;
+}
+
+.portal-avatar {
+  color: #0a6cae;
+  border-color: rgba(44, 133, 196, 0.25);
+  background: linear-gradient(145deg, #e7f5ff, #dcecff);
+}
+
+.portal-user strong {
+  color: #173653;
+}
+
+.portal-kicker i {
+  background: linear-gradient(90deg, #168bc6, transparent);
+}
+
+.portal-kicker small {
+  color: #7890a7;
+}
+
+.portal-hero-copy h1 {
+  max-width: 620px;
+  color: #123352;
+  font-size: clamp(30px, 2.8vw, 42px);
+  letter-spacing: -0.035em;
+}
+
+.portal-hero-copy > p {
+  color: #607b95;
+}
+
+.portal-hero-meta span {
+  color: #7890a7;
+}
+
+.portal-hero-meta b {
+  color: #244b6e;
+}
+
+.portal-route-visual {
+  border-color: rgba(68, 127, 173, 0.2);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(237, 247, 255, 0.94)),
+    radial-gradient(circle at 70% 20%, rgba(59, 156, 196, 0.12), transparent 48%);
+  box-shadow: 0 22px 58px rgba(47, 89, 128, 0.11), inset 0 1px rgba(255, 255, 255, 0.8);
+}
+
+.portal-route-visual::after {
+  background: linear-gradient(120deg, rgba(255, 255, 255, 0.58), transparent 28%);
+}
+
+.portal-route-head {
+  color: #315b7c;
+}
+
+.portal-route-head i {
+  background: rgba(73, 124, 165, 0.18);
+}
+
+.portal-route-head small,
+.portal-route-caption {
+  color: #7892a8;
+}
+
+.portal-route-path {
+  stroke: rgba(48, 151, 202, 0.13);
+}
+
+.portal-section-head h2 {
+  color: #153a5a;
+}
+
+.portal-section-head p {
+  color: #69839c;
+}
+
+.portal-workbench-card {
+  color: #163752;
+  border-color: rgba(67, 117, 160, 0.18);
+  background: rgba(255, 255, 255, 0.91);
+  box-shadow: 0 14px 38px rgba(38, 80, 119, 0.075), inset 0 1px rgba(255, 255, 255, 0.8);
+}
+
+.portal-workbench-card::before {
+  background: radial-gradient(circle at 14% 15%, rgba(53, 181, 219, 0.12), transparent 44%);
+}
+
+.portal-workbench-card--tracking::before {
+  background: radial-gradient(circle at 14% 15%, rgba(73, 112, 230, 0.1), transparent 46%);
+}
+
+.portal-workbench-card:hover {
+  border-color: rgba(35, 147, 205, 0.42);
+  box-shadow: 0 22px 50px rgba(38, 80, 119, 0.14), inset 0 1px #fff;
+}
+
+.portal-card-topline {
+  color: #7590a7;
+}
+
+.portal-card-topline small {
+  color: #66849b;
+}
+
+.portal-card-icon {
+  color: #147eb9;
+  border-color: rgba(45, 139, 194, 0.22);
+  background: linear-gradient(145deg, #effaff, #e8f4fc);
+}
+
+.portal-workbench-card--tracking .portal-card-icon {
+  color: #557bd2;
+  border-color: rgba(85, 123, 210, 0.22);
+  background: linear-gradient(145deg, #f0f4ff, #e9f1ff);
+}
+
+.portal-card-copy h3 {
+  color: #143856;
+}
+
+.portal-card-copy p {
+  color: #667f96;
+}
+
+.portal-card-features span {
+  color: #58758d;
+  border-color: rgba(72, 119, 158, 0.15);
+  background: #f5f9fd;
+}
+
+.portal-card-action {
+  color: #146fa9;
+  border-top-color: rgba(70, 118, 156, 0.13);
+}
+
+.portal-footer {
+  color: #7890a6;
+  border-top-color: rgba(62, 109, 150, 0.13);
+}
+
 @keyframes portal-route-flow {
   to { stroke-dashoffset: -128; }
 }
@@ -901,7 +1116,7 @@ const todayText = computed(() => new Intl.DateTimeFormat(currentLocale.value ===
   }
 
   .portal-hero-copy h1 {
-    font-size: clamp(34px, 11vw, 48px);
+    font-size: clamp(29px, 8.5vw, 38px);
   }
 
   .portal-hero-meta {

@@ -1,7 +1,7 @@
 <template>
   <section v-if="!currentUser" class="admin-login-shell">
     <div class="admin-login-brand">
-      <RouterLink class="admin-back-link" to="/home">返回前台</RouterLink>
+      <RouterLink class="admin-back-link" to="/workbenches">{{ t("portal.switchWorkbench") }}</RouterLink>
       <span class="brand-mark">CP</span>
       <p>Admin Console</p>
       <h1>企业后台管理系统</h1>
@@ -35,7 +35,7 @@
 
   <section v-else class="admin-console-shell">
     <aside class="admin-console-sidebar">
-      <RouterLink class="admin-console-brand" to="/home">
+    <RouterLink class="admin-console-brand" to="/workbenches">
         <span class="brand-mark">CP</span>
         <div>
           <p>Browser / Server</p>
@@ -551,7 +551,7 @@ import {
   updateEmployee,
   updateLlmSettings
 } from "../services/adminApi";
-import { currentLocale } from "../i18n";
+import { currentLocale, t } from "../i18n";
 import { translateLegacyText } from "../i18n/legacyText";
 import { translateUiText } from "../i18n/uiText";
 
