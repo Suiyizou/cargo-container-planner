@@ -63,7 +63,9 @@ export async function readWorkbook(file) {
       header: 1,
       defval: "",
       blankrows: true
-    });
+    }).map((row) => trimTrailingEmptyCells((row || []).map(cleanCell)));
+    const mergeCells = buildMergeCellMetadata(worksheet?.["!merges"] || [], rawRows);
+    const formulaCells = buildFormulaCellMetadata(worksheet);
     const { headerRowIndex, headers, bodyRows } = extractTable(rawRows);
     return {
       name,
@@ -71,8 +73,10 @@ export async function readWorkbook(file) {
       headers,
       rows: bodyRows,
       mapping: guessMapping(headers),
-      rawRows: rawRows.map((row) => row.map(cleanCell)),
-      merges: formatMergeRanges(worksheet?.["!merges"] || [])
+      rawRows,
+      merges: mergeCells.map((merge) => merge.range),
+      mergeCells,
+      formulaCells
     };
   });
   return { fileName: file.name, sheets };
@@ -104,6 +108,21 @@ export function formatWorkbookForRecognition(workbook, options = {}) {
       if (sheet.merges.length > maxMergeRanges) {
         lines.push(`MERGED_RANGES_TRUNCATED: emitted ${maxMergeRanges} of ${sheet.merges.length}.`);
       }
+    }
+    const mergeValueLines = formatMergedCellValueLines(sheet, maxMergeRanges, maxCellChars);
+    mergeValueLines.forEach((line) => lines.push(line));
+    if (Array.isArray(sheet.formulaCells) && sheet.formulaCells.length) {
+      lines.push(`FORMULA_CELLS: ${sheet.formulaCells.slice(0, maxMergeRanges).map((cell) => `${cell.address}=${quoteForRecognition(`=${cell.formula}`, maxCellChars)} -> ${quoteForRecognition(cell.value, maxCellChars)}`).join(" | ")}`);
+      if (sheet.formulaCells.length > maxMergeRanges) {
+        lines.push(`FORMULA_CELLS_TRUNCATED: emitted ${maxMergeRanges} of ${sheet.formulaCells.length}.`);
+      }
+    }
+    const finalHandlingUnitCandidates = detectFinalHandlingUnitCandidates(sheet);
+    if (finalHandlingUnitCandidates.length) {
+      lines.push("FINAL_HANDLING_UNIT_CANDIDATES: High-confidence source-derived outer packages. These final pallets/crates override aligned loose-product or inner-carton rows.");
+      finalHandlingUnitCandidates.forEach((candidate, candidateIndex) => {
+        lines.push(`FINAL_PACKAGE_CANDIDATE ${candidateIndex + 1}: ${JSON.stringify(candidateForRecognition(candidate))}`);
+      });
     }
     lines.push("ROWS_WITH_EXCEL_COORDINATES:");
     const rows = Array.isArray(sheet.rawRows) && sheet.rawRows.length
@@ -145,7 +164,675 @@ export function formatWorkbookForRecognition(workbook, options = {}) {
   return lines.join("\n");
 }
 
+export function detectFinalHandlingUnitCandidates(sheet) {
+  const rows = finalUnitSourceRows(sheet);
+  if (!rows.length) return [];
+  const mergeCells = normalizedMergeCells(sheet, rows);
+  const columnCount = rows.reduce((max, row) => Math.max(max, row?.length || 0), 0);
+  if (!columnCount) return [];
+  const columns = Array.from({ length: columnCount }, (_, columnIndex) => {
+    const headerParts = headerPartsForColumn(rows, mergeCells, columnIndex);
+    return {
+      columnIndex,
+      headerParts,
+      headerText: headerParts.join(" | ")
+    };
+  });
+  const dimensionSpecs = palletDimensionSpecs(columns, rows, mergeCells);
+  if (!dimensionSpecs.length) return [];
+
+  const candidates = [];
+  for (const spec of dimensionSpecs) {
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+      const dimensions = dimensionsAt(rows, mergeCells, spec, rowIndex);
+      if (!dimensions || dimensions.ownerRow !== rowIndex) continue;
+      const rowSpan = dimensionRowSpan(mergeCells, spec, rowIndex);
+      const palletStartColumn = Math.min(...spec.columns);
+      const quantityEvidence = finalPackageQuantity(rows, columns, mergeCells, rowIndex, palletStartColumn);
+      const quantity = quantityEvidence.quantity || 1;
+      const nameEvidence = finalPackageName(rows, columns, mergeCells, rowSpan, palletStartColumn);
+      const remark = finalPackageRemark(rows, columns, mergeCells, rowSpan, palletStartColumn);
+      const innerCargo = innerCargoForCandidate(rows, columns, mergeCells, rowSpan, palletStartColumn);
+      const weights = finalPackageWeights(rows, columns, mergeCells, rowIndex, palletStartColumn, quantity);
+      candidates.push({
+        sourceRowNumber: rowIndex + 1,
+        sourceRowNumbers: integerRange(rowSpan.startRow + 1, rowSpan.endRow + 1),
+        sourceRange: `R${rowSpan.startRow + 1}:R${rowSpan.endRow + 1}`,
+        dimensionColumns: spec.columns.map(columnName),
+        quantityEvidence,
+        weightEvidence: weights,
+        sharedMergedRows: rowSpan.endRow > rowSpan.startRow,
+        name: nameEvidence.name,
+        sourceNames: nameEvidence.names,
+        lengthCm: dimensions.values[0],
+        widthCm: dimensions.values[1],
+        heightCm: dimensions.values[2],
+        quantity,
+        rawRemark: remark,
+        innerCargo,
+        palletStartColumn
+      });
+    }
+  }
+
+  const uniqueCandidates = [...new Map(candidates.map((candidate) => [
+    [candidate.sourceRowNumber, candidate.lengthCm, candidate.widthCm, candidate.heightCm].join("|"),
+    candidate
+  ])).values()].sort((left, right) => left.sourceRowNumber - right.sourceRowNumber);
+  if (!uniqueCandidates.length) return [];
+  return finalizeHandlingUnitCandidates(uniqueCandidates);
+}
+
+function buildFinalHandlingUnitPreview(candidates) {
+  const validRows = [];
+  const invalidRows = [];
+  candidates.forEach((candidate) => {
+    const cargo = candidate.cargo;
+    const errors = validateCargo(cargo);
+    const row = {
+      rowNumber: candidate.sourceRowNumber,
+      raw: {
+        sourceRange: candidate.sourceRange,
+        sourceNames: candidate.sourceNames.join(" + "),
+        remark: candidate.rawRemark
+      },
+      cargo,
+      errors,
+      notes: candidate.notes,
+      suggestion: buildRowSuggestion({}, cargo, errors, candidate.sourceRowNumber)
+    };
+    if (errors.length) invalidRows.push(row);
+    else validRows.push(row);
+  });
+  const aggregated = aggregateCargos(validRows.map((row) => row.cargo));
+  return {
+    totalRows: candidates.length,
+    validRows,
+    invalidRows,
+    aggregated,
+    importedQuantity: aggregated.reduce((sum, cargo) => sum + Number(cargo.quantity || 0), 0),
+    skippedRows: invalidRows.length
+  };
+}
+
+function finalUnitSourceRows(sheet) {
+  if (Array.isArray(sheet?.rawRows) && sheet.rawRows.length) {
+    return sheet.rawRows.map((row) => trimTrailingEmptyCells((row || []).map(cleanCell)));
+  }
+  const rows = [];
+  const headerRowIndex = Math.max(0, Number(sheet?.headerRowIndex || 0));
+  while (rows.length < headerRowIndex) rows.push([]);
+  rows.push([...(sheet?.headers || [])].map(cleanCell));
+  (sheet?.rows || []).forEach((row) => rows.push((row || []).map(cleanCell)));
+  return rows;
+}
+
+function normalizedMergeCells(sheet, rows) {
+  if (Array.isArray(sheet?.mergeCells) && sheet.mergeCells.length) {
+    return sheet.mergeCells.map((merge) => ({ ...merge }));
+  }
+  return (sheet?.merges || []).map((range) => mergeCellFromRange(range, rows)).filter(Boolean);
+}
+
+function mergeCellFromRange(range, rows) {
+  const match = String(range || "").match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/i);
+  if (!match) return null;
+  const startColumn = columnIndex(match[1]);
+  const endColumn = columnIndex(match[3]);
+  const startRow = Number(match[2]) - 1;
+  const endRow = Number(match[4]) - 1;
+  return {
+    range: `${match[1].toUpperCase()}${startRow + 1}:${match[3].toUpperCase()}${endRow + 1}`,
+    startRow,
+    endRow,
+    startColumn,
+    endColumn,
+    value: cleanCell(rows[startRow]?.[startColumn])
+  };
+}
+
+function headerPartsForColumn(rows, mergeCells, columnIndex) {
+  const parts = [];
+  const scanRowCount = Math.min(rows.length, 10);
+  for (let rowIndex = 0; rowIndex < scanRowCount; rowIndex += 1) {
+    const value = mergeAwareCellValue(rows, mergeCells, rowIndex, columnIndex);
+    if (!isLikelyHeaderValue(value) || parts.includes(value)) continue;
+    parts.push(value);
+  }
+  return parts;
+}
+
+function isLikelyHeaderValue(value) {
+  const text = cleanCell(value);
+  if (!text || parseDimensionText(text, "auto")) return false;
+  if (containsAnyText(text, [
+    "名称", "品名", "尺寸", "规格", "数量", "件数", "箱数", "重量", "毛重", "净重", "体积", "方数", "备注",
+    "托盘", "木托", "栈板", "合计", "总", "长", "宽", "高", "size", "qty", "quantity", "ctn", "carton", "pallet", "skid",
+    "weight", "n.w", "g.w", "cbm", "volume", "remark", "order"
+  ])) return true;
+  return !/^[\s\d.,+\-*/()（）]+$/.test(text) && !/^\d/.test(text);
+}
+
+function palletDimensionSpecs(columns, rows, mergeCells) {
+  const specs = [];
+  columns.forEach((column) => {
+    if (!isPalletDimensionGroupHeader(column.headerText)) return;
+    const hasCombinedValue = rows.some((row, rowIndex) => {
+      const value = cleanCell(row?.[column.columnIndex]);
+      if (!value || !parseDimensionText(value, "auto")) return false;
+      const owner = mergeOwnerAt(mergeCells, rowIndex, column.columnIndex);
+      return !owner || owner.startRow === rowIndex;
+    });
+    if (hasCombinedValue) specs.push({ kind: "combined", columns: [column.columnIndex] });
+  });
+
+  const axisColumns = { length: [], width: [], height: [] };
+  columns.forEach((column) => {
+    if (!hasPalletSignal(column.headerText)) return;
+    const axis = dimensionAxisFromHeaderParts(column.headerParts);
+    if (axis) axisColumns[axis].push(column.columnIndex);
+  });
+  if (axisColumns.length.length && axisColumns.width.length && axisColumns.height.length) {
+    for (const lengthColumn of axisColumns.length) {
+      const widthColumn = axisColumns.width.find((value) => value > lengthColumn && value - lengthColumn <= 4);
+      const heightColumn = axisColumns.height.find((value) => value > (widthColumn ?? lengthColumn) && value - lengthColumn <= 5);
+      if (widthColumn != null && heightColumn != null) {
+        specs.push({ kind: "axes", columns: [lengthColumn, widthColumn, heightColumn] });
+        break;
+      }
+    }
+  }
+  return [...new Map(specs.map((spec) => [`${spec.kind}:${spec.columns.join(",")}`, spec])).values()];
+}
+
+function isPalletDimensionGroupHeader(value) {
+  const text = normalizeHeader(value);
+  return hasPalletSignal(text)
+    && containsAnyText(text, ["尺寸", "规格", "外廓", "体积", "size", "dimension", "volume"]);
+}
+
+function hasPalletSignal(value) {
+  return containsAnyText(normalizeHeader(value), ["托盘", "木托", "栈板", "免熏蒸", "pallet", "skid"]);
+}
+
+function dimensionAxisFromHeaderParts(parts) {
+  const normalized = parts.map((part) => normalizeHeader(part));
+  if (normalized.some((part) => ["l", "长", "长度"].includes(part) || part.endsWith("长"))) return "length";
+  if (normalized.some((part) => ["w", "宽", "宽度"].includes(part) || part.endsWith("宽"))) return "width";
+  if (normalized.some((part) => ["h", "高", "高度"].includes(part) || part.endsWith("高"))) return "height";
+  return "";
+}
+
+function dimensionsAt(rows, mergeCells, spec, rowIndex) {
+  if (spec.kind === "combined") {
+    const column = spec.columns[0];
+    const owner = mergeOwnerAt(mergeCells, rowIndex, column);
+    const ownerRow = owner?.startRow ?? rowIndex;
+    const value = cleanCell(rows[ownerRow]?.[column]);
+    const parsed = parseDimensionText(value, "auto");
+    return parsed ? { ownerRow, values: parsed.map(round2) } : null;
+  }
+  const values = spec.columns.map((column) => {
+    const owner = mergeOwnerAt(mergeCells, rowIndex, column);
+    const ownerRow = owner?.startRow ?? rowIndex;
+    const header = headerPartsForColumn(rows, mergeCells, column).join(" ");
+    return positiveNumber(rows[ownerRow]?.[column], unitFromHeader(header, "auto"), null);
+  });
+  if (!values.every((value) => value > 0)) return null;
+  const ownerRows = spec.columns.map((column) => mergeOwnerAt(mergeCells, rowIndex, column)?.startRow ?? rowIndex);
+  return { ownerRow: Math.min(...ownerRows), values: values.map(round2) };
+}
+
+function dimensionRowSpan(mergeCells, spec, rowIndex) {
+  const owners = spec.columns.map((column) => mergeOwnerAt(mergeCells, rowIndex, column)).filter(Boolean);
+  if (!owners.length) return { startRow: rowIndex, endRow: rowIndex };
+  return {
+    startRow: Math.min(rowIndex, ...owners.map((merge) => merge.startRow)),
+    endRow: Math.max(rowIndex, ...owners.map((merge) => merge.endRow))
+  };
+}
+
+function finalPackageQuantity(rows, columns, mergeCells, rowIndex, palletStartColumn) {
+  const quantityColumns = columns.filter((column) => column.columnIndex >= palletStartColumn
+    && isFinalPackageQuantityHeader(column.headerText));
+  for (const column of quantityColumns) {
+    const value = positiveInteger(mergeAwareCellValue(rows, mergeCells, rowIndex, column.columnIndex));
+    if (value) return { quantity: value, source: columnName(column.columnIndex), basis: column.headerText };
+  }
+  for (const column of columns.filter((item) => item.columnIndex >= palletStartColumn)) {
+    const match = cleanCell(column.headerText).match(/(\d+)\s*(?:个|只|件|pcs?)?\s*(?:托盘|木托|栈板|pallets?|skids?)/i);
+    if (match) return { quantity: Number(match[1]), source: "header", basis: match[0] };
+  }
+  return { quantity: 1, source: "row", basis: "one explicit final-package row" };
+}
+
+function isFinalPackageQuantityHeader(value) {
+  const text = normalizeHeader(value);
+  if (containsAnyText(text, ["体积", "方数", "重量", "毛重", "净重", "volume", "weight", "cbm"])) return false;
+  return containsAnyText(text, ["托盘数量", "木托数量", "栈板数量", "托数", "palletqty", "palletquantity", "skidqty"])
+    || ["数量", "qty", "quantity"].includes(text);
+}
+
+function finalPackageName(rows, columns, mergeCells, rowSpan, palletStartColumn) {
+  const nameColumns = columns.filter((column) => column.columnIndex < palletStartColumn && isNameHeader(column.headerText));
+  const fallbackColumns = columns.filter((column) => column.columnIndex < palletStartColumn
+    && containsAnyText(normalizeHeader(column.headerText), ["size", "尺寸"]));
+  const column = nameColumns[0] || fallbackColumns[0];
+  const names = [];
+  if (column) {
+    for (let rowIndex = rowSpan.startRow; rowIndex <= rowSpan.endRow; rowIndex += 1) {
+      const value = cleanCell(mergeAwareCellValue(rows, mergeCells, rowIndex, column.columnIndex));
+      if (!value || isSummaryText(value) || names.includes(value)) continue;
+      names.push(value);
+    }
+  }
+  return {
+    names,
+    name: names.length ? names.join(" + ") : "拼装木托盘"
+  };
+}
+
+function isNameHeader(value) {
+  const text = normalizeHeader(value);
+  return containsAnyText(text, ["品名", "货物名称", "产品名称", "物料名称", "cargoname", "goodsname", "productname"])
+    || text === "name";
+}
+
+function finalPackageRemark(rows, columns, mergeCells, rowSpan, palletStartColumn) {
+  const remarkColumns = columns.filter((column) => column.columnIndex >= palletStartColumn
+    && containsAnyText(normalizeHeader(column.headerText), ["备注", "说明", "remark", "note"]));
+  const values = [];
+  for (let rowIndex = rowSpan.startRow; rowIndex <= rowSpan.endRow; rowIndex += 1) {
+    for (const column of remarkColumns) {
+      const value = cleanCell(mergeAwareCellValue(rows, mergeCells, rowIndex, column.columnIndex));
+      if (value && !values.includes(value)) values.push(value);
+    }
+    for (let columnIndex = palletStartColumn; columnIndex < (rows[rowIndex]?.length || 0); columnIndex += 1) {
+      const value = cleanCell(rows[rowIndex]?.[columnIndex]);
+      if (containsAnyText(value, ["拼装", "拼托", "混装", "合拼", "mixed", "combined"]) && !values.includes(value)) values.push(value);
+    }
+  }
+  return values.join("；");
+}
+
+function innerCargoForCandidate(rows, columns, mergeCells, rowSpan, palletStartColumn) {
+  const leftColumns = columns.filter((column) => column.columnIndex < palletStartColumn);
+  const nameColumn = leftColumns.find((column) => isNameHeader(column.headerText))
+    || leftColumns.find((column) => containsAnyText(normalizeHeader(column.headerText), ["size", "尺寸"]));
+  const cartonCountColumn = leftColumns.find((column) => isCartonCountHeader(column.headerText));
+  const totalQuantityColumn = leftColumns.find((column) => isLooseTotalQuantityHeader(column.headerText));
+  const piecesPerCartonColumn = leftColumns.find((column) => isPiecesPerCartonHeader(column.headerText));
+  const cartonDimensionColumn = leftColumns.find((column) => isOuterCartonDimensionHeader(normalizeHeader(column.headerText)));
+  const cartonAxes = cartonDimensionAxisColumns(leftColumns);
+  const unitGrossColumn = leftColumns.find((column) => isUnitGrossWeightHeader(normalizeHeader(column.headerText)));
+  const totalGrossColumn = leftColumns.find((column) => isTotalWeightHeader(normalizeHeader(column.headerText)));
+  const lines = [];
+  for (let rowIndex = rowSpan.startRow; rowIndex <= rowSpan.endRow; rowIndex += 1) {
+    const name = cleanCell(nameColumn ? mergeAwareCellValue(rows, mergeCells, rowIndex, nameColumn.columnIndex) : "");
+    if (isSummaryText(name)) continue;
+    const cartonCount = positiveInteger(cartonCountColumn ? mergeAwareCellValue(rows, mergeCells, rowIndex, cartonCountColumn.columnIndex) : "");
+    const totalQuantity = positiveInteger(totalQuantityColumn ? mergeAwareCellValue(rows, mergeCells, rowIndex, totalQuantityColumn.columnIndex) : "");
+    const piecesPerCarton = numberFromCell(piecesPerCartonColumn ? mergeAwareCellValue(rows, mergeCells, rowIndex, piecesPerCartonColumn.columnIndex) : "");
+    const cartonDimensions = cartonDimensionsAt(rows, mergeCells, rowIndex, cartonDimensionColumn, cartonAxes);
+    const cartonGrossWeightKg = numberFromCell(unitGrossColumn ? mergeAwareCellValue(rows, mergeCells, rowIndex, unitGrossColumn.columnIndex) : "");
+    const explicitTotalGrossWeightKg = numberFromCell(totalGrossColumn ? mergeAwareCellValue(rows, mergeCells, rowIndex, totalGrossColumn.columnIndex) : "");
+    if (!name && !cartonCount && !totalQuantity && !cartonDimensions) continue;
+    const calculatedTotalGrossWeightKg = cartonCount && cartonGrossWeightKg ? cartonCount * cartonGrossWeightKg : null;
+    lines.push(compactObject({
+      sourceRowNumber: rowIndex + 1,
+      name,
+      cartonCount,
+      totalQuantity,
+      piecesPerCarton,
+      cartonDimensionsCm: cartonDimensions ? {
+        lengthCm: cartonDimensions[0], widthCm: cartonDimensions[1], heightCm: cartonDimensions[2]
+      } : null,
+      cartonGrossWeightKg,
+      explicitTotalGrossWeightKg,
+      calculatedTotalGrossWeightKg: calculatedTotalGrossWeightKg == null ? null : round2(calculatedTotalGrossWeightKg)
+    }));
+  }
+  return compactObject({ lines });
+}
+
+function isCartonCountHeader(value) {
+  const text = normalizeHeader(value);
+  return containsAnyText(text, ["总箱数", "箱数", "件数", "tctns", "totalcartons", "totalcarton"])
+    && !containsAnyText(text, ["装箱数量", "每箱"]);
+}
+
+function isLooseTotalQuantityHeader(value) {
+  const text = normalizeHeader(value);
+  return containsAnyText(text, ["orderqty", "orderquantity", "总数量", "产品数量"])
+    || ["数量", "qty", "quantity"].includes(text);
+}
+
+function isPiecesPerCartonHeader(value) {
+  return containsAnyText(normalizeHeader(value), ["装箱数量", "每箱数量", "pcsctn", "qtyctn", "个箱", "只箱", "条箱"]);
+}
+
+function cartonDimensionAxisColumns(columns) {
+  const result = {};
+  columns.forEach((column) => {
+    const text = normalizeHeader(column.headerText);
+    if (!containsAnyText(text, ["纸箱", "外箱", "carton", "box"])) return;
+    const axis = dimensionAxisFromHeaderParts(column.headerParts);
+    if (axis && result[axis] == null) result[axis] = column.columnIndex;
+  });
+  return result;
+}
+
+function cartonDimensionsAt(rows, mergeCells, rowIndex, combinedColumn, axes) {
+  if (combinedColumn) {
+    const parsed = parseDimensionText(
+      mergeAwareCellValue(rows, mergeCells, rowIndex, combinedColumn.columnIndex),
+      "auto"
+    );
+    if (parsed) return parsed.map(round2);
+  }
+  if (axes.length == null || axes.width == null || axes.height == null) return null;
+  const values = [axes.length, axes.width, axes.height].map((columnIndex) => positiveNumber(
+    mergeAwareCellValue(rows, mergeCells, rowIndex, columnIndex),
+    unitFromHeader(headerPartsForColumn(rows, mergeCells, columnIndex).join(" "), "auto"),
+    null
+  ));
+  return values.every((value) => value > 0) ? values.map(round2) : null;
+}
+
+function finalPackageWeights(rows, columns, mergeCells, rowIndex, palletStartColumn, quantity) {
+  const quantityColumns = columns.filter((column) => column.columnIndex >= palletStartColumn
+    && isFinalPackageQuantityHeader(column.headerText)).map((column) => column.columnIndex);
+  const quantityColumn = quantityColumns.length ? Math.min(...quantityColumns) : null;
+  const entries = columns
+    .filter((column) => column.columnIndex >= palletStartColumn && isFinalWeightHeader(column.headerText))
+    .map((column) => ({
+      columnIndex: column.columnIndex,
+      header: column.headerText,
+      value: numberFromCell(mergeAwareCellValue(rows, mergeCells, rowIndex, column.columnIndex))
+    }))
+    .filter((entry) => entry.value != null && entry.value >= 0);
+  const tareEntries = entries.filter((entry) => isPalletTareWeightHeader(entry.header));
+  const finalTotalEntries = entries.filter((entry) => isFinalGrossTotalHeader(entry.header));
+  const result = { entries };
+  if (tareEntries.length) {
+    result.tareUnitWeightKg = round2(tareEntries[0].value);
+    const relatedTotal = entries.find((entry) => entry !== tareEntries[0]
+      && Math.abs(entry.value - tareEntries[0].value * quantity) <= Math.max(0.1, entry.value * 0.002));
+    result.tareTotalWeightKg = round2(relatedTotal?.value ?? tareEntries[0].value * quantity);
+  }
+  if (finalTotalEntries.length) result.finalTotalGrossWeightKg = round2(finalTotalEntries.at(-1).value);
+  if (!result.finalTotalGrossWeightKg && !tareEntries.length && entries.length) {
+    const afterQuantity = quantityColumn == null ? null : entries.find((entry) => entry.columnIndex > quantityColumn);
+    if (afterQuantity) result.finalTotalGrossWeightKg = round2(afterQuantity.value);
+    else result.unitGrossWeightKg = round2(entries[0].value);
+  }
+  return result;
+}
+
+function isFinalWeightHeader(value) {
+  const text = normalizeHeader(value);
+  return containsAnyText(text, ["重量", "毛重", "weight", "gw", "g.w"])
+    && !containsAnyText(text, ["净重", "netweight", "nw", "n.w"]);
+}
+
+function isPalletTareWeightHeader(value) {
+  const text = normalizeHeader(value);
+  return hasPalletSignal(text)
+    && containsAnyText(text, ["重量", "weight"])
+    && !containsAnyText(text, ["装货后", "含货", "总重量", "合计重量", "总毛重", "totalweight", "gross"]);
+}
+
+function isFinalGrossTotalHeader(value) {
+  const text = normalizeHeader(value);
+  return containsAnyText(text, ["总重量", "总毛重", "totalweight", "totalgross"])
+    || /\d+.*(?:托盘|pallet|skid).*总.*(?:重量|weight)/i.test(cleanCell(value));
+}
+
+function finalizeHandlingUnitCandidates(candidates) {
+  const mixedCandidate = candidates.find((candidate) => containsAnyText(candidate.rawRemark, [
+    "拼装", "拼托", "混装", "合拼", "mixed", "combined"
+  ]));
+  const leftovers = [];
+  candidates.forEach((candidate) => {
+    const sourceLines = Array.isArray(candidate.innerCargo?.lines) ? candidate.innerCargo.lines : [];
+    const allocatedLines = [];
+    sourceLines.forEach((line) => {
+      const cartonCount = Number(line.cartonCount || 0);
+      let allocatedCartons = cartonCount;
+      if (mixedCandidate && candidate !== mixedCandidate && candidate.quantity > 1 && cartonCount > candidate.quantity) {
+        const cartonsPerPallet = Math.floor(cartonCount / candidate.quantity);
+        allocatedCartons = cartonsPerPallet * candidate.quantity;
+        const remainder = cartonCount - allocatedCartons;
+        if (remainder > 0) leftovers.push({ ...line, cartonCount: remainder, originalCartonCount: cartonCount });
+        if (cartonsPerPallet > 0) candidate.cartonsPerPallet = cartonsPerPallet;
+      }
+      if (allocatedCartons <= 0) return;
+      allocatedLines.push(scaleInnerCargoLine(line, allocatedCartons, cartonCount));
+    });
+    candidate.innerCargo = summarizeInnerCargo(allocatedLines, candidate.cartonsPerPallet);
+  });
+  if (mixedCandidate && leftovers.length) {
+    mixedCandidate.innerCargo = summarizeInnerCargo(leftovers.map((line) => scaleInnerCargoLine(
+      line,
+      Number(line.cartonCount || 0),
+      Number(line.originalCartonCount || line.cartonCount || 0)
+    )));
+    mixedCandidate.sourceNames = leftovers.map((line) => line.name).filter(Boolean);
+    mixedCandidate.name = mixedCandidate.sourceNames.length
+      ? `${[...new Set(mixedCandidate.sourceNames)].join(" + ")}拼装`
+      : mixedCandidate.name;
+  }
+
+  return candidates.map((candidate) => {
+    const quantity = Math.max(1, Math.round(Number(candidate.quantity || 1)));
+    const innerCargoTotal = round2(candidate.innerCargo?.totalGrossWeightKg || 0);
+    const evidence = candidate.weightEvidence || {};
+    let packageTotalGrossWeightKg = Number(evidence.finalTotalGrossWeightKg || 0);
+    let palletTotalTareWeightKg = Number(evidence.tareTotalWeightKg || 0);
+    let palletTareWeightKg = Number(evidence.tareUnitWeightKg || 0);
+    if (packageTotalGrossWeightKg > 0 && !palletTotalTareWeightKg && packageTotalGrossWeightKg >= innerCargoTotal) {
+      palletTotalTareWeightKg = round2(packageTotalGrossWeightKg - innerCargoTotal);
+      palletTareWeightKg = round2(palletTotalTareWeightKg / quantity);
+    } else if (!packageTotalGrossWeightKg && palletTotalTareWeightKg > 0) {
+      packageTotalGrossWeightKg = round2(palletTotalTareWeightKg + innerCargoTotal);
+    } else if (!packageTotalGrossWeightKg && Number(evidence.unitGrossWeightKg) > 0) {
+      packageTotalGrossWeightKg = round2(Number(evidence.unitGrossWeightKg) * quantity);
+    }
+    const packageGrossWeightKg = round2(packageTotalGrossWeightKg / quantity);
+    const mixed = containsAnyText(candidate.rawRemark, ["拼装", "拼托", "混装", "合拼", "mixed", "combined"]);
+    const notes = [
+      `最终木托盘优先；源表 ${candidate.sourceRange}`,
+      candidate.sharedMergedRows ? "合并单元格跨多条产品行，仅生成一个托盘记录" : "",
+      mixed ? "复核：拼装/混装托盘已保留为一个最终搬运单元" : "",
+      candidate.rawRemark
+    ].filter(Boolean);
+    const packageInfo = compactObject({
+      algorithmBasis: "source-final-package",
+      handlingUnitType: "pallet",
+      packageUnit: "pallet",
+      packageQuantity: quantity,
+      dimensionSource: "explicit source pallet columns",
+      handlingUnitDimensionsExplicit: true,
+      packageDimensionsCm: {
+        lengthCm: candidate.lengthCm,
+        widthCm: candidate.widthCm,
+        heightCm: candidate.heightCm
+      },
+      packageGrossWeightKg,
+      packageTotalGrossWeightKg,
+      palletTareWeightKg,
+      palletTotalTareWeightKg,
+      cargoTotalWeightKg: innerCargoTotal,
+      weightFormula: palletTotalTareWeightKg > 0
+        ? "(pallet tare total + contained cargo gross total) / pallet quantity"
+        : "final package gross total / pallet quantity",
+      sourceRows: candidate.sourceRowNumbers,
+      sourceRange: candidate.sourceRange,
+      sharedMergedRows: candidate.sharedMergedRows,
+      mixedPallet: mixed,
+      innerCargo: candidate.innerCargo
+    });
+    const cargo = parsedCargo({
+      name: candidate.name,
+      model: "",
+      lengthCm: candidate.lengthCm,
+      widthCm: candidate.widthCm,
+      heightCm: candidate.heightCm,
+      quantity,
+      weightKg: packageGrossWeightKg,
+      type: "pallet",
+      nonStack: false,
+      keepUpright: false,
+      color: "",
+      sku: "",
+      remark: notes.join("；"),
+      packageInfo
+    });
+    return { ...candidate, quantity, notes, cargo };
+  });
+}
+
+function scaleInnerCargoLine(line, allocatedCartons, originalCartons) {
+  const ratio = originalCartons > 0 ? allocatedCartons / originalCartons : 1;
+  const explicitTotal = Number(line.explicitTotalGrossWeightKg);
+  const calculatedTotal = Number(line.calculatedTotalGrossWeightKg);
+  const sourceTotal = Number.isFinite(explicitTotal) && line.explicitTotalGrossWeightKg != null
+    ? explicitTotal
+    : Number.isFinite(calculatedTotal) && line.calculatedTotalGrossWeightKg != null
+      ? calculatedTotal
+      : Number(line.cartonGrossWeightKg || 0) * originalCartons;
+  return compactObject({
+    ...line,
+    cartonCount: allocatedCartons,
+    totalGrossWeightKg: round2(sourceTotal * ratio),
+    sourceTotalGrossWeightKg: round2(sourceTotal),
+    sourceTotalMismatch: explicitTotal > 0 && calculatedTotal > 0 && Math.abs(explicitTotal - calculatedTotal) > 0.01
+  });
+}
+
+function summarizeInnerCargo(lines, cartonsPerPallet) {
+  const cartonCount = lines.reduce((sum, line) => sum + Number(line.cartonCount || 0), 0);
+  const totalQuantity = lines.reduce((sum, line) => sum + Number(line.totalQuantity || 0), 0);
+  const totalGrossWeightKg = round2(lines.reduce((sum, line) => sum + Number(line.totalGrossWeightKg || 0), 0));
+  const firstDimensions = lines.find((line) => line.cartonDimensionsCm)?.cartonDimensionsCm;
+  const firstGrossWeight = lines.find((line) => Number(line.cartonGrossWeightKg) > 0)?.cartonGrossWeightKg;
+  return compactObject({
+    cartonCount,
+    cartonsPerPallet,
+    totalQuantity: totalQuantity || null,
+    cartonDimensionsCm: lines.length === 1 ? firstDimensions : null,
+    cartonGrossWeightKg: lines.length === 1 ? firstGrossWeight : null,
+    totalGrossWeightKg,
+    quantityUnit: "cartons",
+    lines
+  });
+}
+
+function formatMergedCellValueLines(sheet, maxMergeRanges, maxCellChars) {
+  const rows = finalUnitSourceRows(sheet);
+  const mergeCells = normalizedMergeCells(sheet, rows)
+    .filter((merge) => cleanCell(merge.value))
+    .slice(0, maxMergeRanges);
+  if (!mergeCells.length) return [];
+  const lines = [
+    `MERGED_CELL_VALUES: ${mergeCells.map((merge) => `${merge.range}=${quoteForRecognition(merge.value, maxCellChars)}`).join(" | ")}`
+  ];
+  const rowSpans = new Map();
+  mergeCells.filter((merge) => merge.endRow > merge.startRow).forEach((merge) => {
+    const key = `${merge.startRow}:${merge.endRow}`;
+    if (!rowSpans.has(key)) rowSpans.set(key, []);
+    rowSpans.get(key).push(merge);
+  });
+  rowSpans.forEach((merges, key) => {
+    const [startRow, endRow] = key.split(":").map(Number);
+    lines.push(`MERGED_ROW_SPAN R${startRow + 1}:R${endRow + 1}: ${merges.map((merge) => `${merge.range}=${quoteForRecognition(merge.value, maxCellChars)}`).join(" | ")}`);
+  });
+  return lines;
+}
+
+function candidateForRecognition(candidate) {
+  return {
+    sourceRowNumber: candidate.sourceRowNumber,
+    sourceRowNumbers: candidate.sourceRowNumbers,
+    sourceRange: candidate.sourceRange,
+    name: candidate.cargo.name,
+    model: candidate.cargo.model,
+    lengthCm: candidate.cargo.lengthCm,
+    widthCm: candidate.cargo.widthCm,
+    heightCm: candidate.cargo.heightCm,
+    quantity: candidate.cargo.quantity,
+    weightKg: candidate.cargo.weightKg,
+    type: candidate.cargo.type,
+    nonStack: candidate.cargo.nonStack,
+    keepUpright: candidate.cargo.keepUpright,
+    remark: candidate.cargo.remark,
+    packageInfo: candidate.cargo.packageInfo
+  };
+}
+
+function mergeAwareCellValue(rows, mergeCells, rowIndex, columnIndex) {
+  const direct = cleanCell(rows[rowIndex]?.[columnIndex]);
+  if (direct) return direct;
+  const owner = mergeOwnerAt(mergeCells, rowIndex, columnIndex);
+  return owner ? cleanCell(owner.value ?? rows[owner.startRow]?.[owner.startColumn]) : "";
+}
+
+function mergeOwnerAt(mergeCells, rowIndex, columnIndex) {
+  return mergeCells.find((merge) => rowIndex >= merge.startRow && rowIndex <= merge.endRow
+    && columnIndex >= merge.startColumn && columnIndex <= merge.endColumn) || null;
+}
+
+function trimTrailingEmptyCells(row) {
+  let lastIndex = row.length - 1;
+  while (lastIndex >= 0 && cleanCell(row[lastIndex]) === "") lastIndex -= 1;
+  return row.slice(0, lastIndex + 1);
+}
+
+function buildFormulaCellMetadata(worksheet) {
+  return Object.entries(worksheet || {})
+    .filter(([address, cell]) => /^[A-Z]+\d+$/i.test(address) && cell && typeof cell.f === "string" && cell.f.trim())
+    .map(([address, cell]) => ({
+      address,
+      formula: cell.f.trim(),
+      value: cleanCell(cell.w ?? cell.v)
+    }));
+}
+
+function buildMergeCellMetadata(merges, rows) {
+  return (merges || []).map((range) => ({
+    range: formatMergeRange(range),
+    startRow: range.s.r,
+    endRow: range.e.r,
+    startColumn: range.s.c,
+    endColumn: range.e.c,
+    value: cleanCell(rows[range.s.r]?.[range.s.c])
+  }));
+}
+
+function formatMergeRange(range) {
+  const start = `${columnName(range.s.c)}${range.s.r + 1}`;
+  const end = `${columnName(range.e.c)}${range.e.r + 1}`;
+  return start === end ? start : `${start}:${end}`;
+}
+
+function columnIndex(name) {
+  return String(name || "").toUpperCase().split("").reduce((value, character) => value * 26 + character.charCodeAt(0) - 64, 0) - 1;
+}
+
+function integerRange(start, end) {
+  return Array.from({ length: Math.max(0, end - start + 1) }, (_, index) => start + index);
+}
+
+function containsAnyText(value, needles) {
+  const text = cleanCell(value).toLowerCase();
+  return needles.some((needle) => text.includes(String(needle).toLowerCase()));
+}
+
 export function buildPreview(sheet, mapping, options = {}) {
+  const finalHandlingUnitCandidates = detectFinalHandlingUnitCandidates(sheet, options);
+  if (finalHandlingUnitCandidates.length) {
+    return buildFinalHandlingUnitPreview(finalHandlingUnitCandidates);
+  }
   const dimensionUnit = options.dimensionUnit || "auto";
   const weightUnit = options.weightUnit || "auto";
   const validRows = [];
@@ -434,7 +1121,7 @@ function isSourceQuantityHeader(header) {
 }
 
 function isUnitGrossWeightHeader(header) {
-  return [
+  const unitSignals = [
     "\u6bdb\u91cd",
     "\u6bdb\u91cdkg",
     "\u5355\u7bb1\u6bdb\u91cd",
@@ -449,7 +1136,22 @@ function isUnitGrossWeightHeader(header) {
     "gweightkg",
     "gweightkgs",
     "grossweight"
-  ].includes(header) && !header.includes("\u603b") && !isPalletHeader(header);
+  ];
+  const totalSignals = [
+    "\u603b\u91cd\u91cf",
+    "\u603b\u91cd",
+    "\u603b\u6bdb\u91cd",
+    "\u603b\u7bb1\u6bdb\u91cd",
+    "\u91cd\u91cf\u5408\u8ba1",
+    "\u5408\u8ba1\u91cd\u91cf",
+    "totalweight",
+    "totalgross",
+    "grossweighttotal",
+    "tgw"
+  ];
+  return unitSignals.some((signal) => header.includes(signal))
+    && !totalSignals.some((signal) => header.includes(signal))
+    && !isPalletHeader(header);
 }
 
 function isTotalWeightHeader(header) {
@@ -990,16 +1692,6 @@ function rowObject(headers, cells) {
 
 function valueFor(raw, header) {
   return header ? raw[header] : "";
-}
-
-function formatMergeRanges(merges) {
-  return merges
-    .map((range) => {
-      const start = `${columnName(range.s.c)}${range.s.r + 1}`;
-      const end = `${columnName(range.e.c)}${range.e.r + 1}`;
-      return start === end ? start : `${start}:${end}`;
-    })
-    .filter(Boolean);
 }
 
 function columnName(index) {

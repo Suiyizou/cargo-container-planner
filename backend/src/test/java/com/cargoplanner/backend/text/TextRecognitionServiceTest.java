@@ -478,6 +478,138 @@ class TextRecognitionServiceTest {
 
   @Test
   @SuppressWarnings("unchecked")
+  void selectsOnlyFinalPackageCandidateAnchorsAndKeepsMergedRowsAsContext() throws Exception {
+    String input = String.join("\n",
+        "EXCEL_FORMATTED_TABLE_FOR_AGENT",
+        "SHEET 1: packing-list-2",
+        "DETECTED_HEADER_ROW: 2",
+        "MERGED_RANGES: M3:Q4",
+        finalPackageCandidateLine(1, 3, List.of(3, 4), "loaded pallet 1", 116, 116, 168, 1, 845.8),
+        finalPackageCandidateLine(2, 5, List.of(5), "loaded pallet 2", 116, 116, 91, 6, 358.6),
+        finalPackageCandidateLine(3, 6, List.of(6), "loaded pallet 3", 121, 116, 131, 8, 312),
+        finalPackageCandidateLine(4, 7, List.of(7), "loaded pallet 4", 161, 116, 171, 8, 627.6),
+        finalPackageCandidateLine(5, 8, List.of(8), "mixed loaded pallet", 161, 116, 171, 1, 356.6),
+        "ROWS_WITH_EXCEL_COORDINATES:",
+        "R2: A=\"product\" | D=\"quantity\" | H=\"carton dimensions\" | M=\"pallet dimensions\" | O=\"quantity\" | Q=\"weight\"",
+        "R3: A=\"downlight\" | D=\"1000\" | M=\"116*116*168CM\" | O=\"1\" | Q=\"438\"",
+        "R4: A=\"strip light\" | D=\"200\"",
+        "R5: A=\"round light A\" | D=\"100\" | M=\"116*116*91CM\" | O=\"6\" | Q=\"1758\"",
+        "R6: A=\"round light B\" | D=\"100\" | M=\"121*116*131CM\" | O=\"8\" | Q=\"1368\"",
+        "R7: A=\"round light C\" | D=\"100\" | M=\"161*116*171CM\" | O=\"8\" | Q=\"2640\"",
+        "R8: A=\"total\" | M=\"161*116*171CM\" | O=\"1\" | Q=\"194\""
+    );
+
+    List<?> batches = ReflectionTestUtils.invokeMethod(service, "buildExcelAgentBatches", input);
+
+    assertNotNull(batches);
+    assertEquals(1, batches.size());
+    Object batch = batches.get(0);
+    List<?> targetRows = ReflectionTestUtils.invokeMethod(batch, "targetRows");
+    assertNotNull(targetRows);
+    List<Integer> targetRowNumbers = targetRows.stream()
+        .map(row -> (Integer) ReflectionTestUtils.invokeMethod(row, "rowNumber"))
+        .toList();
+    assertEquals(List.of(3, 5, 6, 7, 8), targetRowNumbers);
+
+    String rendered = ReflectionTestUtils.invokeMethod(service, "renderExcelAgentBatch", batch, false);
+    assertNotNull(rendered);
+    assertTrue(rendered.contains("BATCH_TARGET_SOURCE_ROWS: 3,5,6,7,8"));
+    int targetBlockStart = rendered.indexOf("BATCH_TARGET_ROWS:");
+    assertTrue(targetBlockStart > 0);
+    assertTrue(rendered.substring(0, targetBlockStart).contains("R4: A=\"strip light\""));
+    assertFalse(rendered.substring(targetBlockStart).contains("\nR4:"));
+  }
+
+  @Test
+  void selectsTheSingleFinalPackageAnchorAfterMultiRowHeaders() throws Exception {
+    String input = String.join("\n",
+        "EXCEL_FORMATTED_TABLE_FOR_AGENT",
+        "SHEET 1: packing-list-4",
+        "DETECTED_HEADER_ROW: 4",
+        finalPackageCandidateLine(1, 6, List.of(6), "6012", 130, 120, 210, 12, 327.5),
+        "ROWS_WITH_EXCEL_COORDINATES:",
+        "R1: A=\"PACKING LIST\"",
+        "R2: A=\"marks\" | B=\"description\"",
+        "R3: A=\"outer package\" | B=\"carton details\"",
+        "R4: A=\"item\" | B=\"qty\" | C=\"weight\"",
+        "R5: A=\"reference\"",
+        "R6: A=\"6012\" | B=\"180\" | C=\"3930\""
+    );
+
+    List<?> batches = ReflectionTestUtils.invokeMethod(service, "buildExcelAgentBatches", input);
+
+    assertNotNull(batches);
+    assertEquals(1, batches.size());
+    List<?> targetRows = ReflectionTestUtils.invokeMethod(batches.get(0), "targetRows");
+    assertNotNull(targetRows);
+    assertEquals(1, targetRows.size());
+    assertEquals(6, (int) ReflectionTestUtils.invokeMethod(targetRows.get(0), "rowNumber"));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void finalPackageCandidateOverridesAgentAndGenericLeftSideColumns() throws Exception {
+    String candidateLine = finalPackageCandidateLine(
+        1,
+        3,
+        List.of(3, 4),
+        "\u660e\u88c5\u7b52\u706f + \u7ebf\u6761\u706f",
+        116,
+        116,
+        168,
+        1,
+        845.8
+    );
+    String input = String.join("\n",
+        "EXCEL_AGENT_BATCH",
+        "SHEET 1: packing-list-2",
+        "DETECTED_HEADER_ROW: 2",
+        candidateLine,
+        "R2: A=\"\u54c1\u540d\" | D=\"\u6570\u91cf\" | H=\"\u5916\u7bb1\u5c3a\u5bf8\" | J=\"\u6bdb\u91cd\" | M=\"\u514d\u718f\u84b8\u6728\u6258\u76d8\u4f53\u79ef\"",
+        "R3: A=\"\u660e\u88c5\u7b52\u706f\" | D=\"1000\" | H=\"37*37*38cm\" | J=\"14.8kg\" | M=\"116*116*168CM\"",
+        "R4: A=\"\u7ebf\u6761\u706f\" | D=\"200\" | H=\"101*21*21cm\" | J=\"8.6kg\""
+    );
+    Map<String, Object> agentRow = new LinkedHashMap<>();
+    agentRow.put("name", "wrong loose product");
+    agentRow.put("model", "wrong model");
+    agentRow.put("spec", "wrong spec alias");
+    agentRow.put("lengthCm", 37);
+    agentRow.put("widthCm", 37);
+    agentRow.put("heightCm", 38);
+    agentRow.put("quantity", 1000);
+    agentRow.put("weightKg", 14.8);
+    agentRow.put("type", "normal");
+
+    ReflectionTestUtils.invokeMethod(service, "applyExplicitSourceFields", agentRow, input, 3);
+
+    assertEquals("\u660e\u88c5\u7b52\u706f + \u7ebf\u6761\u706f", agentRow.get("name"));
+    assertEquals("", agentRow.get("model"));
+    assertFalse(agentRow.containsKey("spec"));
+    assertEquals(116.0, agentRow.get("lengthCm"));
+    assertEquals(116.0, agentRow.get("widthCm"));
+    assertEquals(168.0, agentRow.get("heightCm"));
+    assertEquals(1, agentRow.get("quantity"));
+    assertEquals(845.8, agentRow.get("weightKg"));
+    assertEquals("pallet", agentRow.get("type"));
+    assertEquals(3, agentRow.get("sourceRowNumber"));
+    assertEquals(List.of(3, 4), agentRow.get("sourceRowNumbers"));
+    assertEquals("R3:R4", agentRow.get("sourceRange"));
+    Map<String, Object> packageInfo = (Map<String, Object>) agentRow.get("packageInfo");
+    assertEquals(845.8, packageInfo.get("packageGrossWeightKg"));
+    assertEquals(List.of(3, 4), packageInfo.get("sourceRows"));
+
+    Object parsed = ReflectionTestUtils.invokeMethod(service, "normalizeCargo", agentRow, 3, "candidate row");
+    Map<String, Object> cargo = ReflectionTestUtils.invokeMethod(parsed, "cargo");
+    assertNotNull(cargo);
+    assertEquals("", cargo.get("model"));
+    assertEquals(1, cargo.get("quantity"));
+    assertEquals(845.8, cargo.get("weightKg"));
+    assertEquals(List.of(3, 4), cargo.get("sourceRowNumbers"));
+    assertEquals("R3:R4", cargo.get("sourceRange"));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
   void explicitStructuredColumnsOverrideIncompleteAgentFields() {
     String input = String.join("\n",
         "EXCEL_AGENT_BATCH",
@@ -595,6 +727,50 @@ class TextRecognitionServiceTest {
         "handlingUnitDimensionsExplicit", true
     )));
     return cargo;
+  }
+
+  private String finalPackageCandidateLine(
+      int candidateNumber,
+      int sourceRowNumber,
+      List<Integer> sourceRowNumbers,
+      String name,
+      double lengthCm,
+      double widthCm,
+      double heightCm,
+      int quantity,
+      double weightKg
+  ) throws Exception {
+    String sourceRange = "R" + sourceRowNumbers.get(0) + ":R" + sourceRowNumbers.get(sourceRowNumbers.size() - 1);
+    Map<String, Object> packageInfo = new LinkedHashMap<>();
+    packageInfo.put("algorithmBasis", "source-final-package");
+    packageInfo.put("handlingUnitType", "pallet");
+    packageInfo.put("packageUnit", "pallet");
+    packageInfo.put("packageQuantity", quantity);
+    packageInfo.put("dimensionSource", "explicit source pallet columns");
+    packageInfo.put("handlingUnitDimensionsExplicit", true);
+    packageInfo.put("packageGrossWeightKg", weightKg);
+    packageInfo.put("packageTotalGrossWeightKg", weightKg * quantity);
+    packageInfo.put("sourceRows", sourceRowNumbers);
+    packageInfo.put("sourceRange", sourceRange);
+
+    Map<String, Object> candidate = new LinkedHashMap<>();
+    candidate.put("sourceRowNumber", sourceRowNumber);
+    candidate.put("sourceRowNumbers", sourceRowNumbers);
+    candidate.put("sourceRange", sourceRange);
+    candidate.put("name", name);
+    candidate.put("model", "");
+    candidate.put("lengthCm", lengthCm);
+    candidate.put("widthCm", widthCm);
+    candidate.put("heightCm", heightCm);
+    candidate.put("quantity", quantity);
+    candidate.put("weightKg", weightKg);
+    candidate.put("type", "pallet");
+    candidate.put("nonStack", false);
+    candidate.put("keepUpright", false);
+    candidate.put("remark", "source-derived final package");
+    candidate.put("packageInfo", packageInfo);
+    return "FINAL_PACKAGE_CANDIDATE " + candidateNumber + ": "
+        + new ObjectMapper().writeValueAsString(candidate);
   }
 
   private void assertDimensions(

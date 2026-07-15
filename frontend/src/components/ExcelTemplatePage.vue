@@ -79,7 +79,7 @@
             <el-button type="primary" :loading="manualImportBusy || previewBusy" @click="openManualFilePicker">
               {{ ui('common.chooseFile') }}
             </el-button>
-            <el-button :disabled="!workbook" @click="openManualWorkbookPreview">{{ ui('excel.previewWorkbook') }}</el-button>
+            <el-button :disabled="!workbook || manualQueueProcessing" @click="openManualWorkbookPreview">{{ ui('excel.previewWorkbook') }}</el-button>
             <el-button @click="openWorkspaceFiles('manual')">{{ ui('excel.workspaceFiles') }}</el-button>
           </div>
         </div>
@@ -124,6 +124,7 @@
               type="button"
               class="import-file-queue-item"
               :class="{ active: item.id === activeManualFileId }"
+              :disabled="!item.snapshot || manualQueueProcessing"
               @click="selectManualQueueItem(item)"
             >
               <span class="import-file-name">{{ item.file.name }}</span>
@@ -241,6 +242,7 @@
               type="button"
               class="import-file-queue-select"
               :title="item.error || item.file.name"
+              :disabled="!item.snapshot || preciseQueueProcessing"
               @click="selectPreciseQueueItem(item)"
             >
               <span class="import-file-name">{{ item.file.name }}</span>
@@ -293,7 +295,7 @@
           <small>{{ sourceWorkbookFileSize }}</small>
         </div>
         <div class="source-workbook-actions">
-          <el-button :disabled="!recognitionWorkbook" @click="openSourceWorkbookPreview">{{ ui('excel.previewWorkbook') }}</el-button>
+          <el-button :disabled="!recognitionWorkbook || preciseQueueProcessing" @click="openSourceWorkbookPreview">{{ ui('excel.previewWorkbook') }}</el-button>
           <el-button @click="downloadSourceWorkbook">{{ ui('excel.downloadOriginalWorkbook') }}</el-button>
         </div>
       </div>
@@ -524,7 +526,7 @@
         <span>{{ ui('excel.previewLimit', { count: SOURCE_PREVIEW_ROW_LIMIT }) }}</span>
       </div>
       <div class="template-table-wrap source-preview-table-wrap">
-        <table class="template-table source-preview-table">
+        <table :key="sourcePreviewIdentity" class="template-table source-preview-table">
           <tbody>
             <tr v-for="(row, rowIndex) in sourcePreviewRows" :key="`source-row-${rowIndex}`">
               <th>{{ rowIndex + 1 }}</th>
@@ -1008,6 +1010,7 @@ const sourcePreviewOpen = ref(false);
 const sourcePreviewSheetName = ref("");
 const sourcePreviewWorkbook = ref(null);
 const sourcePreviewFile = ref(null);
+const sourcePreviewIdentity = ref("");
 const manualSourceWorkbookFile = ref(null);
 const manualImportBusy = ref(false);
 const manualDropActive = ref(false);
@@ -1022,6 +1025,7 @@ const manualFileQueue = ref([]);
 const preciseFileQueue = ref([]);
 const activeManualFileId = ref("");
 const activePreciseFileId = ref("");
+const manualQueueProcessing = ref(false);
 const preciseQueueProcessing = ref(false);
 const workspaceFilesOpen = ref(false);
 const workspaceFilesBusy = ref(false);
@@ -1308,6 +1312,8 @@ let lastPreviewSignature = "";
 let pendingPreviewSignature = "";
 let manualDragDepth = 0;
 let preciseDragDepth = 0;
+let preciseProcessSeq = 0;
+let workspacePreviewSeq = 0;
 
 function openManualFilePicker() {
   manualFileInput.value?.click();
@@ -1441,11 +1447,9 @@ async function persistWorkspaceQueueItems(items, source) {
   }
 }
 
-let manualQueueProcessing = false;
-
 async function processManualFileQueue() {
-  if (manualQueueProcessing) return;
-  manualQueueProcessing = true;
+  if (manualQueueProcessing.value) return;
+  manualQueueProcessing.value = true;
   try {
     let item;
     while ((item = manualFileQueue.value.find((entry) => entry.status === "queued"))) {
@@ -1462,7 +1466,7 @@ async function processManualFileQueue() {
       }
     }
   } finally {
-    manualQueueProcessing = false;
+    manualQueueProcessing.value = false;
   }
 }
 
@@ -1484,11 +1488,15 @@ function captureManualSnapshot(file) {
 }
 
 function selectManualQueueItem(item) {
+  if (!item?.snapshot || manualQueueProcessing.value) return;
   if (activeManualFileId.value && activeManualFileId.value !== item.id) {
     syncActiveManualQueueSnapshot();
   }
   activeManualFileId.value = item.id;
-  const snapshot = item.snapshot;
+  applyManualSnapshot(item.snapshot, `manual:${item.id}`);
+}
+
+function applyManualSnapshot(snapshot, previewIdentity = "") {
   if (!snapshot) return;
   manualSourceWorkbookFile.value = snapshot.file;
   workbook.value = snapshot.workbook;
@@ -1503,6 +1511,11 @@ function selectManualQueueItem(item) {
   manualImportMessageKey.value = snapshot.messageKey;
   manualImportMessageParams.value = { ...snapshot.messageParams };
   manualImportMessage.value = snapshot.message;
+  syncOpenWorkbookPreview(
+    snapshot.workbook,
+    snapshot.file,
+    previewIdentity || `manual:${fileQueueKey(snapshot.file)}`
+  );
 }
 
 function syncActiveManualQueueSnapshot() {
@@ -1518,18 +1531,32 @@ async function processPreciseQueueItem(item) {
   }
   preciseQueueProcessing.value = true;
   activePreciseFileId.value = item.id;
+  const processSeq = ++preciseProcessSeq;
+  const isCurrentItem = () => processSeq === preciseProcessSeq && activePreciseFileId.value === item.id;
+  const previousStatus = item.snapshot
+    ? (item.snapshot.task?.status === "SUCCEEDED" ? "ready" : "failed")
+    : "queued";
   item.status = "processing";
   item.error = "";
   try {
-    await loadWorkbookFileForRecognition(item.file);
+    const applied = await loadWorkbookFileForRecognition(item.file, { shouldApply: isCurrentItem });
+    if (!applied || !isCurrentItem()) {
+      item.status = previousStatus;
+      return;
+    }
     item.snapshot = capturePreciseSnapshot(item.file);
     item.status = recognitionAgentTask.value?.status === "SUCCEEDED" ? "ready" : "failed";
     if (item.status === "failed") item.error = recognitionStatusMessage.value;
   } catch (error) {
-    item.status = "failed";
-    item.error = error?.message || "";
+    if (isCurrentItem()) {
+      item.snapshot = capturePreciseSnapshot(item.file);
+      item.status = "failed";
+      item.error = error?.message || "";
+    } else {
+      item.status = previousStatus;
+    }
   } finally {
-    preciseQueueProcessing.value = false;
+    if (processSeq === preciseProcessSeq) preciseQueueProcessing.value = false;
   }
 }
 
@@ -1550,11 +1577,15 @@ function capturePreciseSnapshot(file) {
 }
 
 function selectPreciseQueueItem(item) {
+  if (!item?.snapshot || preciseQueueProcessing.value) return;
   if (activePreciseFileId.value && activePreciseFileId.value !== item.id) {
     syncActivePreciseQueueSnapshot();
   }
   activePreciseFileId.value = item.id;
-  const snapshot = item.snapshot;
+  applyPreciseSnapshot(item.snapshot, `recognition:${item.id}`);
+}
+
+function applyPreciseSnapshot(snapshot, previewIdentity = "") {
   if (!snapshot) return;
   sourceWorkbookFile.value = snapshot.file;
   recognitionWorkbook.value = snapshot.workbook;
@@ -1567,6 +1598,11 @@ function selectPreciseQueueItem(item) {
   recognitionMessageFactory.value = snapshot.messageFactory;
   recognitionMessageType.value = snapshot.messageType;
   recognitionReviewIndexOverrides.value = { ...snapshot.indexOverrides };
+  syncOpenWorkbookPreview(
+    snapshot.workbook,
+    snapshot.file,
+    previewIdentity || `recognition:${fileQueueKey(snapshot.file)}`
+  );
 }
 
 function syncActivePreciseQueueSnapshot() {
@@ -1633,8 +1669,7 @@ async function loadWorkbookFile(file) {
   manualSourceWorkbookFile.value = file;
   sourceWorkbookFile.value = null;
   recognitionWorkbook.value = null;
-  sourcePreviewOpen.value = false;
-  sourcePreviewSheetName.value = "";
+  clearWorkbookPreview();
   workbook.value = null;
   preview.value = null;
   activeSheet.value = null;
@@ -1651,31 +1686,40 @@ async function loadWorkbookFile(file) {
   }
 }
 
-async function loadWorkbookFileForRecognition(file) {
+async function loadWorkbookFileForRecognition(file, context = {}) {
+  const shouldApply = typeof context.shouldApply === "function" ? context.shouldApply : () => true;
   if (!isSupportedWorkbookFile(file)) {
-    setRecognitionStatus("error", "excel.dropUnsupportedFile", { name: file?.name || "-" });
-    return;
+    if (shouldApply()) {
+      setRecognitionStatus("error", "excel.dropUnsupportedFile", { name: file?.name || "-" });
+    }
+    return shouldApply();
   }
+  if (!shouldApply()) return false;
   preciseImportBusy.value = true;
   sourceWorkbookFile.value = file;
   recognitionWorkbook.value = null;
-  sourcePreviewOpen.value = false;
-  sourcePreviewSheetName.value = "";
+  clearWorkbookPreview();
   recognitionText.value = "";
   resetRecognitionResult();
   startRecognitionTimer();
   try {
-    recognitionWorkbook.value = await readWorkbookInWorker(file);
-    const formattedText = formatWorkbookForRecognition(recognitionWorkbook.value, { fileName: file?.name });
+    const nextWorkbook = await readWorkbookInWorker(file);
+    if (!shouldApply()) return false;
+    recognitionWorkbook.value = nextWorkbook;
+    const formattedText = formatWorkbookForRecognition(nextWorkbook, { fileName: file?.name });
     recognitionText.value = formattedText;
     excelMode.value = "recognition";
-    await submitTextRecognitionTask({
+    const applied = await submitTextRecognitionTask({
       textOverride: formattedText,
       sourceName: file?.name || ui("excel.excelFormattedSource"),
-      keepTimer: true
+      keepTimer: true,
+      shouldApply
     });
+    return applied !== false && shouldApply();
   } catch (error) {
+    if (!shouldApply()) return false;
     setRecognitionStatus("error", "excel.excelAgentFailed");
+    return true;
   } finally {
     preciseImportBusy.value = false;
     if (!recognitionAgentBusy.value) stopRecognitionTimer();
@@ -1823,7 +1867,11 @@ function cloneSheetForWorker(sheet) {
     headerRowIndex: Number(sheet.headerRowIndex || 0),
     headers: [...(sheet.headers || [])],
     rows: (sheet.rows || []).map((row) => [...row]),
-    mapping: { ...(sheet.mapping || {}) }
+    mapping: { ...(sheet.mapping || {}) },
+    rawRows: (sheet.rawRows || []).map((row) => [...row]),
+    merges: [...(sheet.merges || [])],
+    mergeCells: (sheet.mergeCells || []).map((merge) => ({ ...merge })),
+    formulaCells: (sheet.formulaCells || []).map((cell) => ({ ...cell }))
   };
 }
 
@@ -1861,7 +1909,8 @@ function resetRecognitionResult() {
 
 async function submitTextRecognitionTask(options = {}) {
   const text = String(options.textOverride ?? recognitionText.value).trim();
-  if (!text) return;
+  const shouldApply = typeof options.shouldApply === "function" ? options.shouldApply : () => true;
+  if (!text || !shouldApply()) return false;
   if (!options.keepTimer) startRecognitionTimer();
   recognitionAgentBusy.value = true;
   clearRecognitionStatus();
@@ -1870,13 +1919,17 @@ async function submitTextRecognitionTask(options = {}) {
   recognitionReviewIndexOverrides.value = {};
   try {
     await assertExcelAgentBackendReady(text);
+    if (!shouldApply()) return false;
     const task = await createTextRecognitionTask(text, {
       sourceName: options.sourceName || ui("excel.pastedTextSource"),
       mode: "agent",
       languageHint: "auto"
     });
+    if (!shouldApply()) return false;
     assertCreatedExcelTaskEngine(task, text);
-    recognitionAgentTask.value = task?.id ? await waitForTextRecognitionTask(task.id) : task;
+    const completedTask = task?.id ? await waitForTextRecognitionTask(task.id) : task;
+    if (!shouldApply()) return false;
+    recognitionAgentTask.value = completedTask;
     closeRecognitionEdit();
     const recognitionPartial = recognitionBlockingIssues.value.length > 0;
     if (recognitionAgentTask.value.status === "FAILED") {
@@ -1896,7 +1949,9 @@ async function submitTextRecognitionTask(options = {}) {
     } else {
       openRecognitionReviewDialog();
     }
+    return true;
   } catch (error) {
+    if (!shouldApply()) return false;
     if (error?.code === "TEXT_RECOGNITION_TIMEOUT") {
       setRecognitionStatus("error", "excel.recognitionTimeout");
     } else if (error?.code === "TEXT_RECOGNITION_BACKEND_OUTDATED") {
@@ -1905,6 +1960,7 @@ async function submitTextRecognitionTask(options = {}) {
       setRecognitionStatus("error", "excel.recognitionUnavailable", { message: error.message });
     }
     closeRecognitionReviewDialog();
+    return true;
   } finally {
     recognitionAgentBusy.value = false;
     stopRecognitionTimer();
@@ -1988,20 +2044,57 @@ function sourceSheetRowCount(sheet) {
 }
 
 function openSourceWorkbookPreview() {
-  if (!recognitionWorkbook.value) return;
-  openWorkbookPreview(recognitionWorkbook.value, sourceWorkbookFile.value);
+  const activeItem = preciseFileQueue.value.find((item) => item.id === activePreciseFileId.value);
+  const snapshot = activeItem?.snapshot;
+  if (activeItem && !snapshot) return;
+  const nextWorkbook = snapshot?.workbook || recognitionWorkbook.value;
+  const nextFile = snapshot?.file || sourceWorkbookFile.value;
+  if (!nextWorkbook) return;
+  openWorkbookPreview(
+    nextWorkbook,
+    nextFile,
+    activeItem ? `recognition:${activeItem.id}` : `recognition:${fileQueueKey(nextFile)}`
+  );
 }
 
 function openManualWorkbookPreview() {
-  if (!workbook.value) return;
-  openWorkbookPreview(workbook.value, manualSourceWorkbookFile.value);
+  const activeItem = manualFileQueue.value.find((item) => item.id === activeManualFileId.value);
+  const snapshot = activeItem?.snapshot;
+  if (activeItem && !snapshot) return;
+  const nextWorkbook = snapshot?.workbook || workbook.value;
+  const nextFile = snapshot?.file || manualSourceWorkbookFile.value;
+  if (!nextWorkbook) return;
+  openWorkbookPreview(
+    nextWorkbook,
+    nextFile,
+    activeItem ? `manual:${activeItem.id}` : `manual:${fileQueueKey(nextFile)}`
+  );
 }
 
-function openWorkbookPreview(nextWorkbook, nextFile) {
+function openWorkbookPreview(nextWorkbook, nextFile, identity = "") {
+  if (!nextWorkbook) return;
+  sourcePreviewIdentity.value = identity || `workbook:${fileQueueKey(nextFile)}`;
   sourcePreviewWorkbook.value = nextWorkbook;
   sourcePreviewFile.value = nextFile || null;
   sourcePreviewSheetName.value = nextWorkbook?.sheets?.[0]?.name || "";
   sourcePreviewOpen.value = true;
+}
+
+function syncOpenWorkbookPreview(nextWorkbook, nextFile, identity = "") {
+  if (!sourcePreviewOpen.value) return;
+  if (!nextWorkbook) {
+    clearWorkbookPreview();
+    return;
+  }
+  openWorkbookPreview(nextWorkbook, nextFile, identity);
+}
+
+function clearWorkbookPreview() {
+  sourcePreviewOpen.value = false;
+  sourcePreviewSheetName.value = "";
+  sourcePreviewWorkbook.value = null;
+  sourcePreviewFile.value = null;
+  sourcePreviewIdentity.value = "";
 }
 
 function downloadSourceWorkbook() {
@@ -2052,6 +2145,7 @@ async function loadWorkspaceFiles() {
 }
 
 async function useWorkspaceFile(item) {
+  workspacePreviewSeq += 1;
   workspaceFilesBusy.value = true;
   workspaceFilesError.value = "";
   try {
@@ -2081,24 +2175,30 @@ async function useWorkspaceFile(item) {
 }
 
 async function previewWorkspaceFile(item) {
+  const previewSeq = ++workspacePreviewSeq;
   workspaceFilesBusy.value = true;
   workspaceFilesError.value = "";
   try {
     const blob = await fetchWorkspaceFileBlob(item.id, "preview");
+    if (previewSeq !== workspacePreviewSeq) return;
     const file = new File([blob], item.originalFileName || `workspace-${item.id}.xlsx`, {
       type: item.contentType || blob.type || "application/octet-stream",
       lastModified: Date.now()
     });
     const nextWorkbook = await readWorkbookInWorker(file);
-    openWorkbookPreview(nextWorkbook, file);
+    if (previewSeq !== workspacePreviewSeq) return;
+    openWorkbookPreview(nextWorkbook, file, `workspace:${item.id}`);
   } catch (error) {
-    workspaceFilesError.value = ui("excel.workspaceFilePreviewFailed", { message: error?.message || "-" });
+    if (previewSeq === workspacePreviewSeq) {
+      workspaceFilesError.value = ui("excel.workspaceFilePreviewFailed", { message: error?.message || "-" });
+    }
   } finally {
-    workspaceFilesBusy.value = false;
+    if (previewSeq === workspacePreviewSeq) workspaceFilesBusy.value = false;
   }
 }
 
 async function removeWorkspaceFile(item) {
+  workspacePreviewSeq += 1;
   workspaceFilesBusy.value = true;
   workspaceFilesError.value = "";
   try {
@@ -2124,12 +2224,16 @@ function displayWorkspaceTime(value) {
   return new Intl.DateTimeFormat(currentLocale.value, { hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
-onBeforeUnmount(stopRecognitionTimer);
+onBeforeUnmount(() => {
+  preciseProcessSeq += 1;
+  workspacePreviewSeq += 1;
+  stopRecognitionTimer();
+});
 
 function fillRecognitionSample() {
   sourceWorkbookFile.value = null;
   recognitionWorkbook.value = null;
-  sourcePreviewOpen.value = false;
+  clearWorkbookPreview();
   recognitionText.value = t("smartImport.recognitionSample");
   recognitionPreview.value = null;
   recognitionAgentTask.value = null;
@@ -2142,7 +2246,7 @@ function fillRecognitionSample() {
 function clearRecognition() {
   sourceWorkbookFile.value = null;
   recognitionWorkbook.value = null;
-  sourcePreviewOpen.value = false;
+  clearWorkbookPreview();
   recognitionText.value = "";
   recognitionPreview.value = null;
   recognitionAgentTask.value = null;

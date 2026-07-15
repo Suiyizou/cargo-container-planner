@@ -58,7 +58,7 @@ import org.springframework.web.client.RestTemplate;
 
 @Service
 public class TextRecognitionService {
-  private static final String TEXT_RECOGNITION_ENGINE_VERSION = "excel-agent-batch-v5";
+  private static final String TEXT_RECOGNITION_ENGINE_VERSION = "excel-agent-batch-v6";
   private static final List<String> OUTPUT_HEADERS = List.of(
       "name", "model", "lengthCm", "widthCm", "heightCm", "quantity", "weightKg", "type", "nonStack", "keepUpright", "color", "sku", "remark"
   );
@@ -95,6 +95,10 @@ public class TextRecognitionService {
   private static final Pattern EXCEL_ROW_PATTERN = Pattern.compile("^R(\\d+):\\s.*$");
   private static final Pattern EXCEL_SOURCE_ROW_PATTERN = Pattern.compile("(?:^|\\s)R(\\d+):");
   private static final Pattern EXCEL_HEADER_ROW_PATTERN = Pattern.compile("^DETECTED_HEADER_ROW:\\s*(\\d+).*$");
+  private static final Pattern FINAL_PACKAGE_CANDIDATE_PATTERN = Pattern.compile(
+      "^FINAL_PACKAGE_CANDIDATE(?:\\s+\\d+)?\\s*:\\s*(\\{.*})\\s*$"
+  );
+  private static final Pattern EXCEL_SOURCE_RANGE_PATTERN = Pattern.compile("(?i)^R(\\d+)\\s*:\\s*R(\\d+)$");
   private static final Pattern EXCEL_CELL_PATTERN = Pattern.compile(
       "(?i)(?:^|:\\s*|\\|\\s*)([A-Z]+)=(\"(?:\\\\.|[^\"\\\\])*\")"
   );
@@ -808,7 +812,10 @@ public class TextRecognitionService {
         .anyMatch(selection -> selection.completeCargoTable() && !selection.cargoRows().isEmpty());
     Map<ExcelSheetSection, List<ExcelAgentRow>> selectedRows = new LinkedHashMap<>();
     for (StructuredSheetSelection selection : structuredSelections) {
-      if (selection.completeCargoTable() && !selection.cargoRows().isEmpty()) {
+      List<ExcelAgentRow> candidateAnchorRows = finalPackageCandidateAnchorRows(selection.section());
+      if (!candidateAnchorRows.isEmpty()) {
+        selectedRows.put(selection.section(), candidateAnchorRows);
+      } else if (selection.completeCargoTable() && !selection.cargoRows().isEmpty()) {
         selectedRows.put(selection.section(), selection.cargoRows());
       } else if (!hasCompleteCargoTable || !selection.summaryTable()) {
         selectedRows.put(selection.section(), selection.section().rows());
@@ -839,6 +846,68 @@ public class TextRecognitionService {
       }
     }
     return batches;
+  }
+
+  private List<ExcelAgentRow> finalPackageCandidateAnchorRows(ExcelSheetSection section) {
+    Set<Integer> anchorRows = finalPackageCandidates(section.metadata()).stream()
+        .map(FinalPackageCandidate::sourceRowNumber)
+        .filter(rowNumber -> rowNumber > 0)
+        .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+    if (anchorRows.isEmpty()) return List.of();
+    return section.rows().stream()
+        .filter(row -> anchorRows.contains(row.rowNumber()))
+        .toList();
+  }
+
+  private List<FinalPackageCandidate> finalPackageCandidates(List<String> lines) {
+    List<FinalPackageCandidate> candidates = new ArrayList<>();
+    for (String line : lines) {
+      FinalPackageCandidate candidate = parseFinalPackageCandidate(line);
+      if (candidate != null) candidates.add(candidate);
+    }
+    return candidates;
+  }
+
+  private List<FinalPackageCandidate> finalPackageCandidates(String rawText) {
+    return finalPackageCandidates(String.valueOf(rawText == null ? "" : rawText).lines().toList());
+  }
+
+  private FinalPackageCandidate parseFinalPackageCandidate(String line) {
+    String metadataLine = cleanCell(line);
+    Matcher matcher = FINAL_PACKAGE_CANDIDATE_PATTERN.matcher(metadataLine);
+    if (!matcher.matches()) return null;
+    try {
+      Map<String, Object> values = objectMapper.readValue(
+          matcher.group(1),
+          new TypeReference<Map<String, Object>>() {}
+      );
+      int anchorRowNumber = intValue(values.get("sourceRowNumber"), 0);
+      Object sourceRowsValue = values.containsKey("sourceRowNumbers")
+          ? values.get("sourceRowNumbers")
+          : values.get("sourceRows");
+      List<Integer> sourceRowNumbers = new ArrayList<>(intSet(sourceRowsValue));
+      if (sourceRowNumbers.isEmpty()) {
+        Matcher rangeMatcher = EXCEL_SOURCE_RANGE_PATTERN.matcher(cleanCell(values.get("sourceRange")));
+        if (rangeMatcher.matches()) {
+          int start = intValue(rangeMatcher.group(1), 0);
+          int end = intValue(rangeMatcher.group(2), 0);
+          if (start > 0 && end >= start) {
+            for (int rowNumber = start; rowNumber <= end; rowNumber++) sourceRowNumbers.add(rowNumber);
+          }
+        }
+      }
+      if (anchorRowNumber <= 0 && !sourceRowNumbers.isEmpty()) anchorRowNumber = sourceRowNumbers.get(0);
+      if (anchorRowNumber <= 0) return null;
+      if (!sourceRowNumbers.contains(anchorRowNumber)) sourceRowNumbers.add(0, anchorRowNumber);
+      return new FinalPackageCandidate(
+          anchorRowNumber,
+          List.copyOf(sourceRowNumbers),
+          new LinkedHashMap<>(values),
+          metadataLine
+      );
+    } catch (JsonProcessingException error) {
+      return null;
+    }
   }
 
   private StructuredSheetSelection structuredSheetSelection(ExcelSheetSection section) {
@@ -948,6 +1017,16 @@ public class TextRecognitionService {
   private String renderExcelAgentBatch(ExcelAgentBatch batch, boolean compactSingleRowRetry) {
     List<ExcelAgentRow> allRows = batch.section().rows();
     List<ExcelAgentRow> targetRows = batch.targetRows();
+    Set<Integer> targetRowNumbers = targetRows.stream()
+        .map(ExcelAgentRow::rowNumber)
+        .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+    List<FinalPackageCandidate> batchCandidates = finalPackageCandidates(batch.section().metadata()).stream()
+        .filter(candidate -> targetRowNumbers.contains(candidate.sourceRowNumber()))
+        .toList();
+    Set<Integer> candidateContextRowNumbers = batchCandidates.stream()
+        .flatMap(candidate -> candidate.sourceRowNumbers().stream())
+        .filter(rowNumber -> !targetRowNumbers.contains(rowNumber))
+        .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
     int firstTargetIndex = allRows.indexOf(targetRows.get(0));
     int lastTargetIndex = allRows.indexOf(targetRows.get(targetRows.size() - 1));
     List<ExcelAgentRow> contextRows = new ArrayList<>();
@@ -963,9 +1042,17 @@ public class TextRecognitionService {
       ExcelAgentRow row = allRows.get(index);
       if (!targetRows.contains(row) && !contextRows.contains(row)) contextRows.add(row);
     }
+    for (ExcelAgentRow row : allRows) {
+      if (candidateContextRowNumbers.contains(row.rowNumber())
+          && !targetRows.contains(row)
+          && !contextRows.contains(row)) {
+        contextRows.add(row);
+      }
+    }
 
     if (compactSingleRowRetry) {
-      contextRows.removeIf(row -> row.rowNumber() > headerContextEnd);
+      contextRows.removeIf(row -> row.rowNumber() > headerContextEnd
+          && !candidateContextRowNumbers.contains(row.rowNumber()));
     }
 
     List<String> lines = new ArrayList<>();
@@ -981,12 +1068,15 @@ public class TextRecognitionService {
     lines.add("BATCH_RULE: Keep JSON compact. Do not repeat full source rows in remarks or notes. Omit optional packageInfo when it is not needed.");
     lines.add("BATCH_RULE: Emit at most one rows item and at most one issues item per target row. Keep sourceText and remark under 120 characters and notes under 160 characters.");
     lines.add(batch.section().sheetLine());
-    List<String> metadata = compactSingleRowRetry
+    List<String> metadata = (compactSingleRowRetry
         ? batch.section().metadata().stream()
             .filter(line -> line.startsWith("DETECTED_HEADER_ROW:") || line.startsWith("MERGED_RANGES:"))
             .toList()
-        : batch.section().metadata();
+        : batch.section().metadata()).stream()
+            .filter(line -> !FINAL_PACKAGE_CANDIDATE_PATTERN.matcher(line).matches())
+            .toList();
     appendLimitedAgentLines(lines, metadata, EXCEL_AGENT_MAX_METADATA_CHARS, 1_600, "METADATA_TRUNCATED");
+    batchCandidates.forEach(candidate -> lines.add(candidate.metadataLine()));
     if (!contextRows.isEmpty()) {
       lines.add("BATCH_CONTEXT_ONLY:");
       contextRows.forEach(row -> lines.add(trimAgentLine(row.line(), EXCEL_AGENT_MAX_CONTEXT_ROW_CHARS)));
@@ -1883,6 +1973,13 @@ public class TextRecognitionService {
     if (row.get("packageInfo") instanceof Map<?, ?> packageInfo) {
       cargo.put("packageInfo", new LinkedHashMap<>(packageInfo));
     }
+    if (row.containsKey("sourceRowNumber") && row.containsKey("sourceRowNumbers")) {
+      for (Map.Entry<String, Object> entry : row.entrySet()) {
+        if (entry.getKey().startsWith("source")) {
+          cargo.put(entry.getKey(), deepCopyJsonValue(entry.getValue()));
+        }
+      }
+    }
     applyIndependentConstraints(cargo,
         row.get("nonStack"),
         row.get("nonStackable"),
@@ -2072,6 +2169,14 @@ public class TextRecognitionService {
   @SuppressWarnings("unchecked")
   private void applyExplicitSourceFields(Map<String, Object> modelRow, String rawText, int sourceRowNumber) {
     if (modelRow == null || sourceRowNumber <= 0) return;
+    FinalPackageCandidate finalPackageCandidate = finalPackageCandidates(rawText).stream()
+        .filter(candidate -> candidate.sourceRowNumber() == sourceRowNumber)
+        .findFirst()
+        .orElse(null);
+    if (finalPackageCandidate != null) {
+      applyFinalPackageCandidate(modelRow, finalPackageCandidate);
+      return;
+    }
     int headerRowNumber = detectedHeaderRowNumber(rawText);
     if (headerRowNumber <= 0) return;
     Map<String, String> headerCells = excelRowCells(sourceRowText(rawText, headerRowNumber));
@@ -2131,6 +2236,49 @@ public class TextRecognitionService {
     }
     if (!packageInfo.isEmpty()) modelRow.put("packageInfo", compactObject(packageInfo));
     if (dimensions != null) applyExplicitPalletDimensions(modelRow, dimensions);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void applyFinalPackageCandidate(
+      Map<String, Object> modelRow,
+      FinalPackageCandidate candidate
+  ) {
+    modelRow.clear();
+    for (Map.Entry<String, Object> entry : candidate.values().entrySet()) {
+      modelRow.put(entry.getKey(), deepCopyJsonValue(entry.getValue()));
+    }
+    modelRow.put("sourceRowNumber", candidate.sourceRowNumber());
+    modelRow.put("sourceRowNumbers", new ArrayList<>(candidate.sourceRowNumbers()));
+
+    String sourceRange = cleanCell(candidate.values().get("sourceRange"));
+    if (sourceRange.isBlank()) {
+      sourceRange = "R" + candidate.sourceRowNumbers().get(0)
+          + ":R" + candidate.sourceRowNumbers().get(candidate.sourceRowNumbers().size() - 1);
+      modelRow.put("sourceRange", sourceRange);
+    }
+
+    Map<String, Object> packageInfo = modelRow.get("packageInfo") instanceof Map<?, ?> packageInfoRaw
+        ? new LinkedHashMap<>((Map<String, Object>) packageInfoRaw)
+        : new LinkedHashMap<>();
+    packageInfo.put("sourceRows", new ArrayList<>(candidate.sourceRowNumbers()));
+    packageInfo.put("sourceRange", sourceRange);
+    modelRow.put("packageInfo", packageInfo);
+  }
+
+  private Object deepCopyJsonValue(Object value) {
+    if (value instanceof Map<?, ?> map) {
+      Map<String, Object> copy = new LinkedHashMap<>();
+      for (Map.Entry<?, ?> entry : map.entrySet()) {
+        copy.put(String.valueOf(entry.getKey()), deepCopyJsonValue(entry.getValue()));
+      }
+      return copy;
+    }
+    if (value instanceof List<?> list) {
+      List<Object> copy = new ArrayList<>();
+      for (Object item : list) copy.add(deepCopyJsonValue(item));
+      return copy;
+    }
+    return value;
   }
 
   private void putSourceText(Map<String, Object> target, String key, String value) {
@@ -2811,6 +2959,8 @@ public class TextRecognitionService {
         - If the final handling unit is a pallet but explicit loaded-pallet L/W/H is absent, still emit one row candidate under rows (not only under issues) with the applicable constraint type, the best-known pallet quantity and gross weight, lengthCm=0,widthCm=0,heightCm=0, palletDimensionsMissing=true, packageInfo.dimensionSource="missing", packageInfo.handlingUnitDimensionsExplicit=false, and the carton details in packageInfo.innerCargo. The backend will block import and ask the user to enter the pallet dimensions.
         - If loose-piece/order details exist, store them only in packageInfo.innerCargo and/or remark.
         - For input beginning with EXCEL_FORMATTED_TABLE_FOR_AGENT, use the Excel coordinates, merged ranges, and neighboring rows/columns to understand the table layout. Do not blindly parse the first recognizable table.
+        - FINAL_PACKAGE_CANDIDATE metadata is a high-confidence, source-derived final handling unit and has priority over generic header/column inference. Emit its name, model, dimensions, quantity, weight, type, constraints, remark, packageInfo, and source metadata exactly for its sourceRowNumber anchor; never replace those values with aligned loose-product or inner-carton columns.
+        - A FINAL_PACKAGE_CANDIDATE sourceRowNumbers/sourceRows span describes the context and inner contents associated with one final package. Emit cargo only for the candidate sourceRowNumber anchor. Non-anchor rows in that span are context-only and must not become separate cargo.
         - If the input contains EXCEL_AGENT_BATCH, emit rows and issues only for lines under BATCH_TARGET_ROWS. Lines under BATCH_CONTEXT_ONLY are read-only layout/header context and must never be emitted or counted.
         - For EXCEL_AGENT_BATCH, copy the R number into sourceRowNumber. Every number in BATCH_TARGET_SOURCE_ROWS must be covered by a row, an issue, or skippedSourceRowNumbers. A cargo row may also appear in issues when review is required. skippedSourceRowNumbers is mutually exclusive with rows/issues; use it only for headers, totals, blank/reference rows, and anything intentionally not cargo.
         - Keep the JSON compact. Do not copy full Excel source rows into remark or notes. Omit optional packageInfo when it adds no information needed for final package weight or review.
@@ -3356,6 +3506,13 @@ public class TextRecognitionService {
   }
 
   private record ExcelAgentRow(int rowNumber, String line) {}
+
+  private record FinalPackageCandidate(
+      int sourceRowNumber,
+      List<Integer> sourceRowNumbers,
+      Map<String, Object> values,
+      String metadataLine
+  ) {}
 
   private record ExcelSheetSection(
       String sheetLine,
