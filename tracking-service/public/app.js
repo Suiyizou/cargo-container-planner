@@ -28,8 +28,25 @@ const networkProbeStatus = document.querySelector("#network-probe-status");
 const playwrightProbeStatus = document.querySelector("#playwright-probe-status");
 const networkProbeLatency = document.querySelector("#network-probe-latency");
 const playwrightProbeLatency = document.querySelector("#playwright-probe-latency");
+const appShell = document.querySelector(".app-shell");
 const systemWaitOverlay = document.querySelector("#system-wait-overlay");
 const systemWaitMessage = document.querySelector("#system-wait-message");
+const platformRouteOverlay = document.querySelector("#platform-route-overlay");
+const batchFileInput = document.querySelector("#batch-file-input");
+const batchSelectButton = document.querySelector("#batch-select-button");
+const batchResumeButton = document.querySelector("#batch-resume-button");
+const batchClearButton = document.querySelector("#batch-clear-button");
+const batchImportEmpty = document.querySelector("#batch-import-empty");
+const batchImportSummary = document.querySelector("#batch-import-summary");
+const batchFileName = document.querySelector("#batch-file-name");
+const batchProgressLabel = document.querySelector("#batch-progress-label");
+const batchProgressTrack = document.querySelector("#batch-progress-track");
+const batchSuccessCount = document.querySelector("#batch-success-count");
+const batchFailedCount = document.querySelector("#batch-failed-count");
+const batchPendingCount = document.querySelector("#batch-pending-count");
+const batchStatusText = document.querySelector("#batch-status-text");
+const batchResultList = document.querySelector("#batch-result-list");
+const batchImportMessage = document.querySelector("#batch-import-message");
 
 const CACHE_VERSION = 3;
 const CACHE_TTL_MS = 24 * 60 * 60_000;
@@ -39,6 +56,14 @@ const CACHE_INDEX_KEY = "shipment-track:v3:index";
 const LEGACY_CACHE_INDEX_KEY = "shipment-track:v2:index";
 const MIGRATION_KEY = "shipment-track:v3:migrated";
 const LANGUAGE_KEY = "shipment-track:language";
+const BATCH_STORAGE_KEY = "shipment-track:batch-import:v1";
+const BATCH_VERSION = 1;
+const BATCH_IMPORT_LIMIT = 50;
+const BATCH_FILE_SIZE_LIMIT = 2 * 1024 * 1024;
+const BATCH_REQUEST_INTERVAL_MS = 2_100;
+const BATCH_RETRY_BASE_MS = 2_200;
+const BATCH_RETRY_LIMIT = 2;
+const BATCH_RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
 const APP_BASE_URL = new URL("./", document.baseURI);
 
 function appUrl(path) {
@@ -181,6 +206,43 @@ const MESSAGES = {
     "wait.tracking": "Retrieving the latest shipment data…",
     "wait.channels": "Checking carrier channels…",
     "wait.home": "Returning to the DrewesLogistics home page…",
+    "wait.batch": "Processing the imported shipment queue…",
+    "wait.complete": "Request completed",
+    "batch.title": "Batch tracking import",
+    "batch.subtitle": "Import an Excel or CSV list and query shipments one at a time",
+    "batch.localBadge": "This device only",
+    "batch.selectFile": "Select Excel / CSV",
+    "batch.columns": "Recognizes Booking / Booking Ref / 订舱号 and Bill of Lading / B/L / MBL / 提单号 columns.",
+    "batch.localNotice": "Queue and result status are stored only in this browser on this device.",
+    "batch.resume": "Continue pending queries",
+    "batch.clear": "Clear imported queue",
+    "batch.emptyTitle": "No imported queue",
+    "batch.emptyDescription": "Choose a spreadsheet to begin batch tracking.",
+    "batch.file": "Imported file",
+    "batch.success": "Succeeded",
+    "batch.failed": "Failed",
+    "batch.pending": "Pending",
+    "batch.parsing": "Reading {name}…",
+    "batch.unsupportedFile": "Choose an .xlsx, .xls, or .csv file no larger than 2 MB.",
+    "batch.noRecognizedColumns": "No supported column was found. Use Booking / Booking Ref / 订舱号 or Bill of Lading / B/L / MBL / 提单号.",
+    "batch.noRows": "No valid shipment numbers were found in the recognized columns.",
+    "batch.workerUnsupported": "This browser cannot process spreadsheets in a background worker.",
+    "batch.workerFailed": "The background spreadsheet parser stopped unexpectedly.",
+    "batch.parseTimeout": "Spreadsheet parsing took too long. Try a smaller file.",
+    "batch.limit": "Found {found} unique rows. The first {limit} were imported to keep this browser responsive.",
+    "batch.ready": "{count} unique shipment numbers imported.",
+    "batch.running": "Querying {current} of {total}: {number}",
+    "batch.completed": "Batch complete: {success} succeeded and {failed} failed.",
+    "batch.restored": "The locally saved queue is ready to continue.",
+    "batch.importFailed": "The spreadsheet could not be read: {message}",
+    "batch.itemPending": "Pending",
+    "batch.itemRunning": "Querying",
+    "batch.itemSuccess": "Succeeded",
+    "batch.itemCached": "Reused device cache",
+    "batch.itemFailed": "Failed",
+    "batch.listAria": "Imported shipment queue",
+    "batch.openItem": "Open and query {type} {number}",
+    "batch.confirmClear": "Clear the imported queue and its status from this device? Saved shipment snapshots are kept.",
     "query.helper": "Automatic mode calls the network interface first and uses the Playwright browser only as a fallback.",
     "channel.auto": "Automatic · API first, DOM fallback",
     "channel.network": "Channel 1 · Network interface",
@@ -361,6 +423,43 @@ const MESSAGES = {
     "wait.tracking": "正在获取最新货物信息…",
     "wait.channels": "正在检测船司查询通道…",
     "wait.home": "正在返回 DrewesLogistics 首页…",
+    "wait.batch": "正在逐条处理导入的货物队列…",
+    "wait.complete": "请求已完成",
+    "batch.title": "批量导入查询",
+    "batch.subtitle": "导入 Excel 或 CSV 清单，按顺序逐票查询",
+    "batch.localBadge": "仅保存在本设备",
+    "batch.selectFile": "选择 Excel / CSV",
+    "batch.columns": "支持 Booking / Booking Ref / 订舱号，以及 Bill of Lading / B/L / MBL / 提单号列。",
+    "batch.localNotice": "队列和处理状态仅保存在本设备的当前浏览器中。",
+    "batch.resume": "继续查询待处理项目",
+    "batch.clear": "清除导入队列",
+    "batch.emptyTitle": "尚未导入查询队列",
+    "batch.emptyDescription": "请选择表格文件开始批量货物查询。",
+    "batch.file": "导入文件",
+    "batch.success": "成功",
+    "batch.failed": "失败",
+    "batch.pending": "待处理",
+    "batch.parsing": "正在读取 {name}…",
+    "batch.unsupportedFile": "请选择不超过 2 MB 的 .xlsx、.xls 或 .csv 文件。",
+    "batch.noRecognizedColumns": "没有找到支持的列，请使用 Booking / Booking Ref / 订舱号或 Bill of Lading / B/L / MBL / 提单号。",
+    "batch.noRows": "识别到的列中没有有效运输单号。",
+    "batch.workerUnsupported": "当前浏览器无法在后台线程中处理表格。",
+    "batch.workerFailed": "后台表格解析器意外停止。",
+    "batch.parseTimeout": "表格解析时间过长，请尝试更小的文件。",
+    "batch.limit": "共识别 {found} 条唯一记录。为保持页面流畅，本次导入前 {limit} 条。",
+    "batch.ready": "已导入 {count} 条唯一运输单号。",
+    "batch.running": "正在查询第 {current}/{total} 条：{number}",
+    "batch.completed": "批量查询完成：成功 {success} 条，失败 {failed} 条。",
+    "batch.restored": "本设备保存的队列已恢复，可以继续处理。",
+    "batch.importFailed": "无法读取表格：{message}",
+    "batch.itemPending": "待处理",
+    "batch.itemRunning": "查询中",
+    "batch.itemSuccess": "成功",
+    "batch.itemCached": "复用本设备缓存",
+    "batch.itemFailed": "失败",
+    "batch.listAria": "已导入的货物查询队列",
+    "batch.openItem": "打开并查询{type} {number}",
+    "batch.confirmClear": "确定清除此设备上的导入队列和处理状态吗？已保存的货物快照会保留。",
     "query.helper": "自动模式优先调用网络接口，失败后才启用 Playwright 浏览器托底。",
     "channel.auto": "自动 · 接口优先，DOM 托底",
     "channel.network": "通道一 · 网络接口",
@@ -521,6 +620,11 @@ let trackingRequestSequence = 0;
 let lastChannelCheck = null;
 let channelCheckLoading = false;
 const activeWaitOperations = new Map();
+let systemWaitCompletionTimer = null;
+let batchState = null;
+let batchRunning = false;
+let batchImportNotice = null;
+let lastBatchRequestAt = 0;
 const expandedHistoryKeys = new Set();
 
 function t(key, variables = {}) {
@@ -713,7 +817,7 @@ function readHistory() {
     .map((key) => ({ key, entry: readCacheEntry(key) }))
     .filter((record) => record.entry)
     .sort((left, right) => Date.parse(right.entry.savedAt) - Date.parse(left.entry.savedAt));
-  const seenShipmentNumbers = new Set();
+  const seenShipmentRecords = new Set();
   const duplicateKeys = new Set();
   const latestRecords = [];
 
@@ -725,12 +829,18 @@ function readHistory() {
       .replace(/\s+/g, "")
       .toUpperCase();
 
-    if (shipmentNumber && seenShipmentNumbers.has(shipmentNumber)) {
+    const shipmentRecordKey = [
+      record.entry.query?.carrier ?? "COSCO",
+      record.entry.query?.type ?? record.entry.snapshot?.tracking?.type ?? "BILLOFLADING",
+      shipmentNumber
+    ].join(":");
+
+    if (shipmentNumber && seenShipmentRecords.has(shipmentRecordKey)) {
       duplicateKeys.add(record.key);
       continue;
     }
 
-    if (shipmentNumber) seenShipmentNumbers.add(shipmentNumber);
+    if (shipmentNumber) seenShipmentRecords.add(shipmentRecordKey);
     latestRecords.push(record);
   }
 
@@ -792,10 +902,12 @@ function renderSystemWait() {
   const currentOperation = activeOperations.at(-1);
 
   if (!currentOperation) {
+    systemWaitOverlay.dataset.state = "idle";
     systemWaitOverlay.hidden = true;
     systemWaitOverlay.setAttribute("aria-hidden", "true");
     document.body.classList.remove("is-system-waiting");
     if (!document.body.classList.contains("is-page-leaving")) {
+      appShell.inert = false;
       document.body.removeAttribute("aria-busy");
     }
     return;
@@ -803,23 +915,45 @@ function renderSystemWait() {
 
   systemWaitMessage.dataset.i18n = currentOperation.messageKey;
   systemWaitMessage.textContent = t(currentOperation.messageKey);
+  systemWaitOverlay.dataset.state = "loading";
   systemWaitOverlay.hidden = false;
   systemWaitOverlay.setAttribute("aria-hidden", "false");
   document.body.classList.add("is-system-waiting");
+  appShell.inert = true;
   document.body.setAttribute("aria-busy", "true");
 }
 
 function beginSystemWait(type, messageKey) {
+  if (systemWaitCompletionTimer) {
+    window.clearTimeout(systemWaitCompletionTimer);
+    systemWaitCompletionTimer = null;
+  }
   const token = Symbol(type);
   activeWaitOperations.set(token, { type, messageKey });
   renderSystemWait();
   return token;
 }
 
-function endSystemWait(token) {
+function endSystemWait(token, { complete = false } = {}) {
   if (!token) return;
   activeWaitOperations.delete(token);
-  renderSystemWait();
+  if (activeWaitOperations.size > 0 || !complete) {
+    renderSystemWait();
+    return;
+  }
+
+  systemWaitMessage.dataset.i18n = "wait.complete";
+  systemWaitMessage.textContent = t("wait.complete");
+  systemWaitOverlay.dataset.state = "complete";
+  systemWaitOverlay.hidden = false;
+  systemWaitOverlay.setAttribute("aria-hidden", "false");
+  document.body.classList.add("is-system-waiting");
+  appShell.inert = true;
+  document.body.setAttribute("aria-busy", "true");
+  systemWaitCompletionTimer = window.setTimeout(() => {
+    systemWaitCompletionTimer = null;
+    renderSystemWait();
+  }, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 240 : 520);
 }
 
 function clearSystemWaitType(type) {
@@ -827,6 +961,372 @@ function clearSystemWaitType(type) {
     if (operation.type === type) activeWaitOperations.delete(token);
   }
   renderSystemWait();
+}
+
+function showPlatformRouteWait() {
+  platformRouteOverlay.setAttribute("aria-hidden", "false");
+  document.body.classList.add("is-page-leaving");
+  appShell.inert = true;
+  document.body.setAttribute("aria-busy", "true");
+}
+
+function hidePlatformRouteWait() {
+  platformRouteOverlay.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("is-page-leaving");
+  if (activeWaitOperations.size === 0) {
+    appShell.inert = false;
+    document.body.removeAttribute("aria-busy");
+  }
+}
+
+function batchCounts() {
+  const items = batchState?.items ?? [];
+  return items.reduce(
+    (counts, item) => {
+      if (item.status === "success") counts.success += 1;
+      else if (item.status === "failed") counts.failed += 1;
+      else counts.pending += 1;
+      return counts;
+    },
+    { success: 0, failed: 0, pending: 0 }
+  );
+}
+
+function persistBatchState() {
+  if (!batchState) {
+    try {
+      localStorage.removeItem(BATCH_STORAGE_KEY);
+    } catch {
+      // Queue clearing still works in memory when storage is unavailable.
+    }
+    return;
+  }
+
+  batchState.updatedAt = new Date().toISOString();
+  try {
+    localStorage.setItem(BATCH_STORAGE_KEY, JSON.stringify(batchState));
+  } catch {
+    // The imported queue remains usable for this tab when storage is unavailable.
+  }
+}
+
+function restoreBatchState() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(BATCH_STORAGE_KEY) ?? "null");
+    if (stored?.version !== BATCH_VERSION || !Array.isArray(stored.items)) return null;
+
+    const items = stored.items
+      .slice(0, BATCH_IMPORT_LIMIT)
+      .map((item, index) => {
+        const type = item?.type === "BOOKING" ? "BOOKING" : "BILLOFLADING";
+        const number = String(item?.number ?? "")
+          .trim()
+          .replace(/\s+/g, "")
+          .toUpperCase();
+        if (!/^[A-Z0-9-]{4,35}$/.test(number)) return null;
+        const status = ["success", "failed"].includes(item?.status)
+          ? item.status
+          : "pending";
+        return {
+          id: `${type}:${number}:${index}`,
+          type,
+          number,
+          status,
+          source: status === "success" ? String(item?.source ?? "live") : null,
+          error: status === "failed" ? String(item?.error ?? "") : null,
+          attempts: Number.isFinite(item?.attempts) ? item.attempts : 0,
+          updatedAt: item?.updatedAt ?? null
+        };
+      })
+      .filter(Boolean);
+
+    if (items.length === 0) return null;
+    return {
+      version: BATCH_VERSION,
+      fileName: String(stored.fileName ?? "Imported queue"),
+      createdAt: stored.createdAt ?? new Date().toISOString(),
+      updatedAt: stored.updatedAt ?? null,
+      status: items.some((item) => item.status === "pending") ? "paused" : "complete",
+      items
+    };
+  } catch {
+    return null;
+  }
+}
+
+function setBatchImportNotice(key = null, variables = {}, variant = "info") {
+  batchImportNotice = key ? { key, variables, variant } : null;
+  if (!batchImportNotice) {
+    batchImportMessage.hidden = true;
+    batchImportMessage.textContent = "";
+    batchImportMessage.removeAttribute("data-variant");
+    return;
+  }
+  batchImportMessage.textContent = t(key, variables);
+  batchImportMessage.dataset.variant = variant;
+  batchImportMessage.hidden = false;
+}
+
+function batchStatusKey(item) {
+  if (item.status === "success") {
+    return item.source === "device-cache" ? "batch.itemCached" : "batch.itemSuccess";
+  }
+  if (item.status === "failed") return "batch.itemFailed";
+  if (item.status === "running") return "batch.itemRunning";
+  return "batch.itemPending";
+}
+
+function renderBatchState() {
+  const items = batchState?.items ?? [];
+  const hasQueue = items.length > 0;
+  batchImportEmpty.hidden = hasQueue;
+  batchImportSummary.hidden = !hasQueue;
+  batchResumeButton.hidden =
+    !hasQueue || batchRunning || !items.some((item) => item.status === "pending");
+  batchClearButton.hidden = !hasQueue || batchRunning;
+
+  if (batchImportNotice) {
+    setBatchImportNotice(
+      batchImportNotice.key,
+      batchImportNotice.variables,
+      batchImportNotice.variant
+    );
+  }
+
+  if (!hasQueue) {
+    batchResultList.replaceChildren();
+    return;
+  }
+
+  const counts = batchCounts();
+  const processed = counts.success + counts.failed;
+  const progress = Math.round((processed / items.length) * 100);
+  const runningIndex = items.findIndex((item) => item.status === "running");
+  batchFileName.textContent = batchState.fileName;
+  batchProgressLabel.textContent = `${processed} / ${items.length}`;
+  batchProgressTrack.setAttribute("aria-valuemax", String(items.length));
+  batchProgressTrack.setAttribute("aria-valuenow", String(processed));
+  batchProgressTrack.style.setProperty("--batch-progress", `${progress}%`);
+  batchSuccessCount.textContent = String(counts.success);
+  batchFailedCount.textContent = String(counts.failed);
+  batchPendingCount.textContent = String(counts.pending);
+
+  if (runningIndex >= 0) {
+    batchStatusText.textContent = t("batch.running", {
+      current: runningIndex + 1,
+      total: items.length,
+      number: items[runningIndex].number
+    });
+  } else if (counts.pending === 0) {
+    batchStatusText.textContent = t("batch.completed", counts);
+  } else if (batchState.status === "ready") {
+    batchStatusText.textContent = t("batch.ready", { count: items.length });
+  } else {
+    batchStatusText.textContent = t("batch.restored");
+  }
+
+  const fragment = document.createDocumentFragment();
+  for (const item of items) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `batch-result-item is-${item.status}`;
+    row.disabled = batchRunning;
+    row.setAttribute(
+      "aria-label",
+      t("batch.openItem", {
+        type: trackingTypeLabel(item.type),
+        number: item.number
+      })
+    );
+    const identity = document.createElement("span");
+    const type = document.createElement("small");
+    type.textContent = trackingTypeLabel(item.type);
+    const number = document.createElement("strong");
+    number.textContent = item.number;
+    identity.append(type, number);
+    const status = document.createElement("span");
+    const statusDot = document.createElement("i");
+    statusDot.setAttribute("aria-hidden", "true");
+    const statusCopy = document.createElement("b");
+    statusCopy.textContent = t(batchStatusKey(item));
+    status.append(statusDot, statusCopy);
+    if (item.error) status.title = item.error;
+    row.append(identity, status);
+    row.addEventListener("click", () => openBatchItem(item));
+    fragment.append(row);
+  }
+  batchResultList.replaceChildren(fragment);
+}
+
+async function parseBatchFile(file) {
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  if (
+    !["xlsx", "xls", "csv"].includes(extension) ||
+    file.size <= 0 ||
+    file.size > BATCH_FILE_SIZE_LIMIT
+  ) {
+    throw new Error(t("batch.unsupportedFile"));
+  }
+  if (typeof Worker !== "function") throw new Error(t("batch.workerUnsupported"));
+
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(appUrl("batch-import-worker.js"), {
+      type: "module",
+      name: "shipment-batch-import"
+    });
+    const timeout = window.setTimeout(() => {
+      worker.terminate();
+      reject(new Error(t("batch.parseTimeout")));
+    }, 30_000);
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      worker.terminate();
+    };
+
+    worker.addEventListener(
+      "message",
+      (event) => {
+        cleanup();
+        if (event.data?.ok) {
+          resolve({
+            items: Array.isArray(event.data.items) ? event.data.items : [],
+            found: Number(event.data.found) || 0
+          });
+          return;
+        }
+        const code = event.data?.error?.code;
+        const message =
+          code === "no_columns"
+            ? t("batch.noRecognizedColumns")
+            : code === "no_rows"
+              ? t("batch.noRows")
+              : event.data?.error?.message || t("batch.workerFailed");
+        reject(new Error(message));
+      },
+      { once: true }
+    );
+    worker.addEventListener(
+      "error",
+      () => {
+        cleanup();
+        reject(new Error(t("batch.workerFailed")));
+      },
+      { once: true }
+    );
+    worker.postMessage({ file, limit: BATCH_IMPORT_LIMIT });
+  });
+}
+
+function yieldToBrowser(delay = 80) {
+  return new Promise((resolve) => window.setTimeout(resolve, delay));
+}
+
+function retryAfterDelay(response) {
+  const value = response?.headers?.get("Retry-After")?.trim();
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
+  const retryAt = Date.parse(value);
+  if (!Number.isFinite(retryAt)) return null;
+  return Math.max(0, retryAt - Date.now());
+}
+
+async function waitForBatchRequestWindow() {
+  const elapsed = Date.now() - lastBatchRequestAt;
+  const remaining = BATCH_REQUEST_INTERVAL_MS - elapsed;
+  if (lastBatchRequestAt > 0 && remaining > 0) await yieldToBrowser(remaining);
+  lastBatchRequestAt = Date.now();
+}
+
+async function requestBatchTracking(query) {
+  let result = null;
+  for (let attempt = 0; attempt <= BATCH_RETRY_LIMIT; attempt += 1) {
+    await waitForBatchRequestWindow();
+    result = await requestTracking(query);
+    if (
+      !BATCH_RETRYABLE_STATUSES.has(result.response.status) ||
+      attempt >= BATCH_RETRY_LIMIT
+    ) {
+      return result;
+    }
+
+    const retryDelay =
+      retryAfterDelay(result.response) ?? BATCH_RETRY_BASE_MS * 2 ** attempt;
+    await yieldToBrowser(retryDelay);
+  }
+  return result;
+}
+
+async function runBatchQueue() {
+  if (batchRunning || !batchState?.items?.some((item) => item.status === "pending")) return;
+
+  batchRunning = true;
+  batchState.status = "running";
+  persistBatchState();
+  renderBatchState();
+  const waitToken = beginSystemWait("batch", "wait.batch");
+  let completed = false;
+
+  try {
+    for (const item of batchState.items) {
+      if (item.status !== "pending") continue;
+      item.status = "running";
+      item.attempts += 1;
+      item.updatedAt = new Date().toISOString();
+      persistBatchState();
+      renderBatchState();
+
+      const query = normalizeQuery({
+        carrier: "COSCO",
+        channel: "AUTO",
+        type: item.type,
+        number: item.number
+      });
+
+      try {
+        const localPayload = loadSnapshot(query);
+        if (localPayload) {
+          item.status = "success";
+          item.source = "device-cache";
+          item.error = null;
+        } else {
+          const { response, payload } = await requestBatchTracking(query);
+          if (!response.ok) {
+            throw new Error(
+              payload?.error?.message || t("error.http", { status: response.status })
+            );
+          }
+          saveSnapshot(query, payload);
+          item.status = "success";
+          item.source = payload?.cached ? "server-cache" : "live";
+          item.error = null;
+        }
+      } catch (error) {
+        item.status = "failed";
+        item.source = null;
+        item.error = error?.message || t("error.generic");
+        if (error?.message === "Platform session expired") throw error;
+      }
+
+      item.updatedAt = new Date().toISOString();
+      persistBatchState();
+      renderBatchState();
+      await yieldToBrowser();
+    }
+
+    batchState.status = "complete";
+    completed = batchCounts().failed === 0;
+  } catch {
+    if (batchState) batchState.status = "paused";
+  } finally {
+    batchRunning = false;
+    if (batchState) {
+      persistBatchState();
+      renderBatchState();
+    }
+    renderHistory();
+    endSystemWait(waitToken, { complete: completed });
+  }
 }
 
 function showError(message, variant = "error") {
@@ -1896,6 +2396,67 @@ function openHistoryEntry(entry) {
   });
 }
 
+function markBatchItemResult(query, { status, source = null, error = null }) {
+  if (!batchState?.items?.length) return;
+  const normalized = normalizeQuery(query);
+  const item = batchState.items.find(
+    (candidate) =>
+      candidate.type === normalized.type && candidate.number === normalized.number
+  );
+  if (!item) return;
+  item.status = status;
+  item.source = source;
+  item.error = error;
+  item.attempts = Number(item.attempts || 0) + 1;
+  item.updatedAt = new Date().toISOString();
+  batchState.status = batchState.items.some((candidate) => candidate.status === "pending")
+    ? "paused"
+    : "complete";
+  persistBatchState();
+  renderBatchState();
+}
+
+function openBatchItem(item) {
+  if (batchRunning) return;
+  const query = normalizeQuery({
+    carrier: "COSCO",
+    channel: "AUTO",
+    type: item.type,
+    number: item.number
+  });
+  carrierSelect.value = query.carrier;
+  channelSelect.value = query.channel;
+  trackingType.value = query.type;
+  trackingNumber.value = query.number;
+  updateCarrierUI();
+  const localPayload = loadSnapshot(query);
+  if (localPayload) {
+    currentPayload = localPayload;
+    renderResult(localPayload);
+  } else {
+    currentPayload = null;
+    results.hidden = true;
+    emptyState.hidden = false;
+    clearError();
+  }
+  updateUrl(query, { push: true });
+  void showView("tracking", { updateLocation: false }).then(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const currentQuery = normalizeQuery({
+          carrier: carrierSelect.value,
+          channel: channelSelect.value,
+          type: trackingType.value,
+          number: trackingNumber.value
+        });
+        if (activeView === "tracking" && cacheKey(currentQuery) === cacheKey(query)) {
+          form.requestSubmit();
+        }
+      });
+    });
+  });
+}
+
 function applyLanguage(language, { persist = true } = {}) {
   currentLanguage = language === "zh" ? "zh" : "en";
   document.documentElement.lang = currentLanguage === "zh" ? "zh-CN" : "en";
@@ -1931,6 +2492,7 @@ function applyLanguage(language, { persist = true } = {}) {
   renderChannelStatus(lastChannelStatus);
   if (lastChannelCheck) renderChannelCheck(lastChannelCheck);
   renderHistory();
+  renderBatchState();
   if (currentPayload) renderResult(currentPayload);
 }
 
@@ -1969,6 +2531,7 @@ checkChannelsButton.addEventListener("click", async () => {
 
   setChannelCheckLoading(true);
   const waitToken = beginSystemWait("channels", "wait.channels");
+  let completed = false;
   try {
     const response = requireAuthorizedResponse(
       await fetch(appUrl("api/channels/check"), {
@@ -1985,6 +2548,7 @@ checkChannelsButton.addEventListener("click", async () => {
       throw new Error(payload?.error?.message || t("error.http", { status: response.status }));
     }
     renderChannelCheck(payload);
+    completed = true;
   } catch (error) {
     renderProbe("NETWORK", { status: "unknown" });
     renderProbe("PLAYWRIGHT", { status: "unknown" });
@@ -1993,7 +2557,7 @@ checkChannelsButton.addEventListener("click", async () => {
     });
   } finally {
     setChannelCheckLoading(false);
-    endSystemWait(waitToken);
+    endSystemWait(waitToken, { complete: completed });
   }
 });
 
@@ -2017,6 +2581,7 @@ form.addEventListener("submit", async (event) => {
   const requestSequence = ++trackingRequestSequence;
   setLoading(true);
   const waitToken = beginSystemWait("tracking", "wait.tracking");
+  let completed = false;
   updateUrl(query);
   const localPayload = loadSnapshot(query);
   if (localPayload) renderResult(localPayload);
@@ -2029,19 +2594,29 @@ form.addEventListener("submit", async (event) => {
     }
 
     saveSnapshot(query, payload);
+    markBatchItemResult(query, {
+      status: "success",
+      source: payload?.cached ? "server-cache" : "live"
+    });
     renderHistory();
     if (requestSequence !== trackingRequestSequence) return;
     renderResult(payload);
+    completed = true;
   } catch (error) {
     if (requestSequence !== trackingRequestSequence) return;
     const message = error?.message || t("error.generic");
+    markBatchItemResult(query, {
+      status: localPayload ? "success" : "failed",
+      source: localPayload ? "device-cache" : null,
+      error: localPayload ? null : message
+    });
     showError(
       localPayload ? t("error.localFallback", { message }) : message,
       localPayload ? "warning" : "error"
     );
   } finally {
     if (requestSequence === trackingRequestSequence) setLoading(false);
-    endSystemWait(waitToken);
+    endSystemWait(waitToken, { complete: completed });
   }
 });
 
@@ -2052,6 +2627,67 @@ carrierSelect.addEventListener("change", () => {
   updateCarrierUI({ resetResult: true });
 });
 channelSelect.addEventListener("change", () => updateCarrierUI({ resetResult: true }));
+
+batchSelectButton.addEventListener("click", () => {
+  if (!batchRunning) batchFileInput.click();
+});
+
+batchFileInput.addEventListener("change", async () => {
+  const file = batchFileInput.files?.[0];
+  if (!file || batchRunning) return;
+
+  batchSelectButton.disabled = true;
+  batchSelectButton.setAttribute("aria-busy", "true");
+  setBatchImportNotice("batch.parsing", { name: file.name });
+
+  try {
+    const imported = await parseBatchFile(file);
+    const items = imported.items;
+    batchState = {
+      version: BATCH_VERSION,
+      fileName: file.name,
+      createdAt: new Date().toISOString(),
+      updatedAt: null,
+      status: "ready",
+      items
+    };
+    if (imported.found > BATCH_IMPORT_LIMIT) {
+      setBatchImportNotice(
+        "batch.limit",
+        { found: imported.found, limit: BATCH_IMPORT_LIMIT },
+        "warning"
+      );
+    } else {
+      setBatchImportNotice();
+    }
+    persistBatchState();
+    renderBatchState();
+    void runBatchQueue();
+  } catch (error) {
+    setBatchImportNotice(
+      "batch.importFailed",
+      { message: error?.message || t("error.generic") },
+      "error"
+    );
+  } finally {
+    batchSelectButton.disabled = false;
+    batchSelectButton.removeAttribute("aria-busy");
+    batchFileInput.value = "";
+  }
+});
+
+batchResumeButton.addEventListener("click", () => {
+  void runBatchQueue();
+});
+
+batchClearButton.addEventListener("click", () => {
+  if (batchRunning || !window.confirm(t("batch.confirmClear"))) return;
+  batchState = null;
+  batchImportNotice = null;
+  persistBatchState();
+  renderBatchState();
+  setBatchImportNotice();
+});
 
 document.querySelectorAll("[data-language]").forEach((button) => {
   button.addEventListener("click", () => applyLanguage(button.dataset.language));
@@ -2077,12 +2713,10 @@ document.querySelectorAll("[data-home-link]").forEach((link) => {
 
     event.preventDefault();
     if (document.body.classList.contains("is-page-leaving")) return;
-    const waitToken = beginSystemWait("navigation", "wait.home");
-    document.body.classList.add("is-page-leaving");
-    document.body.setAttribute("aria-busy", "true");
+    showPlatformRouteWait();
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     window.setTimeout(() => window.location.assign(link.href), reduceMotion ? 0 : 180);
-    window.setTimeout(() => endSystemWait(waitToken), 6000);
+    window.setTimeout(hidePlatformRouteWait, 6000);
   });
 });
 
@@ -2108,12 +2742,18 @@ function syncViewFromLocation() {
 window.addEventListener("hashchange", syncViewFromLocation);
 window.addEventListener("popstate", syncViewFromLocation);
 window.addEventListener("pageshow", () => {
-  document.body.classList.remove("is-page-leaving");
+  if (systemWaitCompletionTimer) {
+    window.clearTimeout(systemWaitCompletionTimer);
+    systemWaitCompletionTimer = null;
+  }
+  hidePlatformRouteWait();
   activeWaitOperations.clear();
   renderSystemWait();
 });
 
 migrateLegacyCache();
+batchState = restoreBatchState();
+if (batchState) persistBatchState();
 applyLanguage(currentLanguage, { persist: false });
 
 const initial = new URLSearchParams(window.location.search);

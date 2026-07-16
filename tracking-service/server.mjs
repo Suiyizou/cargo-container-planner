@@ -26,6 +26,7 @@ const ELEMENT_PLUS_CSS = join(
   "dist",
   "index.css"
 );
+const XLSX_MODULE = join(ROOT_DIR, "node_modules", "xlsx", "xlsx.mjs");
 const FLAG_ICONS_DIR = join(ROOT_DIR, "node_modules", "flag-icons", "flags");
 const PORT = Number.parseInt(process.env.PORT ?? "3000", 10);
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -119,10 +120,11 @@ const MIME_TYPES = Object.freeze({
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml"
 });
-const COMPRESSIBLE_EXTENSIONS = new Set([".css", ".html", ".js", ".json", ".svg"]);
+const COMPRESSIBLE_EXTENSIONS = new Set([".css", ".html", ".js", ".mjs", ".json", ".svg"]);
 const HASHED_ASSET_PATTERN = /[.-][a-z0-9_-]{8,}\.(?:css|gif|ico|jpe?g|js|json|png|svg|woff2?)$/i;
 const STATIC_COMPRESSION_CACHE_LIMIT = 64;
 const compressWithBrotli = promisify(brotliCompress);
@@ -163,7 +165,7 @@ function setCommonHeaders(response) {
   response.setHeader("X-Frame-Options", "DENY");
   response.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'"
+    "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; worker-src 'self'; base-uri 'none'; frame-ancestors 'none'"
   );
 }
 
@@ -1213,6 +1215,16 @@ async function serveStatic(request, response) {
       extension: ".css",
       contentType: MIME_TYPES[".css"],
       cacheControl: "no-cache, must-revalidate"
+    });
+    return;
+  }
+
+  if (url.pathname === "/vendor/xlsx.mjs") {
+    const content = await readFile(XLSX_MODULE);
+    await sendStaticContent(request, response, content, {
+      extension: ".mjs",
+      contentType: MIME_TYPES[".mjs"],
+      cacheControl: "public, max-age=604800"
     });
     return;
   }
