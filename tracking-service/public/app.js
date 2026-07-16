@@ -2015,7 +2015,8 @@ function renderHistory() {
     const transportIcon = document.createElement("span");
     transportIcon.className = "shipment-transport-icon";
     transportIcon.setAttribute("aria-hidden", "true");
-    transportIcon.textContent = "♒";
+    transportIcon.innerHTML =
+      '<svg viewBox="0 0 24 24" focusable="false"><path d="M4 13h16l-2.2 6H7L4 13Z"/><path d="M7 13V8h10v5M10 8V5h4v3M8.5 10.5h2M13.5 10.5h2"/><path d="M3 21c1.5-.8 3-.8 4.5 0 1.5-.8 3-.8 4.5 0 1.5-.8 3-.8 4.5 0 1.5-.8 3-.8 4.5 0"/></svg>';
 
     const identity = document.createElement("span");
     identity.className = "shipment-identity";

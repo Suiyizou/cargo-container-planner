@@ -28,7 +28,7 @@
   <div v-else class="app-shell" :class="{ 'is-page-leaving': pageLeaving }">
     <header class="topbar">
       <div class="brand">
-        <span class="brand-mark">CP</span>
+        <span class="brand-mark"><img src="/favicon.svg" alt="" /></span>
         <div>
           <p>Browser / Server</p>
           <h1>货代装箱体积规划系统</h1>

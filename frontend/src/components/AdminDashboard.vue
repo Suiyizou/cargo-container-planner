@@ -2,7 +2,7 @@
   <section v-if="!currentUser" class="admin-login-shell">
     <div class="admin-login-brand">
       <RouterLink class="admin-back-link" to="/workbenches">{{ t("portal.switchWorkbench") }}</RouterLink>
-      <span class="brand-mark">CP</span>
+      <span class="brand-mark"><img src="/favicon.svg" alt="" /></span>
       <p>Admin Console</p>
       <h1>企业后台管理系统</h1>
       <strong>管理员登录后可管理员工账号、在线设备、系统运行与审计记录。</strong>
@@ -36,7 +36,7 @@
   <section v-else class="admin-console-shell">
     <aside class="admin-console-sidebar">
     <RouterLink class="admin-console-brand" to="/workbenches">
-        <span class="brand-mark">CP</span>
+        <span class="brand-mark"><img src="/favicon.svg" alt="" /></span>
         <div>
           <p>Browser / Server</p>
           <strong>后台管理</strong>

@@ -9,10 +9,7 @@
     <header class="portal-header">
       <RouterLink class="portal-brand" to="/workbenches" :aria-label="t('portal.brandAria')">
         <span class="portal-brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 42 42">
-            <path d="M7 12.5 21 5l14 7.5v17L21 37 7 29.5z" />
-            <path d="m7 12.5 14 8 14-8M21 20.5V37" />
-          </svg>
+          <img src="/favicon.svg" alt="" />
         </span>
         <span class="portal-brand-copy">
           <strong>DrewesLogistics</strong>
@@ -129,7 +126,12 @@
         </header>
 
         <div class="portal-card-grid">
-          <RouterLink class="portal-workbench-card portal-workbench-card--planner" to="/planner/config">
+          <RouterLink
+            class="portal-workbench-card portal-workbench-card--planner"
+            to="/planner/config"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             <div class="portal-card-topline">
               <span>01 / LOAD PLANNING</span>
               <small><i></i>{{ t("portal.ready") }}</small>
@@ -158,7 +160,12 @@
             </div>
           </RouterLink>
 
-          <a class="portal-workbench-card portal-workbench-card--tracking" :href="trackingWorkbenchUrl">
+          <a
+            class="portal-workbench-card portal-workbench-card--tracking"
+            :href="trackingWorkbenchUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             <div class="portal-card-topline">
               <span>02 / SHIPMENT VISIBILITY</span>
               <small><i></i>{{ t("portal.connected") }}</small>
@@ -316,13 +323,11 @@ const todayText = computed(() => new Intl.DateTimeFormat(currentLocale.value ===
   box-shadow: inset 0 0 20px rgba(65, 194, 231, 0.08);
 }
 
-.portal-brand-mark svg {
-  width: 29px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.6;
+.portal-brand-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
 }
 
 .portal-brand-copy {

@@ -9,7 +9,7 @@
       data-i18n-content="meta.description"
     />
     <title>Shipment Track</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%231769d2'/%3E%3Ctext x='32' y='40' text-anchor='middle' font-family='Arial' font-size='25' font-weight='700' fill='white'%3EST%3C/text%3E%3C/svg%3E" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./vendor/element-plus.css" />
     <link rel="stylesheet" href="./styles.css" />
     <script src="./app.js" type="module"></script>
@@ -21,7 +21,7 @@
     <div class="app-shell">
       <aside class="sidebar">
         <a class="brand" href="#overview" data-view-target="overview" aria-label="Shipment Track">
-          <span class="brand-mark">ST</span>
+          <span class="brand-mark brand-mark--logo"><img src="./favicon.svg" alt="" /></span>
           <span class="brand-copy">
             <strong>Shipment Track</strong>
             <small data-i18n="brand.subtitle">Carrier intelligence desk</small>
@@ -101,10 +101,6 @@
                 <p data-i18n="overview.description">
                   See ports, sailing dates and arrival status at a glance, then expand any shipment for its latest movement.
                 </p>
-                <button class="primary-action el-button el-button--primary" type="button" id="start-tracking-button">
-                  <span data-i18n="overview.startTracking">Track a shipment</span>
-                  <b>↗</b>
-                </button>
               </div>
               <div class="hero-art hero-ocean-map" aria-hidden="true">
                 <span class="map-land map-land-asia"></span>
@@ -118,31 +114,14 @@
               </div>
             </section>
 
-            <section class="panel adapter-workbench" aria-labelledby="adapter-workbench-title">
-              <div class="workbench-heading">
-                <div>
-                  <span class="workbench-icon" aria-hidden="true">⌁</span>
-                  <span>
-                    <small data-i18n="workbench.kicker">QUERY WORKBENCH</small>
-                    <strong id="adapter-workbench-title" data-i18n="workbench.title">Carrier & channel</strong>
-                    <p data-i18n="workbench.description">Use the network API first and switch to the browser DOM only when needed.</p>
-                  </span>
-                </div>
-                <span class="workbench-policy">
-                  <span data-i18n="workbench.policy">API FIRST · DOM FALLBACK</span>
-                  <b id="overview-monitor-status">Checking</b>
-                </span>
-              </div>
-
+            <section
+              class="panel adapter-workbench"
+              aria-label="Channel health"
+              data-i18n-aria-label="workbench.title"
+            >
               <div class="workbench-body">
-                <div class="workbench-controls">
-                  <button class="channel-check-button el-button el-button--primary" type="button" id="check-channels-button">
-                    <span class="channel-check-icon" aria-hidden="true">↻</span>
-                    <span data-i18n="workbench.check">Check both channels</span>
-                  </button>
-                </div>
-
                 <div hidden aria-hidden="true">
+                  <span id="overview-monitor-status">Checking</span>
                   <select id="carrier-select" name="carrier" tabindex="-1">
                     <option value="COSCO">COSCO SHIPPING</option>
                     <option value="CMA">CMA CGM</option>
@@ -180,6 +159,38 @@
                     </span>
                   </article>
                 </div>
+
+                <div class="workbench-controls">
+                  <button class="channel-check-button el-button el-button--primary" type="button" id="check-channels-button">
+                    <span class="channel-check-icon" aria-hidden="true">↻</span>
+                    <span data-i18n="workbench.check">Check both channels</span>
+                  </button>
+                </div>
+
+                <div class="overview-entry-grid">
+                  <button
+                    class="primary-action overview-entry-action el-button el-button--primary"
+                    type="button"
+                    id="start-tracking-button"
+                  >
+                    <span data-i18n="overview.startTracking">Track a shipment</span>
+                    <b>↗</b>
+                  </button>
+                  <input
+                    id="batch-file-input"
+                    type="file"
+                    accept=".xlsx,.xls,.csv,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    hidden
+                  />
+                  <button
+                    class="batch-select-button overview-entry-action"
+                    id="batch-select-button"
+                    type="button"
+                  >
+                    <span aria-hidden="true">＋</span>
+                    <span data-i18n="batch.selectFile">Select Excel / CSV</span>
+                  </button>
+                </div>
               </div>
               <p class="workbench-foot" id="channel-check-summary" data-i18n="workbench.helper">The check uses the current shipment number; it does not add a tracking record.</p>
               <p class="carrier-notice" id="carrier-notice" hidden></p>
@@ -199,16 +210,6 @@
 
               <div class="batch-import-body">
                 <div class="batch-import-intro">
-                  <input
-                    id="batch-file-input"
-                    type="file"
-                    accept=".xlsx,.xls,.csv,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    hidden
-                  />
-                  <button class="batch-select-button" id="batch-select-button" type="button">
-                    <span aria-hidden="true">＋</span>
-                    <span data-i18n="batch.selectFile">Select Excel / CSV</span>
-                  </button>
                   <p data-i18n="batch.columns">
                     Recognizes Booking / Booking Ref / 订舱号 and Bill of Lading / B/L / MBL / 提单号 columns.
                   </p>
@@ -623,7 +624,7 @@
       aria-hidden="true"
     >
       <div class="platform-route-content">
-        <div class="platform-route-mark" aria-hidden="true"><i></i><i></i><i></i></div>
+        <div class="platform-route-mark" aria-hidden="true"><img src="./favicon.svg" alt="" /></div>
         <strong>DrewesLogistics</strong>
         <span id="platform-route-message" data-i18n="wait.home">Returning to the DrewesLogistics home page…</span>
         <b aria-hidden="true"></b>

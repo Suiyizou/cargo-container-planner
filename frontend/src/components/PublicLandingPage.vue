@@ -22,7 +22,7 @@
             <span class="landing-intro__page landing-intro__page--two"></span>
             <span class="landing-intro__page landing-intro__page--three"></span>
             <span class="landing-intro__cover">
-              <i></i><i></i><i></i>
+              <img src="/favicon.svg" alt="" />
             </span>
           </div>
           <div class="landing-intro__wordmark">
@@ -41,7 +41,7 @@
     <header class="landing-header">
       <a class="landing-brand" href="#landing-top" :aria-label="t('landing.brandAria')">
         <span class="landing-brand__mark" aria-hidden="true">
-          <i></i><i></i><i></i>
+          <img src="/favicon.svg" alt="" />
         </span>
         <span class="landing-brand__copy">
           <strong>DrewesLogistics</strong>
@@ -57,7 +57,12 @@
             <span aria-hidden="true"></span>
           </summary>
           <div class="landing-nav__menu">
-            <a :href="platformEntryPath" @click="navigateWithTransition($event, platformEntryPath)">
+            <a
+              :href="platformEntryPath"
+              target="_blank"
+              rel="noopener noreferrer"
+              @click="navigateWithTransition($event, platformEntryPath)"
+            >
               <el-icon><Box /></el-icon>
               <span>
                 <strong>{{ t("landing.capabilities.planning.title") }}</strong>
@@ -80,7 +85,13 @@
             </a>
           </div>
         </details>
-        <a class="landing-nav__tracking" :href="trackingEntryPath" @click="navigateWithTransition($event, trackingEntryPath)">
+        <a
+          class="landing-nav__tracking"
+          :href="trackingEntryPath"
+          target="_blank"
+          rel="noopener noreferrer"
+          @click="navigateWithTransition($event, trackingEntryPath)"
+        >
           {{ t("landing.nav.tracking") }}
           <span>{{ t("landing.status.publicFree") }}</span>
         </a>
@@ -89,7 +100,13 @@
 
       <div class="landing-header__actions">
         <LanguageSwitcher class="landing-language" />
-        <a class="landing-entry-button" :href="platformEntryPath" @click="navigateWithTransition($event, platformEntryPath)">
+        <a
+          class="landing-entry-button"
+          :href="platformEntryPath"
+          target="_blank"
+          rel="noopener noreferrer"
+          @click="navigateWithTransition($event, platformEntryPath)"
+        >
           <span>{{ platformEntryLabel }}</span>
           <el-icon><ArrowRight /></el-icon>
         </a>
@@ -128,6 +145,8 @@
                   <a
                     class="landing-button landing-button--primary"
                     :href="currentSlide.primaryHref"
+                    target="_blank"
+                    rel="noopener noreferrer"
                     @click="navigateWithTransition($event, currentSlide.primaryHref)"
                   >
                     {{ currentSlide.primaryLabel }}
@@ -177,6 +196,8 @@
               class="landing-capability-card landing-reveal"
               :class="[`landing-capability-card--${item.id}`, { 'is-public': item.status === 'public' }]"
               :href="item.href"
+              :target="item.opensInNewTab ? '_blank' : undefined"
+              :rel="item.opensInNewTab ? 'noopener noreferrer' : undefined"
               :style="{ '--landing-reveal-delay': `${index * 70}ms` }"
               @click="navigateWithTransition($event, item.href)"
             >
@@ -201,7 +222,12 @@
               <strong>02 / 04</strong>
               <span>{{ t("landing.capabilities.summary.currentDetail") }}</span>
             </article>
-            <a :href="trackingEntryPath" @click="navigateWithTransition($event, trackingEntryPath)">
+            <a
+              :href="trackingEntryPath"
+              target="_blank"
+              rel="noopener noreferrer"
+              @click="navigateWithTransition($event, trackingEntryPath)"
+            >
               <small>{{ t("landing.capabilities.summary.tracking") }}</small>
               <strong>ONLINE</strong>
               <span>{{ t("landing.capabilities.summary.trackingDetail") }}</span>
@@ -217,11 +243,23 @@
           <span>{{ t("landing.statement.description") }}</span>
         </div>
         <div class="landing-statement__actions landing-reveal landing-reveal--delay-1">
-          <a class="landing-pill landing-pill--dark" :href="trackingEntryPath" @click="navigateWithTransition($event, trackingEntryPath)">
+          <a
+            class="landing-pill landing-pill--dark"
+            :href="trackingEntryPath"
+            target="_blank"
+            rel="noopener noreferrer"
+            @click="navigateWithTransition($event, trackingEntryPath)"
+          >
             <el-icon><Search /></el-icon>
             {{ t("landing.statement.track") }}
           </a>
-          <a class="landing-pill landing-pill--blue" :href="platformEntryPath" @click="navigateWithTransition($event, platformEntryPath)">
+          <a
+            class="landing-pill landing-pill--blue"
+            :href="platformEntryPath"
+            target="_blank"
+            rel="noopener noreferrer"
+            @click="navigateWithTransition($event, platformEntryPath)"
+          >
             <el-icon><Monitor /></el-icon>
             {{ platformEntryLabel }}
           </a>
@@ -389,35 +427,25 @@
               <p>{{ t("landing.roadmap.nextDescription") }}</p>
             </div>
           </div>
-          <a class="landing-text-link" :href="platformEntryPath" @click="navigateWithTransition($event, platformEntryPath)">
+          <a
+            class="landing-text-link"
+            :href="platformEntryPath"
+            target="_blank"
+            rel="noopener noreferrer"
+            @click="navigateWithTransition($event, platformEntryPath)"
+          >
             {{ t("landing.roadmap.viewWorkspaces") }}
             <el-icon><ArrowRight /></el-icon>
           </a>
         </div>
       </section>
 
-      <section class="landing-cta landing-reveal">
-        <div>
-          <p>{{ t("landing.cta.eyebrow") }}</p>
-          <h2>{{ t("landing.cta.title") }}</h2>
-          <span>{{ t("landing.cta.description") }}</span>
-        </div>
-        <div class="landing-cta__actions">
-          <a class="landing-button landing-button--light" :href="trackingEntryPath" @click="navigateWithTransition($event, trackingEntryPath)">
-            {{ t("landing.cta.publicTracking") }}
-            <el-icon><ArrowRight /></el-icon>
-          </a>
-          <a class="landing-button landing-button--outline" :href="platformEntryPath" @click="navigateWithTransition($event, platformEntryPath)">
-            {{ platformEntryLabel }}
-          </a>
-        </div>
-      </section>
     </main>
 
     <footer class="landing-footer">
       <div class="landing-footer__main">
         <div class="landing-footer__brand">
-          <span class="landing-brand__mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="landing-brand__mark" aria-hidden="true"><img src="/favicon.svg" alt="" /></span>
           <div>
             <strong>DrewesLogistics</strong>
             <p>{{ t("landing.footer.tagline") }}</p>
@@ -428,8 +456,18 @@
           <h3>{{ t("landing.footer.quickLinks") }}</h3>
           <a href="#landing-capabilities">{{ t("landing.nav.features") }}</a>
           <a href="#landing-company">{{ t("landing.nav.about") }}</a>
-          <a :href="trackingEntryPath" @click="navigateWithTransition($event, trackingEntryPath)">Cargo Tracking</a>
-          <a :href="platformEntryPath" @click="navigateWithTransition($event, platformEntryPath)">{{ t("landing.footer.signIn") }}</a>
+          <a
+            :href="trackingEntryPath"
+            target="_blank"
+            rel="noopener noreferrer"
+            @click="navigateWithTransition($event, trackingEntryPath)"
+          >Cargo Tracking</a>
+          <a
+            :href="platformEntryPath"
+            target="_blank"
+            rel="noopener noreferrer"
+            @click="navigateWithTransition($event, platformEntryPath)"
+          >{{ t("landing.footer.signIn") }}</a>
         </div>
         <div class="landing-footer__column landing-footer__registration">
           <h3>{{ t("landing.footer.registrationTitle") }}</h3>
@@ -563,7 +601,8 @@ const capabilities = computed(() => {
       title: t("landing.capabilities.planning.title"),
       description: t("landing.capabilities.planning.description"),
       actionLabel: t("landing.capabilities.planning.action"),
-      href: platformEntryPath.value
+      href: platformEntryPath.value,
+      opensInNewTab: true
     },
     {
       id: "tracking",
@@ -574,7 +613,8 @@ const capabilities = computed(() => {
       title: t("landing.capabilities.tracking.title"),
       description: t("landing.capabilities.tracking.description"),
       actionLabel: t("landing.capabilities.tracking.action"),
-      href: trackingEntryPath
+      href: trackingEntryPath,
+      opensInNewTab: true
     },
     {
       id: "booking",
@@ -585,7 +625,8 @@ const capabilities = computed(() => {
       title: t("landing.capabilities.booking.title"),
       description: t("landing.capabilities.booking.description"),
       actionLabel: t("landing.capabilities.booking.action"),
-      href: "#landing-roadmap"
+      href: "#landing-roadmap",
+      opensInNewTab: false
     },
     {
       id: "erp",
@@ -596,7 +637,8 @@ const capabilities = computed(() => {
       title: t("landing.capabilities.erp.title"),
       description: t("landing.capabilities.erp.description"),
       actionLabel: t("landing.capabilities.erp.action"),
-      href: "#landing-roadmap"
+      href: "#landing-roadmap",
+      opensInNewTab: false
     }
   ];
 });
@@ -675,8 +717,10 @@ function previousSlide() {
 }
 
 function navigateWithTransition(event: MouseEvent, href: string) {
-  (event.currentTarget as HTMLElement | null)?.closest("details")?.removeAttribute("open");
+  const currentTarget = event.currentTarget as HTMLAnchorElement | null;
+  currentTarget?.closest("details")?.removeAttribute("open");
   if (!href || href.startsWith("#")) return;
+  if (currentTarget?.target === "_blank") return;
   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   event.preventDefault();
   if (isPageLeaving.value) return;
@@ -914,20 +958,13 @@ onUnmounted(() => {
   animation: landing-open-cover 1.05s cubic-bezier(0.7, 0, 0.2, 1) both;
 }
 
-.landing-intro__cover i,
-.landing-brand__mark i {
-  display: block;
-  width: 10px;
-  height: 22px;
-  border: 2px solid currentColor;
-  border-radius: 2px;
-  transform: skewY(-24deg);
+.landing-intro__cover img {
+  width: 48px;
+  height: 48px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(0, 25, 54, 0.3);
 }
-
-.landing-intro__cover i:nth-child(2),
-.landing-brand__mark i:nth-child(2) { transform: translateY(-4px) skewY(24deg); }
-.landing-intro__cover i:nth-child(3),
-.landing-brand__mark i:nth-child(3) { transform: skewY(-24deg); }
 
 .landing-intro__wordmark {
   display: flex;
@@ -1025,16 +1062,20 @@ button.landing-intro__skip:hover {
 }
 
 .landing-brand__mark {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  color: #0873d8;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  overflow: hidden;
+  border-radius: 9px;
+  place-items: center;
+  box-shadow: 0 8px 18px rgba(7, 43, 73, 0.16);
 }
 
-.landing-brand__mark i {
-  width: 8px;
-  height: 20px;
-  border-width: 2px;
+.landing-brand__mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .landing-brand__copy {
@@ -2407,42 +2448,6 @@ button.landing-intro__skip:hover {
   font-weight: 850;
 }
 
-.landing-cta {
-  position: relative;
-  min-height: 300px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 48px;
-  padding: 64px max(48px, calc((100vw - 1260px) / 2));
-  overflow: hidden;
-  color: #10283e;
-  background:
-    radial-gradient(circle at 83% 14%, rgba(75, 173, 240, 0.15), transparent 28%),
-    linear-gradient(120deg, #f8fbfe, #eaf5fd);
-  border-top: 1px solid #dfebf4;
-  border-bottom: 1px solid #dce9f3;
-}
-
-.landing-cta::after {
-  content: "";
-  position: absolute;
-  width: 440px;
-  height: 440px;
-  right: -130px;
-  bottom: -300px;
-  border: 70px solid rgba(11, 104, 210, 0.055);
-  border-radius: 50%;
-}
-
-.landing-cta > div { position: relative; z-index: 1; }
-.landing-cta p { margin: 0 0 13px; color: #0b70cf; font-size: 11px; font-weight: 850; letter-spacing: 0.18em; }
-.landing-cta h2 { max-width: 740px; margin: 0; font-size: clamp(30px, 3.4vw, 48px); letter-spacing: -0.035em; line-height: 1.12; }
-.landing-cta > div > span { display: block; max-width: 720px; margin-top: 18px; color: #60798d; font-size: 15px; }
-.landing-cta__actions { display: flex; gap: 12px; flex: 0 0 auto; }
-.landing-button--light { color: #fff !important; background: #0b73d7; box-shadow: 0 14px 30px rgba(11, 104, 210, 0.17); }
-.landing-button--outline { border: 1px solid #9fc3df; color: #174f78 !important; background: rgba(255, 255, 255, 0.62); }
-
 .landing-footer {
   color: #486378;
   background: #f3f7fa;
@@ -2490,7 +2495,6 @@ button.landing-intro__skip:hover {
 .landing-company,
 .landing-services,
 .landing-roadmap,
-.landing-cta,
 .landing-footer {
   content-visibility: auto;
   contain-intrinsic-size: 1px 720px;
@@ -2576,7 +2580,6 @@ button.landing-intro__skip:hover {
   .landing-services .landing-section-heading > span { max-width: 460px; }
   .landing-company__service-timeline { width: min(100%, 900px); margin: 0 auto; }
   .landing-roadmap__content { padding-right: 48px; padding-left: 48px; }
-  .landing-cta { align-items: flex-start; flex-direction: column; }
   .landing-footer__main { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -2701,10 +2704,6 @@ button.landing-intro__skip:hover {
   .landing-roadmap__visual { min-height: 440px; }
   .landing-roadmap__console { width: calc(100% - 54px); }
   .landing-roadmap__content { padding: 70px 22px; }
-
-  .landing-cta { padding: 60px 22px; }
-  .landing-cta__actions { width: 100%; flex-direction: column; }
-  .landing-cta__actions .landing-button { width: 100%; }
 
   .landing-footer__main { grid-template-columns: 1fr; gap: 34px; padding: 52px 22px 42px; }
   .landing-footer__bottom { align-items: flex-start; flex-direction: column; padding: 20px 22px; }
