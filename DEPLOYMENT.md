@@ -11,11 +11,14 @@
 
 | 外部路径 | 目标 |
 | --- | --- |
-| `/`、`/planner/*`、`/admin`、`/workbenches` | Vue 前端 |
+| `/` | Vue 公开品牌主页 |
+| `/planner/*`、`/admin`、`/workbenches` 等 | Vue 企业登录与权限门禁 |
 | `/api/*` | Spring Boot |
-| `/tracking/*` | Node.js 追踪服务 |
+| `/tracking/*` | Node.js 公开追踪服务 |
 
-`/tracking/` 页面与 API 会先通过 Nginx `auth_request` 调用 Spring 校验登录 token。前端登录后把 token 同步到同域 Cookie，供网关校验；未登录访问追踪页面会返回统一登录入口。
+`/tracking/` 页面和查询 API 面向访客公开，不读取平台登录状态。Nginx 代理时会清空 `Cookie`，并只对成本较高的追踪查询与通道检查接口按来源 IP 限流；国旗、承运人列表与状态接口不计入该限流。装箱、员工工作台与管理后台继续由 Vue 登录门禁和 Spring API token 校验保护。
+
+如果 Docker Nginx 前方还有 CDN 或宿主机反向代理，需要仅对受信任的代理地址配置 `set_real_ip_from` 与 `real_ip_header`。否则 `$binary_remote_addr` 会是统一的前置代理 IP，所有访客将共用同一追踪查询限额。
 
 ## Docker 部署
 

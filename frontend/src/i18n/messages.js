@@ -18,6 +18,117 @@ export const messages = {
       workspace: "工作台",
       loadingAuth: "正在检查登录状态..."
     },
+    landing: {
+      metaTitle: "CROS · 货代数字化运营平台",
+      brandAria: "返回 CROS 首页",
+      loader: {
+        aria: "CROS 平台正在加载",
+        copy: "正在连接全球货运工作流",
+        skip: "跳过动画"
+      },
+      nav: {
+        aria: "主页导航",
+        home: "首页",
+        capabilities: "平台能力",
+        tracking: "Cargo Tracking",
+        roadmap: "建设路线",
+        about: "关于平台"
+      },
+      status: {
+        available: "已上线",
+        public: "公开查询",
+        planned: "规划中"
+      },
+      entry: {
+        enter: "登录平台",
+        open: "进入平台",
+        admin: "进入总后台"
+      },
+      hero: {
+        explore: "查看平台能力",
+        signalEyebrow: "运输信号",
+        signalStatus: "全球链路运行中",
+        paginationAria: "首屏内容切换",
+        goToSlide: "切换到第 {index} 页",
+        previous: "上一页",
+        next: "下一页",
+        slides: {
+          platform: {
+            kicker: "货代数字化运营平台",
+            title: "让每一票货物，从计划到交付，全程清晰可见。",
+            description: "CROS 将智能装箱与货物追踪组织在统一入口，并为船期订舱和企业 ERP 接入保留持续扩展的空间。"
+          },
+          planning: {
+            kicker: "已上线 · 智能装箱",
+            title: "把装箱经验，转化为可查看、可调整的方案。",
+            description: "根据货物与箱型数据辅助制定装载方案，直观呈现空间利用、重心与业务约束。",
+            action: "进入装箱工作台"
+          },
+          tracking: {
+            kicker: "公开服务 · Cargo Tracking",
+            title: "从参考号到关键节点，快速掌握货物动态。",
+            description: "无需登录即可进入货物追踪，按提单号、订舱号或箱号查询承运人运输节点。",
+            action: "立即查询货物"
+          }
+        }
+      },
+      capabilities: {
+        aria: "CROS 平台能力",
+        planning: {
+          title: "智能装箱",
+          description: "从货物与箱型数据生成三维装载方案，辅助校验空间、载荷与业务约束。",
+          action: "登录后使用"
+        },
+        tracking: {
+          title: "货物追踪",
+          description: "汇集承运人运输节点，公开查询当前状态、关键时间与路线详情。",
+          action: "免登录查询"
+        },
+        booking: {
+          title: "船期与订舱",
+          description: "计划接入船期查询与订舱辅助，减少跨平台查找和重复录入。",
+          action: "查看建设路线"
+        },
+        erp: {
+          title: "企业 ERP 接入",
+          description: "计划通过标准接口连接订单、货物与运输数据，形成连贯业务流。",
+          action: "查看建设路线"
+        }
+      },
+      statement: {
+        eyebrow: "一个入口 · 清晰边界",
+        title: "连接正在使用的业务工具，也为下一阶段留足空间。",
+        description: "CROS 保留各模块清晰的业务边界，通过统一品牌入口组织装箱与追踪能力。货物追踪面向客户公开，企业工作台与管理能力继续由登录权限保护。",
+        track: "公开查询货物",
+        metricOnline: "项能力已上线",
+        metricPublic: "项公开查询服务",
+        metricRoadmap: "项平台能力布局"
+      },
+      roadmap: {
+        eyebrow: "建设路线",
+        title: "从独立工具，逐步走向连贯的货代工作流。",
+        description: "先稳定现有装箱与追踪能力，再按真实业务价值接入船期、订舱和 ERP 数据，不提前承诺尚未上线的功能。",
+        currentLabel: "当前阶段",
+        currentTitle: "智能装箱 · 货物追踪",
+        currentDescription: "装箱工作台需登录使用；Cargo Tracking 作为公开查询入口直接开放。",
+        nextLabel: "下一阶段",
+        nextTitle: "船期订舱 · ERP 接入",
+        nextDescription: "围绕订单与运输数据逐步连接企业内部和外部服务。",
+        viewWorkspaces: "查看现有工作台"
+      },
+      cta: {
+        eyebrow: "START WITH CROS",
+        title: "从一次查询开始，看见更连贯的货运协作。",
+        description: "公开追踪无需登录；进入装箱工作台或总后台时，平台会验证企业账号与权限。",
+        publicTracking: "打开 Cargo Tracking"
+      },
+      footer: {
+        tagline: "面向货代业务的模块化数字运营平台",
+        signIn: "企业登录",
+        copyright: "© 2026 CROS. 保留所有权利。",
+        platform: "Cargo Operations Suite"
+      }
+    },
     login: {
       brandPanelLabel: "货代装箱规划平台介绍",
       productLine: "Cargo Planning OS",
@@ -343,6 +454,117 @@ export const messages = {
       name: "Cargo Container Planning System",
       workspace: "Workspace",
       loadingAuth: "Checking login status..."
+    },
+    landing: {
+      metaTitle: "CROS · Digital Freight Operations",
+      brandAria: "Return to the CROS home page",
+      loader: {
+        aria: "CROS platform is loading",
+        copy: "Connecting the global freight workflow",
+        skip: "Skip intro"
+      },
+      nav: {
+        aria: "Home page navigation",
+        home: "Home",
+        capabilities: "Capabilities",
+        tracking: "Cargo Tracking",
+        roadmap: "Roadmap",
+        about: "About"
+      },
+      status: {
+        available: "Available",
+        public: "Public",
+        planned: "Planned"
+      },
+      entry: {
+        enter: "Sign in",
+        open: "Enter platform",
+        admin: "Admin console"
+      },
+      hero: {
+        explore: "Explore capabilities",
+        signalEyebrow: "Transport signal",
+        signalStatus: "Global route active",
+        paginationAria: "Hero content navigation",
+        goToSlide: "Go to slide {index}",
+        previous: "Previous slide",
+        next: "Next slide",
+        slides: {
+          platform: {
+            kicker: "Digital operations for freight forwarders",
+            title: "Make every shipment clear—from planning to delivery.",
+            description: "CROS brings smart load planning and shipment visibility into one entrance, with room to grow into schedules, booking, and ERP connectivity."
+          },
+          planning: {
+            kicker: "Available · Smart load planning",
+            title: "Turn loading experience into a plan teams can see and refine.",
+            description: "Build loading plans from cargo and container data, with clear views of space, balance, and operational constraints.",
+            action: "Open load planning"
+          },
+          tracking: {
+            kicker: "Public service · Cargo Tracking",
+            title: "Move from a reference number to the milestones that matter.",
+            description: "Open shipment tracking without signing in and query carrier milestones by bill of lading, booking, or container number.",
+            action: "Track cargo now"
+          }
+        }
+      },
+      capabilities: {
+        aria: "CROS platform capabilities",
+        planning: {
+          title: "Smart Load Planning",
+          description: "Build 3D loading plans from cargo and container data, then review space, balance, and operating constraints.",
+          action: "Sign in to use"
+        },
+        tracking: {
+          title: "Shipment Visibility",
+          description: "Bring carrier milestones together in a public view of current status, key dates, and route details.",
+          action: "Track without signing in"
+        },
+        booking: {
+          title: "Schedules & Booking",
+          description: "Planned schedule search and booking assistance will reduce cross-platform lookup and repeated entry.",
+          action: "View the roadmap"
+        },
+        erp: {
+          title: "ERP Connectivity",
+          description: "Planned standard interfaces will connect order, cargo, and shipment data into a continuous workflow.",
+          action: "View the roadmap"
+        }
+      },
+      statement: {
+        eyebrow: "One entrance · Clear boundaries",
+        title: "Connect the tools in use today while leaving room for what comes next.",
+        description: "CROS keeps each module focused while presenting planning and tracking through one branded entrance. Cargo Tracking is public; enterprise workspaces and administration remain protected by sign-in and role checks.",
+        track: "Track cargo publicly",
+        metricOnline: "capabilities available",
+        metricPublic: "public query service",
+        metricRoadmap: "capabilities in scope"
+      },
+      roadmap: {
+        eyebrow: "Product roadmap",
+        title: "From focused tools to a connected freight workflow.",
+        description: "We strengthen planning and tracking first, then connect schedules, booking, and ERP data according to real operating value—without promising unfinished features early.",
+        currentLabel: "Current",
+        currentTitle: "Load Planning · Shipment Tracking",
+        currentDescription: "Load planning requires enterprise sign-in; Cargo Tracking is open as a public query service.",
+        nextLabel: "Next",
+        nextTitle: "Schedules & Booking · ERP",
+        nextDescription: "Connect internal and external services around order and shipment data in practical stages.",
+        viewWorkspaces: "View current workspaces"
+      },
+      cta: {
+        eyebrow: "START WITH CROS",
+        title: "Start with one query and see a more connected freight operation.",
+        description: "Public tracking needs no sign-in. Enterprise accounts and role checks protect load planning and administration.",
+        publicTracking: "Open Cargo Tracking"
+      },
+      footer: {
+        tagline: "A modular digital operations platform for freight forwarders",
+        signIn: "Enterprise sign in",
+        copyright: "© 2026 CROS. All rights reserved.",
+        platform: "Cargo Operations Suite"
+      }
     },
     login: {
       brandPanelLabel: "Cargo planning platform overview",

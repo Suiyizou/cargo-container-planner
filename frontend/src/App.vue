@@ -1,5 +1,10 @@
 <template>
   <el-config-provider :locale="elementPlusLocale">
+  <PublicLandingPage
+    v-if="activePage === 'landing'"
+    :current-user="currentUser"
+  />
+  <template v-else>
   <LanguageSwitcher v-if="!authChecked || !currentUser" class="global-language-switcher" />
   <LoginPage v-if="authChecked && !currentUser" @logged-in="handleLoggedIn" />
   <div v-else-if="!authChecked" class="auth-loading-shell">
@@ -823,6 +828,7 @@
       </div>
     </div>
   </Transition>
+  </template>
   </el-config-provider>
 </template>
 
@@ -855,6 +861,7 @@ import AlgorithmPage from "./components/AlgorithmPage.vue";
 import ExcelTemplatePage from "./components/ExcelTemplatePage.vue";
 import HomePage from "./components/HomePage.vue";
 import LoginPage from "./components/LoginPage.vue";
+import PublicLandingPage from "./components/PublicLandingPage.vue";
 import WorkbenchPortal from "./components/WorkbenchPortal.vue";
 import CargoModal from "./components/CargoModal.vue";
 import ContainerModal from "./components/ContainerModal.vue";

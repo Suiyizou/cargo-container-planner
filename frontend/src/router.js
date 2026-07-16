@@ -11,7 +11,7 @@ if (window.location.hash?.startsWith("#/")) {
 export const router = createRouter({
   history: createWebHistory("/"),
   routes: [
-    { path: "/", redirect: "/workbenches" },
+    { path: "/", name: "landing", component: PageStub },
     { path: "/workbenches", name: "workbenches", component: PageStub },
     { path: "/home", name: "home", component: PageStub },
     { path: "/planner", redirect: "/planner/config" },
