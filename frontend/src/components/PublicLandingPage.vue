@@ -26,7 +26,7 @@
             </span>
           </div>
           <div class="landing-intro__wordmark">
-            <span>CROS</span>
+            <span>DrewesLogistics</span>
             <small>CARGO OPERATIONS SUITE</small>
           </div>
           <p>{{ t("landing.loader.copy") }}</p>
@@ -44,7 +44,7 @@
           <i></i><i></i><i></i>
         </span>
         <span class="landing-brand__copy">
-          <strong>CROS</strong>
+          <strong>DrewesLogistics</strong>
           <small>Cargo Operations Suite</small>
         </span>
       </a>
@@ -361,7 +361,7 @@
           <div class="landing-roadmap__orb landing-roadmap__orb--two"></div>
           <div class="landing-roadmap__console">
             <div class="landing-roadmap__console-head">
-              <span>CROS / LIVE OPERATIONS</span>
+              <span>DrewesLogistics / LIVE OPERATIONS</span>
               <i></i>
             </div>
             <div class="landing-roadmap__route-line">
@@ -428,7 +428,7 @@
         <div class="landing-footer__brand">
           <span class="landing-brand__mark" aria-hidden="true"><i></i><i></i><i></i></span>
           <div>
-            <strong>CROS</strong>
+            <strong>DrewesLogistics</strong>
             <p>{{ t("landing.footer.tagline") }}</p>
             <span>{{ t("landing.company.legalName") }}</span>
           </div>
@@ -460,14 +460,10 @@
       </div>
     </footer>
 
-    <Transition name="landing-route-transition">
-      <div v-if="isPageLeaving" class="landing-route-transition" role="status" aria-live="polite">
-        <div class="landing-route-transition__mark" aria-hidden="true"><i></i><i></i><i></i></div>
-        <strong>CROS</strong>
-        <span>{{ t("landing.transition.copy") }}</span>
-        <b></b>
-      </div>
-    </Transition>
+    <SystemWaitOverlay
+      :visible="isPageLeaving"
+      :message="t('landing.transition.copy')"
+    />
   </div>
 </template>
 
@@ -484,13 +480,14 @@ import {
   Ship
 } from "@element-plus/icons-vue";
 import LanguageSwitcher from "./LanguageSwitcher.vue";
+import SystemWaitOverlay from "./SystemWaitOverlay.vue";
 import { currentLocale, t } from "../i18n";
 
 const props = defineProps<{
   currentUser?: { role?: string; username?: string; displayName?: string } | null;
 }>();
 
-const INTRO_STORAGE_KEY = "cros-public-landing-intro-v1";
+const INTRO_STORAGE_KEY = "dreweslogistics-public-landing-intro-v1";
 const trackingEntryPath = import.meta.env.VITE_TRACKING_WORKBENCH_URL || "/tracking/";
 
 function introWasSeen() {
@@ -700,6 +697,25 @@ function navigateWithTransition(event: MouseEvent, href: string) {
   }, reducedMotion.value ? 40 : 360);
 }
 
+function resetPageLeaving(resumeAutoplay = true) {
+  window.clearTimeout(navigationTimer);
+  navigationTimer = 0;
+  isPageLeaving.value = false;
+  document.body.style.overflow = showIntro.value ? "hidden" : previousBodyOverflow;
+  if (resumeAutoplay && !showIntro.value && document.visibilityState === "visible") {
+    startAutoplay();
+  }
+}
+
+function handlePageShow() {
+  resetPageLeaving(true);
+}
+
+function handlePageHide() {
+  resetPageLeaving(false);
+  stopAutoplay();
+}
+
 function finishIntro() {
   if (!showIntro.value) return;
   showIntro.value = false;
@@ -744,11 +760,13 @@ function setupRevealObserver() {
 }
 
 onMounted(() => {
+  previousBodyOverflow = document.body.style.overflow;
+  window.addEventListener("pageshow", handlePageShow);
+  window.addEventListener("pagehide", handlePageHide);
   reducedMotion.value = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const alreadySeen = introWasSeen();
   showIntro.value = !alreadySeen;
   if (showIntro.value) {
-    previousBodyOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     introTimer = window.setTimeout(finishIntro, reducedMotion.value ? 360 : 1100);
   } else {
@@ -761,6 +779,8 @@ onMounted(() => {
 watch(currentLocale, updateDocumentTitle);
 
 onUnmounted(() => {
+  window.removeEventListener("pageshow", handlePageShow);
+  window.removeEventListener("pagehide", handlePageHide);
   window.clearTimeout(introTimer);
   window.clearTimeout(navigationTimer);
   stopAutoplay();
@@ -922,13 +942,14 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  letter-spacing: 0.24em;
+  letter-spacing: 0.035em;
 }
 
 .landing-intro__wordmark span {
-  font-size: clamp(32px, 5vw, 52px);
+  font-size: clamp(25px, 4vw, 44px);
   font-weight: 800;
   line-height: 1;
+  white-space: nowrap;
 }
 
 .landing-intro__wordmark small {
@@ -995,7 +1016,7 @@ button.landing-intro__skip:hover {
   z-index: 80;
   min-height: 84px;
   display: grid;
-  grid-template-columns: minmax(220px, 0.8fr) auto minmax(280px, 0.8fr);
+  grid-template-columns: minmax(290px, 0.9fr) auto minmax(260px, 0.8fr);
   align-items: center;
   gap: 28px;
   padding: 0 clamp(24px, 4vw, 72px);
@@ -1032,9 +1053,10 @@ button.landing-intro__skip:hover {
 
 .landing-brand__copy strong {
   color: #071829;
-  font-size: 23px;
+  font-size: 19px;
   line-height: 1;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.015em;
+  white-space: nowrap;
 }
 
 .landing-brand__copy small {
@@ -2065,38 +2087,44 @@ button.landing-intro__skip:hover {
 .landing-company__operations-float--planning { right: 54px; bottom: -26px; }
 
 .landing-services {
-  padding: 98px max(32px, calc((100vw - 1260px) / 2));
-  background: #f7f9fc;
+  position: relative;
+  padding: 112px max(32px, calc((100vw - 1500px) / 2));
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 19% 42%, rgba(69, 164, 231, 0.08), transparent 20%),
+    #f7f9fc;
 }
 
 .landing-services__inner {
-  max-width: 1260px;
+  position: relative;
+  z-index: 1;
+  max-width: 1500px;
   display: grid;
-  grid-template-columns: minmax(320px, 0.72fr) minmax(0, 1.28fr);
+  grid-template-columns: minmax(330px, 0.62fr) minmax(0, 1.38fr);
   align-items: start;
-  gap: clamp(54px, 7vw, 96px);
+  gap: clamp(58px, 6vw, 108px);
   margin: 0 auto;
 }
 
 .landing-services .landing-section-heading { position: sticky; top: 124px; }
-.landing-services .landing-section-heading h2 { max-width: 480px; font-size: clamp(32px, 3.5vw, 46px); }
-.landing-services .landing-section-heading > span { max-width: 480px; font-size: 14px; }
+.landing-services .landing-section-heading h2 { max-width: 530px; font-size: clamp(32px, 3.25vw, 44px); }
+.landing-services .landing-section-heading > span { max-width: 500px; font-size: 14px; }
 
 .landing-company__service-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 16px;
 }
 
 .landing-company__service-card {
-  min-height: 138px;
+  min-height: 172px;
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: start;
-  gap: 18px;
-  padding: 18px;
+  gap: 22px;
+  padding: 24px 26px;
   border: 1px solid #dce6ee;
-  border-radius: 12px;
+  border-radius: 14px;
   background: #fff;
   box-shadow: 0 10px 28px rgba(18, 51, 76, 0.055);
   transition: border-color 0.22s ease, background 0.22s ease, transform 0.22s ease;
@@ -2109,14 +2137,14 @@ button.landing-intro__skip:hover {
 }
 
 .landing-company__service-icon {
-  width: 40px;
-  height: 40px;
+  width: 46px;
+  height: 46px;
   display: grid;
   place-items: center;
   border-radius: 11px;
   color: #0b73d7;
   background: #edf6ff;
-  font-size: 19px;
+  font-size: 21px;
 }
 
 .landing-company__service-card small {
@@ -2130,15 +2158,15 @@ button.landing-intro__skip:hover {
 .landing-company__service-card h3 {
   margin: 12px 0 8px;
   color: #17354d;
-  font-size: 15px;
+  font-size: 17px;
   letter-spacing: -0.015em;
 }
 
 .landing-company__service-card p {
   margin: 0;
   color: #667d90;
-  font-size: 11px;
-  line-height: 1.65;
+  font-size: 12px;
+  line-height: 1.7;
 }
 
 .landing-roadmap {
@@ -2339,10 +2367,12 @@ button.landing-intro__skip:hover {
   gap: 48px;
   padding: 64px max(48px, calc((100vw - 1260px) / 2));
   overflow: hidden;
-  color: #fff;
+  color: #10283e;
   background:
-    radial-gradient(circle at 85% 10%, rgba(61, 185, 255, 0.28), transparent 26%),
-    linear-gradient(120deg, #071d31, #0a4c82);
+    radial-gradient(circle at 83% 14%, rgba(75, 173, 240, 0.15), transparent 28%),
+    linear-gradient(120deg, #f8fbfe, #eaf5fd);
+  border-top: 1px solid #dfebf4;
+  border-bottom: 1px solid #dce9f3;
 }
 
 .landing-cta::after {
@@ -2352,21 +2382,21 @@ button.landing-intro__skip:hover {
   height: 440px;
   right: -130px;
   bottom: -300px;
-  border: 70px solid rgba(255, 255, 255, 0.06);
+  border: 70px solid rgba(11, 104, 210, 0.055);
   border-radius: 50%;
 }
 
 .landing-cta > div { position: relative; z-index: 1; }
-.landing-cta p { margin: 0 0 13px; color: #77c8ff; font-size: 11px; font-weight: 850; letter-spacing: 0.18em; }
+.landing-cta p { margin: 0 0 13px; color: #0b70cf; font-size: 11px; font-weight: 850; letter-spacing: 0.18em; }
 .landing-cta h2 { max-width: 740px; margin: 0; font-size: clamp(30px, 3.4vw, 48px); letter-spacing: -0.035em; line-height: 1.12; }
-.landing-cta > div > span { display: block; max-width: 720px; margin-top: 18px; color: rgba(228, 242, 253, 0.72); font-size: 15px; }
+.landing-cta > div > span { display: block; max-width: 720px; margin-top: 18px; color: #60798d; font-size: 15px; }
 .landing-cta__actions { display: flex; gap: 12px; flex: 0 0 auto; }
-.landing-button--light { color: #0b4f84 !important; background: #fff; }
-.landing-button--outline { border: 1px solid rgba(255, 255, 255, 0.55); color: #fff !important; }
+.landing-button--light { color: #fff !important; background: #0b73d7; box-shadow: 0 14px 30px rgba(11, 104, 210, 0.17); }
+.landing-button--outline { border: 1px solid #9fc3df; color: #174f78 !important; background: rgba(255, 255, 255, 0.62); }
 
 .landing-footer {
   color: #486378;
-  background: #edf4fa;
+  background: #f3f7fa;
 }
 
 .landing-footer__main {
@@ -2380,7 +2410,7 @@ button.landing-intro__skip:hover {
 
 .landing-footer__brand { display: flex; align-items: flex-start; gap: 15px; }
 .landing-footer__brand .landing-brand__mark { margin-top: 2px; color: #0b73d7; }
-.landing-footer__brand strong { color: #0b2134; font-size: 21px; letter-spacing: 0.12em; }
+.landing-footer__brand strong { color: #0b2134; font-size: 18px; letter-spacing: 0.015em; }
 .landing-footer__brand p { max-width: 260px; margin: 8px 0 0; color: #5b7285; font-size: 12px; line-height: 1.65; }
 .landing-footer__brand div > span { display: block; margin-top: 14px; color: #7f92a1; font-size: 10px; line-height: 1.6; }
 
@@ -2406,30 +2436,6 @@ button.landing-intro__skip:hover {
   color: #8394a2;
   font-size: 9px;
 }
-
-.landing-route-transition {
-  position: fixed;
-  inset: 0;
-  z-index: 1200;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  color: #fff;
-  background:
-    radial-gradient(circle at 50% 44%, rgba(38, 146, 236, 0.22), transparent 24%),
-    #061725;
-}
-
-.landing-route-transition__mark { display: flex; align-items: center; gap: 3px; margin-bottom: 19px; color: #55baff; }
-.landing-route-transition__mark i { width: 10px; height: 29px; border: 2px solid currentColor; border-radius: 2px; transform: skewY(-20deg); }
-.landing-route-transition strong { font-size: 27px; letter-spacing: 0.18em; }
-.landing-route-transition span { margin-top: 9px; color: rgba(221, 239, 252, 0.65); font-size: 11px; }
-.landing-route-transition > b { width: 180px; height: 2px; margin-top: 22px; overflow: hidden; background: rgba(255, 255, 255, 0.12); }
-.landing-route-transition > b::after { content: ""; display: block; width: 100%; height: 100%; background: #46baff; transform-origin: left; animation: landing-route-progress 0.36s ease-out both; }
-.landing-route-transition-enter-active,
-.landing-route-transition-leave-active { transition: opacity 0.18s ease; }
-.landing-route-transition-enter-from,
-.landing-route-transition-leave-to { opacity: 0; }
 
 .landing-statement,
 .landing-company,
@@ -2467,11 +2473,6 @@ button.landing-intro__skip:hover {
   20% { opacity: 1; }
   78% { opacity: 1; }
   88%, 100% { left: calc(100% - 10px); transform: scale(1); opacity: 0; }
-}
-
-@keyframes landing-route-progress {
-  from { transform: scaleX(0); }
-  to { transform: scaleX(1); }
 }
 
 @keyframes landing-scroll-reveal {
@@ -2536,7 +2537,7 @@ button.landing-intro__skip:hover {
   }
 
   .landing-brand__copy small { display: none; }
-  .landing-brand__copy strong { font-size: 19px; }
+  .landing-brand__copy strong { font-size: 15px; }
   .landing-header__actions { gap: 6px; }
   .landing-language { transform: scale(0.9); transform-origin: right center; }
   .landing-entry-button { width: 40px; min-height: 38px; padding: 0; }
@@ -2605,7 +2606,7 @@ button.landing-intro__skip:hover {
   .landing-services { padding: 76px 20px; }
   .landing-services__inner { gap: 38px; }
   .landing-company__service-grid { grid-template-columns: 1fr; }
-  .landing-company__service-card { min-height: 132px; }
+  .landing-company__service-card { min-height: 150px; padding: 22px; }
 
   .landing-roadmap { grid-template-columns: 1fr; }
   .landing-roadmap__visual { min-height: 440px; }
@@ -2626,8 +2627,7 @@ button.landing-intro__skip:hover {
   .landing-intro__cover,
   .landing-intro__progress i,
   .landing-hero__pagination button.active i::after,
-  .landing-company__operations-route > div b,
-  .landing-route-transition > b::after { animation: none; }
+  .landing-company__operations-route > div b { animation: none; }
   .landing-hero-page-enter-active,
   .landing-hero-page-leave-active { transition-duration: 0.01ms; }
   .landing-page.is-reveal-ready .landing-reveal,

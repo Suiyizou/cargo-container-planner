@@ -508,5 +508,25 @@
         </main>
       </div>
     </div>
+
+    <div
+      class="system-wait-overlay"
+      id="system-wait-overlay"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      hidden
+    >
+      <div class="system-wait-content">
+        <div class="system-wait-mark" aria-hidden="true">
+          <span class="system-wait-page system-wait-page-one"></span>
+          <span class="system-wait-page system-wait-page-two"></span>
+          <span class="system-wait-page system-wait-page-three"></span>
+        </div>
+        <strong>DrewesLogistics</strong>
+        <span id="system-wait-message" data-i18n="wait.tracking">Retrieving the latest shipment data…</span>
+        <b class="system-wait-progress" aria-hidden="true"><i></i></b>
+      </div>
+    </div>
   </body>
 </html>

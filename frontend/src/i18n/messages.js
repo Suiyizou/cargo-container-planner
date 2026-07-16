@@ -19,10 +19,10 @@ export const messages = {
       loadingAuth: "正在检查登录状态..."
     },
     landing: {
-      metaTitle: "CROS · 德鲁威斯（上海）供应链管理有限公司",
-      brandAria: "返回 CROS 首页",
+      metaTitle: "DrewesLogistics · 德鲁威斯（上海）供应链管理有限公司",
+      brandAria: "返回 DrewesLogistics 首页",
       loader: {
-        aria: "CROS 平台正在加载",
+        aria: "DrewesLogistics 平台正在加载",
         copy: "正在连接全球货运工作流",
         skip: "跳过动画"
       },
@@ -58,7 +58,7 @@ export const messages = {
           platform: {
             kicker: "货代数字化运营平台",
             title: "让每一票货物，从计划到交付，全程清晰可见。",
-            description: "CROS 将智能装箱与货物追踪组织在统一入口，并为船期订舱和企业 ERP 接入保留持续扩展的空间。"
+            description: "DrewesLogistics 将智能装箱与货物追踪组织在统一入口，并为船期订舱和企业 ERP 接入保留持续扩展的空间。"
           },
           planning: {
             kicker: "已上线 · 智能装箱",
@@ -75,7 +75,7 @@ export const messages = {
         }
       },
       capabilities: {
-        aria: "CROS 平台能力",
+        aria: "DrewesLogistics 平台能力",
         planning: {
           title: "智能装箱",
           description: "从货物与箱型数据生成三维装载方案，辅助校验空间、载荷与业务约束。",
@@ -106,7 +106,7 @@ export const messages = {
       statement: {
         eyebrow: "一个入口 · 清晰边界",
         title: "连接正在使用的业务工具，也为下一阶段留足空间。",
-        description: "CROS 保留各模块清晰的业务边界，通过统一品牌入口组织装箱与追踪能力。货物追踪面向客户公开，企业工作台与管理能力继续由登录权限保护。",
+        description: "DrewesLogistics 保留各模块清晰的业务边界，通过统一品牌入口组织装箱与追踪能力。货物追踪面向客户公开，企业工作台与管理能力继续由登录权限保护。",
         track: "公开查询货物",
         metricOnline: "项能力已上线",
         metricPublic: "项公开查询服务",
@@ -114,7 +114,7 @@ export const messages = {
       },
       company: {
         eyebrow: "COMPANY PROFILE · 上海",
-        internationalName: "SUPPLY CHAIN MANAGEMENT · SHANGHAI",
+        internationalName: "DREWES (SHANGHAI) SUPPLY CHAIN MANAGEMENT CO., LTD.",
         legalName: "德鲁威斯（上海）供应链管理有限公司",
         description: "德鲁威斯（上海）供应链管理有限公司成立于 2023 年 3 月 16 日，注册于上海市虹口区，业务围绕供应链管理、国际与国内货运代理，以及船舶和运输设备相关服务展开。",
         detail: "经营范围包括供应链管理服务、国际货物运输代理、海上／航空／陆路国际货运代理、报检业务、国际船舶代理、国内货运代理、运输设备与船舶租赁、集装箱销售及无船承运业务。",
@@ -175,13 +175,14 @@ export const messages = {
         viewWorkspaces: "查看现有工作台"
       },
       cta: {
-        eyebrow: "START WITH CROS",
+        eyebrow: "START WITH DrewesLogistics",
         title: "从一次查询开始，看见更连贯的货运协作。",
         description: "公开追踪无需登录；进入装箱工作台或总后台时，平台会验证企业账号与权限。",
         publicTracking: "打开 Cargo Tracking"
       },
       transition: {
-        copy: "正在进入业务工作台"
+        copy: "正在进入业务工作台",
+        returnHome: "正在返回 DrewesLogistics 首页"
       },
       footer: {
         tagline: "面向货代业务的模块化数字运营平台",
@@ -527,10 +528,10 @@ export const messages = {
       loadingAuth: "Checking login status..."
     },
     landing: {
-      metaTitle: "CROS · 德鲁威斯（上海）供应链管理有限公司",
-      brandAria: "Return to the CROS home page",
+      metaTitle: "DrewesLogistics · Drewes (Shanghai) Supply Chain Management Co., Ltd.",
+      brandAria: "Return to the DrewesLogistics home page",
       loader: {
-        aria: "CROS platform is loading",
+        aria: "DrewesLogistics platform is loading",
         copy: "Connecting the global freight workflow",
         skip: "Skip intro"
       },
@@ -566,7 +567,7 @@ export const messages = {
           platform: {
             kicker: "Digital operations for freight forwarders",
             title: "Make every shipment clear—from planning to delivery.",
-            description: "CROS brings smart load planning and shipment visibility into one entrance, with room to grow into schedules, booking, and ERP connectivity."
+            description: "DrewesLogistics brings smart load planning and shipment visibility into one entrance, with room to grow into schedules, booking, and ERP connectivity."
           },
           planning: {
             kicker: "Available · Smart load planning",
@@ -583,7 +584,7 @@ export const messages = {
         }
       },
       capabilities: {
-        aria: "CROS platform capabilities",
+        aria: "DrewesLogistics platform capabilities",
         planning: {
           title: "Smart Load Planning",
           description: "Build 3D loading plans from cargo and container data, then review space, balance, and operating constraints.",
@@ -614,7 +615,7 @@ export const messages = {
       statement: {
         eyebrow: "One entrance · Clear boundaries",
         title: "Connect the tools in use today while leaving room for what comes next.",
-        description: "CROS keeps each module focused while presenting planning and tracking through one branded entrance. Cargo Tracking is public; enterprise workspaces and administration remain protected by sign-in and role checks.",
+        description: "DrewesLogistics keeps each module focused while presenting planning and tracking through one branded entrance. Cargo Tracking is public; enterprise workspaces and administration remain protected by sign-in and role checks.",
         track: "Track cargo publicly",
         metricOnline: "capabilities available",
         metricPublic: "public query service",
@@ -622,8 +623,8 @@ export const messages = {
       },
       company: {
         eyebrow: "COMPANY PROFILE · SHANGHAI",
-        internationalName: "SUPPLY CHAIN MANAGEMENT & FREIGHT FORWARDING",
-        legalName: "德鲁威斯（上海）供应链管理有限公司",
+        internationalName: "德鲁威斯（上海）供应链管理有限公司",
+        legalName: "Drewes (Shanghai) Supply Chain Management Co., Ltd.",
         description: "Registered on March 16, 2023 in Hongkou District, Shanghai, the company focuses on supply chain management, international and domestic freight forwarding, ship agency, and transport equipment services.",
         detail: "Its registered scope includes supply chain management; international, ocean, air, and road freight forwarding; inspection declaration; international ship agency; domestic freight forwarding; equipment and vessel leasing; container sales; and NVOCC services.",
         incorporatedLabel: "Incorporated",
@@ -683,13 +684,14 @@ export const messages = {
         viewWorkspaces: "View current workspaces"
       },
       cta: {
-        eyebrow: "START WITH CROS",
+        eyebrow: "START WITH DrewesLogistics",
         title: "Start with one query and see a more connected freight operation.",
         description: "Public tracking needs no sign-in. Enterprise accounts and role checks protect load planning and administration.",
         publicTracking: "Open Cargo Tracking"
       },
       transition: {
-        copy: "Opening the operations workspace"
+        copy: "Opening the operations workspace",
+        returnHome: "Returning to the DrewesLogistics home page"
       },
       footer: {
         tagline: "A modular digital operations platform for freight forwarders",

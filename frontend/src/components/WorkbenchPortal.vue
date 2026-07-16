@@ -15,7 +15,7 @@
           </svg>
         </span>
         <span class="portal-brand-copy">
-          <strong>CP<span>OS</span></strong>
+          <strong>DrewesLogistics</strong>
           <small>{{ t("portal.productLine") }}</small>
         </span>
       </RouterLink>
@@ -191,7 +191,7 @@
       </section>
 
       <footer class="portal-footer">
-        <span>CP OPERATIONS SUITE · {{ currentYear }}</span>
+        <span>DrewesLogistics · {{ currentYear }}</span>
         <span>{{ t("portal.footerHint") }}</span>
       </footer>
     </section>
@@ -331,12 +331,9 @@ const todayText = computed(() => new Intl.DateTimeFormat(currentLocale.value ===
 }
 
 .portal-brand-copy strong {
-  font-size: 18px;
-  letter-spacing: 0.08em;
-}
-
-.portal-brand-copy strong span {
-  color: #64d9f4;
+  font-size: 16px;
+  letter-spacing: 0.015em;
+  white-space: nowrap;
 }
 
 .portal-brand-copy small {
@@ -898,7 +895,6 @@ const todayText = computed(() => new Intl.DateTimeFormat(currentLocale.value ===
   color: #173957;
 }
 
-.portal-brand-copy strong span,
 .portal-kicker,
 .portal-section-head span,
 .portal-card-label {

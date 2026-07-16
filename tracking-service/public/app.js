@@ -28,6 +28,8 @@ const networkProbeStatus = document.querySelector("#network-probe-status");
 const playwrightProbeStatus = document.querySelector("#playwright-probe-status");
 const networkProbeLatency = document.querySelector("#network-probe-latency");
 const playwrightProbeLatency = document.querySelector("#playwright-probe-latency");
+const systemWaitOverlay = document.querySelector("#system-wait-overlay");
+const systemWaitMessage = document.querySelector("#system-wait-message");
 
 const CACHE_VERSION = 3;
 const CACHE_TTL_MS = 24 * 60 * 60_000;
@@ -176,6 +178,9 @@ const MESSAGES = {
     "query.number": "Shipment No.",
     "query.submit": "Track shipment",
     "query.loading": "Tracking…",
+    "wait.tracking": "Retrieving the latest shipment data…",
+    "wait.channels": "Checking carrier channels…",
+    "wait.home": "Returning to the DrewesLogistics home page…",
     "query.helper": "Automatic mode calls the network interface first and uses the Playwright browser only as a fallback.",
     "channel.auto": "Automatic · API first, DOM fallback",
     "channel.network": "Channel 1 · Network interface",
@@ -353,6 +358,9 @@ const MESSAGES = {
     "query.number": "运输单号",
     "query.submit": "查询运输信息",
     "query.loading": "查询中…",
+    "wait.tracking": "正在获取最新货物信息…",
+    "wait.channels": "正在检测船司查询通道…",
+    "wait.home": "正在返回 DrewesLogistics 首页…",
     "query.helper": "自动模式优先调用网络接口，失败后才启用 Playwright 浏览器托底。",
     "channel.auto": "自动 · 接口优先，DOM 托底",
     "channel.network": "通道一 · 网络接口",
@@ -512,6 +520,7 @@ let viewTransitionSequence = 0;
 let trackingRequestSequence = 0;
 let lastChannelCheck = null;
 let channelCheckLoading = false;
+const activeWaitOperations = new Map();
 const expandedHistoryKeys = new Set();
 
 function t(key, variables = {}) {
@@ -776,6 +785,48 @@ function setLoading(value) {
   if (label) label.textContent = t(loading ? "query.loading" : "query.submit");
   submitButton.disabled = loading || !CARRIERS[carrierSelect.value]?.enabled;
   results.classList.toggle("is-refreshing", loading && !results.hidden);
+}
+
+function renderSystemWait() {
+  const activeOperations = [...activeWaitOperations.values()];
+  const currentOperation = activeOperations.at(-1);
+
+  if (!currentOperation) {
+    systemWaitOverlay.hidden = true;
+    systemWaitOverlay.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("is-system-waiting");
+    if (!document.body.classList.contains("is-page-leaving")) {
+      document.body.removeAttribute("aria-busy");
+    }
+    return;
+  }
+
+  systemWaitMessage.dataset.i18n = currentOperation.messageKey;
+  systemWaitMessage.textContent = t(currentOperation.messageKey);
+  systemWaitOverlay.hidden = false;
+  systemWaitOverlay.setAttribute("aria-hidden", "false");
+  document.body.classList.add("is-system-waiting");
+  document.body.setAttribute("aria-busy", "true");
+}
+
+function beginSystemWait(type, messageKey) {
+  const token = Symbol(type);
+  activeWaitOperations.set(token, { type, messageKey });
+  renderSystemWait();
+  return token;
+}
+
+function endSystemWait(token) {
+  if (!token) return;
+  activeWaitOperations.delete(token);
+  renderSystemWait();
+}
+
+function clearSystemWaitType(type) {
+  for (const [token, operation] of activeWaitOperations) {
+    if (operation.type === type) activeWaitOperations.delete(token);
+  }
+  renderSystemWait();
 }
 
 function showError(message, variant = "error") {
@@ -1917,6 +1968,7 @@ checkChannelsButton.addEventListener("click", async () => {
   if (!carrier?.enabled || channelCheckLoading) return;
 
   setChannelCheckLoading(true);
+  const waitToken = beginSystemWait("channels", "wait.channels");
   try {
     const response = requireAuthorizedResponse(
       await fetch(appUrl("api/channels/check"), {
@@ -1941,6 +1993,7 @@ checkChannelsButton.addEventListener("click", async () => {
     });
   } finally {
     setChannelCheckLoading(false);
+    endSystemWait(waitToken);
   }
 });
 
@@ -1963,6 +2016,7 @@ form.addEventListener("submit", async (event) => {
 
   const requestSequence = ++trackingRequestSequence;
   setLoading(true);
+  const waitToken = beginSystemWait("tracking", "wait.tracking");
   updateUrl(query);
   const localPayload = loadSnapshot(query);
   if (localPayload) renderResult(localPayload);
@@ -1987,12 +2041,14 @@ form.addEventListener("submit", async (event) => {
     );
   } finally {
     if (requestSequence === trackingRequestSequence) setLoading(false);
+    endSystemWait(waitToken);
   }
 });
 
 carrierSelect.addEventListener("change", () => {
   trackingRequestSequence += 1;
   setLoading(false);
+  clearSystemWaitType("tracking");
   updateCarrierUI({ resetResult: true });
 });
 channelSelect.addEventListener("change", () => updateCarrierUI({ resetResult: true }));
@@ -2021,10 +2077,12 @@ document.querySelectorAll("[data-home-link]").forEach((link) => {
 
     event.preventDefault();
     if (document.body.classList.contains("is-page-leaving")) return;
+    const waitToken = beginSystemWait("navigation", "wait.home");
     document.body.classList.add("is-page-leaving");
     document.body.setAttribute("aria-busy", "true");
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     window.setTimeout(() => window.location.assign(link.href), reduceMotion ? 0 : 180);
+    window.setTimeout(() => endSystemWait(waitToken), 6000);
   });
 });
 
@@ -2049,6 +2107,11 @@ function syncViewFromLocation() {
 
 window.addEventListener("hashchange", syncViewFromLocation);
 window.addEventListener("popstate", syncViewFromLocation);
+window.addEventListener("pageshow", () => {
+  document.body.classList.remove("is-page-leaving");
+  activeWaitOperations.clear();
+  renderSystemWait();
+});
 
 migrateLegacyCache();
 applyLanguage(currentLanguage, { persist: false });

@@ -7,10 +7,11 @@
   <template v-else>
   <LanguageSwitcher v-if="!authChecked || !currentUser" class="global-language-switcher" />
   <LoginPage v-if="authChecked && !currentUser" @logged-in="handleLoggedIn" />
-  <div v-else-if="!authChecked" class="auth-loading-shell">
-    <div class="spinner"></div>
-    <span>正在检查登录状态...</span>
-  </div>
+  <SystemWaitOverlay
+    v-else-if="!authChecked"
+    :visible="true"
+    :message="t('app.loadingAuth')"
+  />
   <AdminDashboard
     v-else-if="activePage === 'admin' && currentUser?.role === 'ADMIN'"
     key="admin"
@@ -46,7 +47,7 @@
           @click="handleReturnHome"
         >
           <el-icon><House /></el-icon>
-          <span>CROS {{ t("landing.nav.home") }}</span>
+          <span>DrewesLogistics {{ t("landing.nav.home") }}</span>
         </a>
         <LanguageSwitcher class="topbar-language-switcher" />
         <el-tag effect="plain" type="primary">{{ pageTitle }}</el-tag>
@@ -827,16 +828,10 @@
     </div>
     <div v-if="toast" class="toast">{{ toast }}</div>
   </div>
-  <Transition name="login-redirect">
-    <div v-if="loginRedirecting" class="login-redirect-overlay">
-      <div class="login-redirect-card">
-        <span class="login-redirect-mark">CP</span>
-        <strong>{{ loginRedirectText }}</strong>
-        <small>正在加载工作区与权限面板</small>
-        <i></i>
-      </div>
-    </div>
-  </Transition>
+  <SystemWaitOverlay
+    :visible="loginRedirecting || pageLeaving"
+    :message="pageLeaving ? t('landing.transition.returnHome') : loginRedirectText"
+  />
   </template>
   </el-config-provider>
 </template>
@@ -866,6 +861,7 @@ import {
   Upload
 } from "@element-plus/icons-vue";
 import LanguageSwitcher from "./components/LanguageSwitcher.vue";
+import SystemWaitOverlay from "./components/SystemWaitOverlay.vue";
 import { exportPackingReportsZip, exportPackingReport } from "./services/exportReport";
 import { assignCargoModels } from "./utils/cargoModels";
 import { buildPreviewInWorker, readWorkbookInWorker } from "./services/excelImportClient";
@@ -1196,6 +1192,8 @@ const plannerWorkflowSteps = computed(() => [
 
 onMounted(async () => {
   window.addEventListener("auth-expired", handleAuthExpired);
+  window.addEventListener("pageshow", resetGlobalWaitState);
+  window.addEventListener("pagehide", resetGlobalWaitState);
   await initializeAuth();
   restoreState();
   restoreCargoTemplates();
@@ -1210,6 +1208,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener("auth-expired", handleAuthExpired);
+  window.removeEventListener("pageshow", resetGlobalWaitState);
+  window.removeEventListener("pagehide", resetGlobalWaitState);
   stopPackingElapsedTimer();
   window.clearTimeout(pageLeaveTimer);
 });
@@ -1421,6 +1421,13 @@ function handleReturnHome(event: MouseEvent) {
     // boot through the dedicated lightweight landing entry.
     window.location.assign("/");
   }, reduceMotion ? 0 : 180);
+}
+
+function resetGlobalWaitState() {
+  window.clearTimeout(pageLeaveTimer);
+  pageLeaveTimer = 0;
+  pageLeaving.value = false;
+  loginRedirecting.value = false;
 }
 
 function buildPackingPayload(activeContainers = calculationContainers.value) {

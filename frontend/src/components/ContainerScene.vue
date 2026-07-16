@@ -60,10 +60,12 @@
     <div class="packing-visual-layout">
       <div class="packing-canvas-panel" @pointermove="handlePointerMove" @pointerleave="handlePointerLeave">
         <div ref="canvasHost" class="packing-scene-canvas"></div>
-        <div v-if="visualBusy" class="loading-mask visual-loading">
-          <div class="spinner"></div>
-          <span>{{ tr(visualBusyText) }}</span>
-        </div>
+        <SystemWaitOverlay
+          v-if="visualBusy"
+          :visible="true"
+          :message="tr(visualBusyText)"
+          contained
+        />
         <div v-else-if="emptyStateVisible" class="visual-empty-state">
           <el-empty :description="emptyStateText" />
         </div>
@@ -257,6 +259,7 @@ import { PackingSceneRenderer } from "../visualization/packingSceneRenderer";
 import type { SceneCargo, SceneViewMode, SceneViewPreset, SliceAxis } from "../visualization/packingSceneTypes";
 import { currentLocale, t } from "../i18n";
 import { translateLegacyText } from "../i18n/legacyText";
+import SystemWaitOverlay from "./SystemWaitOverlay.vue";
 
 const props = defineProps({
   container: { type: Object, default: null },

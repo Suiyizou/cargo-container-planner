@@ -6142,3 +6142,145 @@ body.is-page-leaving .app-shell {
 body.is-page-leaving .ambient {
   opacity: 0;
 }
+
+/* DrewesLogistics system wait state */
+.system-wait-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: grid;
+  color: #ffffff;
+  background:
+    radial-gradient(circle at 50% 45%, rgba(42, 151, 238, 0.2), transparent 22%),
+    #061725;
+  place-content: center;
+  justify-items: center;
+}
+
+.system-wait-overlay[hidden] {
+  display: none;
+}
+
+.system-wait-content {
+  display: grid;
+  min-width: 260px;
+  justify-items: center;
+}
+
+.system-wait-mark {
+  position: relative;
+  width: 68px;
+  height: 68px;
+  margin-bottom: 22px;
+  border: 1px solid rgba(85, 186, 255, 0.28);
+  background: rgba(8, 35, 55, 0.62);
+  border-radius: 16px;
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.22),
+    inset 0 0 26px rgba(54, 160, 239, 0.08);
+  perspective: 180px;
+}
+
+.system-wait-page {
+  position: absolute;
+  top: 19px;
+  width: 10px;
+  height: 30px;
+  border: 2px solid #55baff;
+  border-radius: 2px;
+  transform: skewY(-20deg);
+  transform-origin: left center;
+  animation: system-wait-page 1.35s cubic-bezier(.45, 0, .2, 1) infinite;
+}
+
+.system-wait-page-one {
+  left: 17px;
+}
+
+.system-wait-page-two {
+  left: 29px;
+  animation-delay: 0.12s;
+}
+
+.system-wait-page-three {
+  left: 41px;
+  animation-delay: 0.24s;
+}
+
+.system-wait-content > strong {
+  font-size: 24px;
+  font-weight: 760;
+  letter-spacing: 0.055em;
+}
+
+.system-wait-content > span {
+  margin-top: 9px;
+  color: rgba(221, 239, 252, 0.68);
+  font-size: 11px;
+  letter-spacing: 0.035em;
+}
+
+.system-wait-progress {
+  width: 180px;
+  height: 2px;
+  margin-top: 22px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.system-wait-progress i {
+  display: block;
+  width: 54%;
+  height: 100%;
+  background: #46baff;
+  animation: system-wait-progress 1.25s ease-in-out infinite;
+}
+
+@keyframes system-wait-page {
+  0%,
+  18% {
+    opacity: 0.42;
+    transform: skewY(-20deg) rotateY(0);
+  }
+
+  48% {
+    opacity: 1;
+    transform: skewY(-20deg) rotateY(-54deg);
+  }
+
+  82%,
+  100% {
+    opacity: 0.42;
+    transform: skewY(-20deg) rotateY(0);
+  }
+}
+
+@keyframes system-wait-progress {
+  0% {
+    transform: translateX(-105%);
+  }
+
+  55% {
+    transform: translateX(86%);
+  }
+
+  100% {
+    transform: translateX(190%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .system-wait-page,
+  .system-wait-progress i {
+    animation: none;
+  }
+
+  .system-wait-page {
+    opacity: 0.9;
+  }
+
+  .system-wait-progress i {
+    width: 64%;
+    transform: none;
+  }
+}
