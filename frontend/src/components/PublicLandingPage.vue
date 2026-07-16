@@ -1,5 +1,10 @@
 <template>
-  <div class="landing-page">
+  <div
+    ref="landingRoot"
+    class="landing-page"
+    :lang="currentLocale"
+    :class="{ 'is-english': currentLocale === 'en-US' }"
+  >
     <Transition name="landing-intro">
       <div
         v-if="showIntro"
@@ -52,7 +57,7 @@
           <span>{{ t("landing.status.public") }}</span>
         </a>
         <a href="#landing-roadmap">{{ t("landing.nav.roadmap") }}</a>
-        <a href="#landing-about">{{ t("landing.nav.about") }}</a>
+        <a href="#landing-company">{{ t("landing.nav.about") }}</a>
       </nav>
 
       <div class="landing-header__actions">
@@ -151,11 +156,12 @@
       <section id="landing-capabilities" class="landing-capabilities" :aria-label="t('landing.capabilities.aria')">
         <div class="landing-capabilities__grid">
           <a
-            v-for="item in capabilities"
+            v-for="(item, index) in capabilities"
             :key="item.id"
-            class="landing-capability-card"
+            class="landing-capability-card landing-reveal"
             :class="[`landing-capability-card--${item.id}`, { 'is-public': item.status === 'public' }]"
             :href="item.href"
+            :style="{ '--landing-reveal-delay': `${index * 80}ms` }"
           >
             <span class="landing-capability-card__number">{{ item.number }}</span>
             <span class="landing-capability-card__icon"><el-icon><component :is="item.icon" /></el-icon></span>
@@ -174,12 +180,12 @@
       </section>
 
       <section id="landing-about" class="landing-statement">
-        <div class="landing-section-heading landing-section-heading--center">
+        <div class="landing-section-heading landing-section-heading--center landing-reveal">
           <p>{{ t("landing.statement.eyebrow") }}</p>
           <h2>{{ t("landing.statement.title") }}</h2>
           <span>{{ t("landing.statement.description") }}</span>
         </div>
-        <div class="landing-statement__actions">
+        <div class="landing-statement__actions landing-reveal landing-reveal--delay-1">
           <a class="landing-pill landing-pill--dark" :href="trackingEntryPath">
             <el-icon><Search /></el-icon>
             {{ t("landing.statement.track") }}
@@ -189,7 +195,7 @@
             {{ platformEntryLabel }}
           </RouterLink>
         </div>
-        <div class="landing-statement__metrics">
+        <div class="landing-statement__metrics landing-reveal landing-reveal--delay-2">
           <div>
             <strong>02</strong>
             <span>{{ t("landing.statement.metricOnline") }}</span>
@@ -205,8 +211,93 @@
         </div>
       </section>
 
+      <section id="landing-company" class="landing-company">
+        <div class="landing-company__intro">
+          <div class="landing-company__identity landing-reveal">
+            <p class="landing-company__eyebrow">{{ t("landing.company.eyebrow") }}</p>
+            <span class="landing-company__international-name">{{ t("landing.company.internationalName") }}</span>
+            <h2>{{ t("landing.company.legalName") }}</h2>
+            <p class="landing-company__description">{{ t("landing.company.description") }}</p>
+            <div class="landing-company__tags" :aria-label="t('landing.company.tagsAria')">
+              <span>{{ t("landing.company.tags.forwarding") }}</span>
+              <span>{{ t("landing.company.tags.project") }}</span>
+              <span>{{ t("landing.company.tags.network") }}</span>
+            </div>
+            <div class="landing-company__actions">
+              <a
+                class="landing-button landing-button--company"
+                href="https://www.logisticsplus.com/directory/our-locations/china/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {{ t("landing.company.officialProfile") }}
+                <el-icon><ArrowRight /></el-icon>
+              </a>
+              <a class="landing-company__email-link" href="mailto:china@logisticsplus.com">
+                china@logisticsplus.com
+              </a>
+            </div>
+            <small class="landing-company__source-note">{{ t("landing.company.sourceNote") }}</small>
+          </div>
+
+          <div class="landing-company__facts" :aria-label="t('landing.company.factsAria')">
+            <article
+              v-for="(fact, index) in companyFacts"
+              :key="fact.id"
+              class="landing-company__fact landing-reveal"
+              :style="{ '--landing-reveal-delay': `${index * 90}ms` }"
+            >
+              <span>{{ fact.value }}</span>
+              <strong>{{ fact.label }}</strong>
+              <p>{{ fact.description }}</p>
+            </article>
+          </div>
+        </div>
+
+        <div class="landing-company__services">
+          <div class="landing-section-heading landing-section-heading--light landing-reveal">
+            <p>{{ t("landing.company.servicesEyebrow") }}</p>
+            <h2>{{ t("landing.company.servicesTitle") }}</h2>
+            <span>{{ t("landing.company.servicesDescription") }}</span>
+          </div>
+          <div class="landing-company__service-grid">
+            <article
+              v-for="(service, index) in companyServices"
+              :key="service.id"
+              class="landing-company__service-card landing-reveal"
+              :style="{ '--landing-reveal-delay': `${(index % 3) * 90}ms` }"
+            >
+              <span class="landing-company__service-icon"><el-icon><component :is="service.icon" /></el-icon></span>
+              <div>
+                <small>{{ service.number }}</small>
+                <h3>{{ service.title }}</h3>
+                <p>{{ service.description }}</p>
+              </div>
+            </article>
+          </div>
+        </div>
+
+        <div class="landing-company__contact landing-reveal">
+          <div class="landing-company__contact-title">
+            <span><el-icon><OfficeBuilding /></el-icon></span>
+            <div>
+              <small>{{ t("landing.company.contactEyebrow") }}</small>
+              <h3>{{ t("landing.company.contactTitle") }}</h3>
+            </div>
+          </div>
+          <div class="landing-company__contact-item">
+            <span>{{ t("landing.company.addressLabel") }}</span>
+            <strong>{{ t("landing.company.address") }}</strong>
+          </div>
+          <div class="landing-company__contact-item">
+            <span>{{ t("landing.company.emailLabel") }}</span>
+            <a href="mailto:china@logisticsplus.com">china@logisticsplus.com</a>
+          </div>
+        </div>
+      </section>
+
       <section id="landing-roadmap" class="landing-roadmap">
-        <div class="landing-roadmap__visual" aria-hidden="true">
+        <div class="landing-roadmap__visual landing-reveal" aria-hidden="true">
           <div class="landing-roadmap__orb landing-roadmap__orb--one"></div>
           <div class="landing-roadmap__orb landing-roadmap__orb--two"></div>
           <div class="landing-roadmap__console">
@@ -230,7 +321,7 @@
           </div>
         </div>
 
-        <div class="landing-roadmap__content">
+        <div class="landing-roadmap__content landing-reveal landing-reveal--delay-1">
           <div class="landing-section-heading">
             <p>{{ t("landing.roadmap.eyebrow") }}</p>
             <h2>{{ t("landing.roadmap.title") }}</h2>
@@ -255,7 +346,7 @@
         </div>
       </section>
 
-      <section class="landing-cta">
+      <section class="landing-cta landing-reveal">
         <div>
           <p>{{ t("landing.cta.eyebrow") }}</p>
           <h2>{{ t("landing.cta.title") }}</h2>
@@ -283,6 +374,7 @@
       </div>
       <div class="landing-footer__links">
         <a href="#landing-capabilities">{{ t("landing.nav.capabilities") }}</a>
+        <a href="#landing-company">{{ t("landing.nav.about") }}</a>
         <a href="#landing-roadmap">{{ t("landing.nav.roadmap") }}</a>
         <a :href="trackingEntryPath">Cargo Tracking</a>
         <RouterLink :to="platformEntryPath">{{ t("landing.footer.signIn") }}</RouterLink>
@@ -328,9 +420,11 @@ function introWasSeen() {
 const showIntro = ref(!introWasSeen());
 const activeSlideIndex = ref(0);
 const reducedMotion = ref(false);
+const landingRoot = ref<HTMLElement | null>(null);
 let introTimer = 0;
 let autoplayTimer = 0;
 let previousBodyOverflow = "";
+let revealObserver: IntersectionObserver | null = null;
 
 const platformEntryPath = computed(() => props.currentUser?.role === "ADMIN" ? "/admin" : "/workbenches");
 const platformEntryLabel = computed(() => {
@@ -431,6 +525,84 @@ const capabilities = computed(() => {
   ];
 });
 
+const companyFacts = computed(() => {
+  currentLocale.value;
+  return [
+    {
+      id: "since",
+      value: t("landing.company.facts.since.value"),
+      label: t("landing.company.facts.since.label"),
+      description: t("landing.company.facts.since.description")
+    },
+    {
+      id: "expansion",
+      value: t("landing.company.facts.expansion.value"),
+      label: t("landing.company.facts.expansion.label"),
+      description: t("landing.company.facts.expansion.description")
+    },
+    {
+      id: "model",
+      value: t("landing.company.facts.model.value"),
+      label: t("landing.company.facts.model.label"),
+      description: t("landing.company.facts.model.description")
+    },
+    {
+      id: "modes",
+      value: t("landing.company.facts.modes.value"),
+      label: t("landing.company.facts.modes.label"),
+      description: t("landing.company.facts.modes.description")
+    }
+  ];
+});
+
+const companyServices = computed(() => {
+  currentLocale.value;
+  return [
+    {
+      id: "ocean-air",
+      number: "01",
+      icon: Ship,
+      title: t("landing.company.services.oceanAir.title"),
+      description: t("landing.company.services.oceanAir.description")
+    },
+    {
+      id: "ground-rail",
+      number: "02",
+      icon: Connection,
+      title: t("landing.company.services.groundRail.title"),
+      description: t("landing.company.services.groundRail.description")
+    },
+    {
+      id: "project",
+      number: "03",
+      icon: Box,
+      title: t("landing.company.services.project.title"),
+      description: t("landing.company.services.project.description")
+    },
+    {
+      id: "warehouse",
+      number: "04",
+      icon: OfficeBuilding,
+      title: t("landing.company.services.warehouse.title"),
+      description: t("landing.company.services.warehouse.description")
+    },
+    {
+      id: "compliance",
+      number: "05",
+      icon: Search,
+      title: t("landing.company.services.compliance.title"),
+      description: t("landing.company.services.compliance.description")
+    },
+    {
+      id: "technology",
+      number: "06",
+      icon: Monitor,
+      title: t("landing.company.services.technology.title"),
+      description: t("landing.company.services.technology.description")
+    }
+  ];
+});
+
 function stopAutoplay() {
   if (autoplayTimer) window.clearInterval(autoplayTimer);
   autoplayTimer = 0;
@@ -474,6 +646,31 @@ function updateDocumentTitle() {
   document.title = t("landing.metaTitle");
 }
 
+function setupRevealObserver() {
+  const root = landingRoot.value;
+  const elements = root?.querySelectorAll<HTMLElement>(".landing-reveal");
+  if (!root || !elements?.length) return;
+
+  if (reducedMotion.value || !("IntersectionObserver" in window)) {
+    elements.forEach((element) => element.classList.add("is-visible"));
+    return;
+  }
+
+  root.classList.add("is-reveal-ready");
+  revealObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      entry.target.classList.add("is-visible");
+      revealObserver?.unobserve(entry.target);
+    });
+  }, {
+    threshold: 0.12,
+    rootMargin: "0px 0px -8% 0px"
+  });
+
+  elements.forEach((element) => revealObserver?.observe(element));
+}
+
 onMounted(() => {
   reducedMotion.value = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const alreadySeen = introWasSeen();
@@ -486,6 +683,7 @@ onMounted(() => {
     startAutoplay();
   }
   updateDocumentTitle();
+  setupRevealObserver();
 });
 
 watch(currentLocale, updateDocumentTitle);
@@ -493,6 +691,7 @@ watch(currentLocale, updateDocumentTitle);
 onUnmounted(() => {
   window.clearTimeout(introTimer);
   stopAutoplay();
+  revealObserver?.disconnect();
   document.body.style.overflow = previousBodyOverflow;
   document.title = t("app.name");
 });
@@ -517,6 +716,12 @@ onUnmounted(() => {
   color: inherit;
   text-decoration: none;
 }
+
+#landing-top,
+#landing-capabilities,
+#landing-about,
+#landing-company,
+#landing-roadmap { scroll-margin-top: 84px; }
 
 .landing-intro {
   position: fixed;
@@ -846,7 +1051,7 @@ button.landing-intro__skip:hover {
 
 .landing-hero {
   position: relative;
-  min-height: 680px;
+  min-height: 720px;
   overflow: hidden;
   color: #fff;
   background: #071829;
@@ -906,24 +1111,28 @@ button.landing-intro__skip:hover {
   position: relative;
   z-index: 2;
   width: min(1400px, calc(100% - 96px));
-  min-height: 680px;
+  min-height: 720px;
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(330px, 0.52fr);
   align-items: center;
-  gap: 9vw;
+  gap: 7vw;
   margin: 0 auto;
-  padding: 64px 0 108px;
+  padding: 46px 0 156px;
 }
 
-.landing-hero__content { max-width: 820px; }
+.landing-hero__content {
+  align-self: center;
+  min-width: 0;
+  max-width: 820px;
+}
 
 .landing-kicker {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 0 0 26px;
+  margin: 0 0 18px;
   color: #b9ddf7;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.2em;
   text-transform: uppercase;
@@ -936,33 +1145,41 @@ button.landing-intro__skip:hover {
 }
 
 .landing-hero h1 {
-  max-width: 780px;
+  max-width: 760px;
   margin: 0;
   color: #fff;
-  font-size: clamp(44px, 5.6vw, 82px);
-  font-weight: 720;
-  letter-spacing: -0.045em;
-  line-height: 1.06;
+  font-size: clamp(40px, 4vw, 62px);
+  font-weight: 680;
+  letter-spacing: -0.028em;
+  line-height: 1.13;
   text-wrap: balance;
+}
+
+.landing-page.is-english .landing-hero h1 {
+  max-width: 840px;
+  font-size: clamp(36px, 3.7vw, 58px);
+  font-weight: 720;
+  letter-spacing: -0.036em;
+  line-height: 1.12;
 }
 
 .landing-hero__description {
   max-width: 680px;
-  margin: 28px 0 0;
+  margin: 20px 0 0;
   color: rgba(232, 244, 255, 0.8);
-  font-size: clamp(16px, 1.35vw, 20px);
-  line-height: 1.78;
+  font-size: clamp(14px, 1.05vw, 17px);
+  line-height: 1.7;
 }
 
 .landing-hero__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
-  margin-top: 38px;
+  margin-top: 28px;
 }
 
 .landing-button {
-  min-height: 52px;
+  min-height: 48px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -995,8 +1212,8 @@ button.landing-intro__skip:hover {
 .landing-button--ghost:hover { border-color: #fff; background: rgba(255, 255, 255, 0.1); }
 
 .landing-hero__signal {
-  align-self: end;
-  margin-bottom: 142px;
+  align-self: center;
+  margin-bottom: 64px;
   padding: 19px 20px;
   border: 1px solid rgba(183, 225, 255, 0.22);
   border-radius: 14px;
@@ -1181,7 +1398,7 @@ button.landing-intro__skip:hover {
   position: relative;
   z-index: 8;
   width: min(1260px, calc(100% - 64px));
-  margin: -66px auto 0;
+  margin: -54px auto 0;
 }
 
 .landing-capabilities__grid {
@@ -1400,6 +1617,306 @@ button.landing-intro__skip:hover {
 .landing-statement__metrics div + div { border-left: 1px solid var(--landing-line); }
 .landing-statement__metrics strong { color: #0b6fd2; font-size: 28px; }
 .landing-statement__metrics span { color: #526b80; font-size: 13px; font-weight: 700; }
+
+.landing-company {
+  position: relative;
+  padding: 118px max(32px, calc((100vw - 1260px) / 2)) 108px;
+  overflow: hidden;
+  color: #fff;
+  background:
+    radial-gradient(circle at 88% 4%, rgba(30, 140, 255, 0.22), transparent 28%),
+    radial-gradient(circle at 10% 64%, rgba(42, 196, 173, 0.1), transparent 27%),
+    linear-gradient(132deg, #061725 0%, #08263f 58%, #073456 100%);
+}
+
+.landing-company::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.12;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(148, 205, 244, 0.22) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 205, 244, 0.18) 1px, transparent 1px);
+  background-size: 74px 74px;
+  mask-image: linear-gradient(90deg, #000, transparent 72%);
+}
+
+.landing-company__intro,
+.landing-company__services,
+.landing-company__contact {
+  position: relative;
+  z-index: 1;
+  max-width: 1260px;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.landing-company__intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1.02fr) minmax(460px, 0.98fr);
+  align-items: start;
+  gap: clamp(56px, 7vw, 104px);
+}
+
+.landing-company__eyebrow {
+  margin: 0 0 18px;
+  color: #75c8ff;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.19em;
+}
+
+.landing-company__international-name {
+  display: block;
+  margin-bottom: 12px;
+  color: rgba(218, 239, 255, 0.62);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+}
+
+.landing-company__identity h2 {
+  max-width: 680px;
+  margin: 0;
+  color: #fff;
+  font-size: clamp(34px, 3.55vw, 52px);
+  font-weight: 690;
+  letter-spacing: -0.035em;
+  line-height: 1.16;
+  text-wrap: balance;
+}
+
+.landing-page.is-english .landing-company__identity h2 {
+  font-size: clamp(31px, 3.1vw, 46px);
+  line-height: 1.14;
+}
+
+.landing-company__description {
+  max-width: 720px;
+  margin: 26px 0 0;
+  color: rgba(221, 239, 252, 0.76);
+  font-size: 15px;
+  line-height: 1.82;
+}
+
+.landing-company__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 26px;
+}
+
+.landing-company__tags span {
+  padding: 8px 11px;
+  border: 1px solid rgba(133, 203, 249, 0.18);
+  border-radius: 999px;
+  color: #c9e9ff;
+  background: rgba(99, 180, 235, 0.08);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+}
+
+.landing-company__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 20px;
+  margin-top: 32px;
+}
+
+.landing-button--company {
+  min-height: 50px;
+  border: 1px solid rgba(124, 205, 255, 0.5);
+  color: #fff !important;
+  background: linear-gradient(135deg, #0c70cf, #108ce8);
+  box-shadow: 0 16px 34px rgba(0, 90, 173, 0.26);
+}
+
+.landing-company__email-link {
+  color: #8fd4ff !important;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.landing-company__email-link:hover { color: #fff !important; }
+
+.landing-company__source-note {
+  display: block;
+  max-width: 680px;
+  margin-top: 22px;
+  color: rgba(193, 219, 237, 0.48);
+  font-size: 10px;
+  line-height: 1.65;
+}
+
+.landing-company__facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.landing-company__fact {
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  padding: 25px;
+  border: 1px solid rgba(152, 211, 249, 0.14);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(12px);
+}
+
+.landing-company__fact span {
+  color: #6fc8ff;
+  font-size: clamp(25px, 2.35vw, 36px);
+  font-weight: 760;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+
+.landing-company__fact strong {
+  margin-top: auto;
+  padding-top: 34px;
+  color: #fff;
+  font-size: 14px;
+}
+
+.landing-company__fact p {
+  margin: 8px 0 0;
+  color: rgba(207, 230, 245, 0.62);
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.landing-company__services {
+  margin-top: 104px;
+  padding-top: 88px;
+  border-top: 1px solid rgba(151, 208, 246, 0.14);
+}
+
+.landing-section-heading--light h2 { color: #fff; }
+.landing-section-heading--light > span { color: rgba(214, 235, 249, 0.68); }
+.landing-section-heading--light > p { color: #70c7ff; }
+
+.landing-company__service-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 46px;
+}
+
+.landing-company__service-card {
+  min-height: 190px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 18px;
+  padding: 24px;
+  border: 1px solid rgba(161, 214, 248, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  transition: border-color 0.22s ease, background 0.22s ease, transform 0.22s ease;
+}
+
+.landing-company__service-card:hover {
+  border-color: rgba(108, 198, 255, 0.34);
+  background: rgba(255, 255, 255, 0.09);
+  transform: translateY(-4px);
+}
+
+.landing-company__service-icon {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  color: #63c5ff;
+  background: rgba(70, 171, 235, 0.13);
+  font-size: 21px;
+}
+
+.landing-company__service-card small {
+  display: block;
+  color: #5ebcf7;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.14em;
+}
+
+.landing-company__service-card h3 {
+  margin: 12px 0 8px;
+  color: #fff;
+  font-size: 17px;
+  letter-spacing: -0.015em;
+}
+
+.landing-company__service-card p {
+  margin: 0;
+  color: rgba(206, 229, 244, 0.62);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.landing-company__contact {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.95fr) minmax(340px, 1.35fr) minmax(190px, 0.7fr);
+  align-items: center;
+  gap: 34px;
+  margin-top: 28px;
+  padding: 26px 30px;
+  border: 1px solid rgba(130, 205, 252, 0.2);
+  border-radius: 13px;
+  background: linear-gradient(100deg, rgba(16, 106, 176, 0.32), rgba(255, 255, 255, 0.055));
+}
+
+.landing-company__contact-title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.landing-company__contact-title > span {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #7ed0ff;
+  background: rgba(95, 190, 249, 0.12);
+  font-size: 20px;
+}
+
+.landing-company__contact small,
+.landing-company__contact-item > span {
+  display: block;
+  margin-bottom: 6px;
+  color: rgba(181, 218, 241, 0.58);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.landing-company__contact h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.landing-company__contact-item strong,
+.landing-company__contact-item a {
+  color: #e8f6ff;
+  font-size: 12px;
+  font-weight: 680;
+  line-height: 1.65;
+}
+
+.landing-company__contact-item a:hover { color: #6fcbff; }
 
 .landing-roadmap {
   min-height: 690px;
@@ -1663,16 +2180,54 @@ button.landing-intro__skip:hover {
   to { transform: scaleX(1); }
 }
 
+@keyframes landing-scroll-reveal {
+  from {
+    opacity: 0;
+    translate: 0 28px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+.landing-page.is-reveal-ready .landing-reveal {
+  opacity: 0;
+  translate: 0 28px;
+}
+
+.landing-page.is-reveal-ready .landing-reveal.is-visible {
+  animation: landing-scroll-reveal 0.72s cubic-bezier(0.22, 1, 0.36, 1) var(--landing-reveal-delay, 0ms) both;
+}
+
+.landing-reveal--delay-1 { --landing-reveal-delay: 90ms; }
+.landing-reveal--delay-2 { --landing-reveal-delay: 180ms; }
+
 @media (max-width: 1180px) {
   .landing-header { grid-template-columns: minmax(200px, 1fr) auto; }
   .landing-nav { display: none; }
   .landing-hero__inner { width: min(100% - 64px, 1100px); grid-template-columns: 1fr minmax(280px, 0.45fr); gap: 5vw; }
   .landing-capabilities__grid { grid-template-columns: repeat(2, 1fr); }
   .landing-capability-card { min-height: 238px; }
+  .landing-company__intro { grid-template-columns: 1fr; }
+  .landing-company__fact { min-height: 188px; }
+  .landing-company__service-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .landing-company__contact { grid-template-columns: 1fr 1.35fr; }
+  .landing-company__contact-title { grid-column: 1 / -1; }
   .landing-roadmap__content { padding-right: 48px; padding-left: 48px; }
   .landing-cta { align-items: flex-start; flex-direction: column; }
   .landing-footer { grid-template-columns: 1fr auto; }
   .landing-footer__meta { grid-column: 1 / -1; flex-direction: row; justify-content: space-between; align-items: center; }
+}
+
+@media (min-width: 761px) and (max-height: 800px) {
+  .landing-hero,
+  .landing-hero__inner { min-height: 660px; }
+  .landing-hero__inner { padding: 38px 0 126px; }
+  .landing-hero h1 { font-size: clamp(38px, 3.8vw, 56px); }
+  .landing-page.is-english .landing-hero h1 { font-size: clamp(35px, 3.5vw, 52px); }
+  .landing-hero__signal { margin-bottom: 48px; }
+  .landing-capabilities { margin-top: -48px; }
 }
 
 @media (max-width: 760px) {
@@ -1699,17 +2254,19 @@ button.landing-intro__skip:hover {
     border: 0;
   }
 
-  .landing-hero { min-height: 650px; }
+  .landing-hero { min-height: 700px; }
   .landing-hero__inner {
     width: calc(100% - 36px);
-    min-height: 650px;
+    min-height: 700px;
     grid-template-columns: 1fr;
     align-content: center;
-    padding: 54px 0 128px;
+    padding: 42px 0 136px;
   }
 
-  .landing-hero h1 { font-size: clamp(39px, 12vw, 58px); }
-  .landing-hero__description { font-size: 15px; line-height: 1.65; }
+  .landing-hero h1 { font-size: clamp(34px, 9vw, 46px); }
+  .landing-page.is-english .landing-hero h1 { font-size: clamp(32px, 8.4vw, 44px); }
+  .landing-hero__description { font-size: 14px; line-height: 1.65; }
+  .landing-hero__actions { margin-top: 24px; }
   .landing-hero__signal { display: none; }
   .landing-hero__angle--left { right: 4%; }
   .landing-hero__footer { right: 18px; bottom: 84px; left: 18px; }
@@ -1718,7 +2275,7 @@ button.landing-intro__skip:hover {
   .landing-hero__pagination { gap: 10px; }
   .landing-hero__arrows button { width: 42px; height: 42px; }
 
-  .landing-capabilities { width: calc(100% - 28px); margin-top: -56px; }
+  .landing-capabilities { width: calc(100% - 28px); margin-top: -48px; }
   .landing-capabilities__grid { grid-template-columns: 1fr; }
   .landing-capability-card { min-height: 220px; }
 
@@ -1729,6 +2286,20 @@ button.landing-intro__skip:hover {
   .landing-pill { width: 100%; max-width: 360px; }
   .landing-statement__metrics { grid-template-columns: 1fr; margin-top: 52px; }
   .landing-statement__metrics div + div { border-top: 1px solid var(--landing-line); border-left: 0; }
+
+  .landing-company { padding: 84px 20px 76px; }
+  .landing-company__intro { gap: 50px; }
+  .landing-company__identity h2 { font-size: 31px; }
+  .landing-page.is-english .landing-company__identity h2 { font-size: 29px; }
+  .landing-company__description { font-size: 14px; }
+  .landing-company__actions { align-items: flex-start; flex-direction: column; gap: 15px; }
+  .landing-company__facts { grid-template-columns: 1fr; }
+  .landing-company__fact { min-height: 170px; }
+  .landing-company__services { margin-top: 72px; padding-top: 64px; }
+  .landing-company__service-grid { grid-template-columns: 1fr; margin-top: 34px; }
+  .landing-company__service-card { min-height: 170px; }
+  .landing-company__contact { grid-template-columns: 1fr; gap: 24px; padding: 24px; }
+  .landing-company__contact-title { grid-column: auto; }
 
   .landing-roadmap { grid-template-columns: 1fr; }
   .landing-roadmap__visual { min-height: 440px; }
@@ -1752,6 +2323,12 @@ button.landing-intro__skip:hover {
   .landing-hero__pagination button.active i::after { animation: none; }
   .landing-hero-page-enter-active,
   .landing-hero-page-leave-active { transition-duration: 0.01ms; }
+  .landing-page.is-reveal-ready .landing-reveal,
+  .landing-page.is-reveal-ready .landing-reveal.is-visible {
+    opacity: 1;
+    translate: 0 0;
+    animation: none;
+  }
   .landing-capability-card,
   .landing-button,
   .landing-entry-button { transition: none; }

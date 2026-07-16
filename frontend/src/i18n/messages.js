@@ -19,7 +19,7 @@ export const messages = {
       loadingAuth: "正在检查登录状态..."
     },
     landing: {
-      metaTitle: "CROS · 货代数字化运营平台",
+      metaTitle: "CROS · 上海罗加国际货物运输代理有限公司",
       brandAria: "返回 CROS 首页",
       loader: {
         aria: "CROS 平台正在加载",
@@ -32,7 +32,7 @@ export const messages = {
         capabilities: "平台能力",
         tracking: "Cargo Tracking",
         roadmap: "建设路线",
-        about: "关于平台"
+        about: "关于罗加"
       },
       status: {
         available: "已上线",
@@ -104,6 +104,77 @@ export const messages = {
         metricPublic: "项公开查询服务",
         metricRoadmap: "项平台能力布局"
       },
+      company: {
+        eyebrow: "COMPANY PROFILE · 上海",
+        internationalName: "LOGISTICS PLUS CHINA LIMITED",
+        legalName: "上海罗加国际货物运输代理有限公司",
+        description: "Logistics Plus 官方公开资料将上海罗加与其中国上海团队对应介绍。中国团队自 1999 年进入 Logistics Plus 全球网络，以本地执行连接海运、空运、陆运、铁路与项目物流能力。",
+        tagsAria: "公司核心服务标签",
+        tags: {
+          forwarding: "海空货运代理",
+          project: "项目物流",
+          network: "全球协同网络"
+        },
+        officialProfile: "查看官方上海介绍",
+        sourceNote: "公司信息整理自 Logistics Plus 官方公开资料；当前地址取自官方英文上海页，来访前请通过业务邮箱确认。",
+        factsAria: "上海罗加公司概览",
+        facts: {
+          since: {
+            value: "1999",
+            label: "中国团队网络起点",
+            description: "官方资料记载，Logistics Plus 中国团队自 1999 年进入全球网络。"
+          },
+          expansion: {
+            value: "2022",
+            label: "上海服务网络扩展",
+            description: "近虹桥与国家会展中心的第二个上海办公室于该年启用。"
+          },
+          model: {
+            value: "3PL / 4PL",
+            label: "综合服务模式",
+            description: "覆盖运输、仓储、履约及供应链管理协同。"
+          },
+          modes: {
+            value: "SEA · AIR · RAIL",
+            label: "多式联运能力",
+            description: "连接海运、空运、地面运输、铁路与项目货物。"
+          }
+        },
+        servicesEyebrow: "SERVICES & SOLUTIONS",
+        servicesTitle: "围绕每票货物，组织从运输到交付的执行能力。",
+        servicesDescription: "以下服务范围来自 Logistics Plus 中国团队公开资料；CROS 正在把其中高频信息逐步转化为可查询、可协同的数字化工作流。",
+        services: {
+          oceanAir: {
+            title: "海运与空运",
+            description: "处理进出口海运、空运需求，并持续同步关键运输进展。"
+          },
+          groundRail: {
+            title: "陆运与铁路",
+            description: "衔接内陆地面运输与铁路服务，组织跨区域多式联运。"
+          },
+          project: {
+            title: "项目与超限货",
+            description: "面向大型、重型及偏远目的地货物制定定制化项目方案。"
+          },
+          warehouse: {
+            title: "仓储与配送",
+            description: "衔接仓储、分拨、配送与履约环节，保持货物流转连续。"
+          },
+          compliance: {
+            title: "进出口与合规",
+            description: "协同进出口服务、报关报检与全球贸易合规要求。"
+          },
+          technology: {
+            title: "物流技术与可视化",
+            description: "以业务信息、追踪与数字工具提升运输过程透明度。"
+          }
+        },
+        contactEyebrow: "SHANGHAI OFFICE",
+        contactTitle: "联系 Logistics Plus 中国上海团队",
+        addressLabel: "官方现列地址",
+        address: "上海市青浦区蟠龙路 899 号，Lanyun Cultural Center 南楼 19 层 1902–1903 室，邮编 201702",
+        emailLabel: "业务联系"
+      },
       roadmap: {
         eyebrow: "建设路线",
         title: "从独立工具，逐步走向连贯的货代工作流。",
@@ -125,7 +196,7 @@ export const messages = {
       footer: {
         tagline: "面向货代业务的模块化数字运营平台",
         signIn: "企业登录",
-        copyright: "© 2026 CROS. 保留所有权利。",
+        copyright: "© 2026 上海罗加国际货物运输代理有限公司",
         platform: "Cargo Operations Suite"
       }
     },
@@ -456,7 +527,7 @@ export const messages = {
       loadingAuth: "Checking login status..."
     },
     landing: {
-      metaTitle: "CROS · Digital Freight Operations",
+      metaTitle: "CROS · Shanghai Luojia International Freight Forwarding",
       brandAria: "Return to the CROS home page",
       loader: {
         aria: "CROS platform is loading",
@@ -469,7 +540,7 @@ export const messages = {
         capabilities: "Capabilities",
         tracking: "Cargo Tracking",
         roadmap: "Roadmap",
-        about: "About"
+        about: "About Luojia"
       },
       status: {
         available: "Available",
@@ -541,6 +612,77 @@ export const messages = {
         metricPublic: "public query service",
         metricRoadmap: "capabilities in scope"
       },
+      company: {
+        eyebrow: "COMPANY PROFILE · SHANGHAI",
+        internationalName: "LOGISTICS PLUS CHINA LIMITED",
+        legalName: "Shanghai Luojia International Freight Forwarding Co., Ltd.",
+        description: "Official Logistics Plus materials identify Shanghai Luojia International Freight Forwarding Co., Ltd. with its Shanghai-based China operation. Since 1999, the team has connected local execution with ocean, air, ground, rail, and project logistics across the global network.",
+        tagsAria: "Core company service tags",
+        tags: {
+          forwarding: "Ocean & air forwarding",
+          project: "Project logistics",
+          network: "Global network coordination"
+        },
+        officialProfile: "View the official Shanghai profile",
+        sourceNote: "Company information is compiled from official Logistics Plus materials. Please confirm the current office address by email before visiting.",
+        factsAria: "Shanghai Luojia company overview",
+        facts: {
+          since: {
+            value: "1999",
+            label: "China network origin",
+            description: "Official materials trace the Logistics Plus China team in the global network to 1999."
+          },
+          expansion: {
+            value: "2022",
+            label: "Shanghai network expanded",
+            description: "A second Shanghai office near Hongqiao and the NECC opened that year."
+          },
+          model: {
+            value: "3PL / 4PL",
+            label: "Integrated service model",
+            description: "Transportation, warehousing, fulfillment, and supply-chain coordination."
+          },
+          modes: {
+            value: "SEA · AIR · RAIL",
+            label: "Multimodal capability",
+            description: "Ocean, air, ground, rail, and project cargo execution."
+          }
+        },
+        servicesEyebrow: "SERVICES & SOLUTIONS",
+        servicesTitle: "Execution capabilities organized around every shipment.",
+        servicesDescription: "The service scope below comes from official Logistics Plus China materials. CROS is gradually turning frequent information flows into searchable, coordinated digital workflows.",
+        services: {
+          oceanAir: {
+            title: "Ocean & air freight",
+            description: "Coordinate import and export ocean and air movements while keeping critical progress visible."
+          },
+          groundRail: {
+            title: "Ground & rail",
+            description: "Connect inland transportation and rail services into practical multimodal movements."
+          },
+          project: {
+            title: "Project & oversized cargo",
+            description: "Develop tailored plans for large, heavy, and remote-destination cargo."
+          },
+          warehouse: {
+            title: "Warehousing & distribution",
+            description: "Link storage, distribution, delivery, and fulfillment into a continuous cargo flow."
+          },
+          compliance: {
+            title: "Import, export & compliance",
+            description: "Coordinate import/export services, customs requirements, and global trade compliance."
+          },
+          technology: {
+            title: "Logistics technology",
+            description: "Use business intelligence, tracking, and digital tools to improve shipment visibility."
+          }
+        },
+        contactEyebrow: "SHANGHAI OFFICE",
+        contactTitle: "Connect with the Logistics Plus China team",
+        addressLabel: "Current official address",
+        address: "Offices 1902–1903, 19F, South Building, Lanyun Cultural Center, 899 PanLong Road, Qingpu District, Shanghai 201702, China",
+        emailLabel: "Business inquiries"
+      },
       roadmap: {
         eyebrow: "Product roadmap",
         title: "From focused tools to a connected freight workflow.",
@@ -562,7 +704,7 @@ export const messages = {
       footer: {
         tagline: "A modular digital operations platform for freight forwarders",
         signIn: "Enterprise sign in",
-        copyright: "© 2026 CROS. All rights reserved.",
+        copyright: "© 2026 Shanghai Luojia International Freight Forwarding Co., Ltd.",
         platform: "Cargo Operations Suite"
       }
     },
