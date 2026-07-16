@@ -51,21 +51,48 @@
 
       <nav class="landing-nav" :aria-label="t('landing.nav.aria')">
         <a href="#landing-top">{{ t("landing.nav.home") }}</a>
-        <a href="#landing-capabilities">{{ t("landing.nav.capabilities") }}</a>
-        <a class="landing-nav__tracking" :href="trackingEntryPath">
+        <details class="landing-nav__dropdown">
+          <summary>
+            {{ t("landing.nav.features") }}
+            <span aria-hidden="true"></span>
+          </summary>
+          <div class="landing-nav__menu">
+            <a :href="platformEntryPath" @click="navigateWithTransition($event, platformEntryPath)">
+              <el-icon><Box /></el-icon>
+              <span>
+                <strong>{{ t("landing.capabilities.planning.title") }}</strong>
+                <small>{{ t("landing.status.available") }}</small>
+              </span>
+            </a>
+            <a href="#landing-roadmap" @click="navigateWithTransition($event, '#landing-roadmap')">
+              <el-icon><Ship /></el-icon>
+              <span>
+                <strong>{{ t("landing.capabilities.booking.title") }}</strong>
+                <small>{{ t("landing.status.planned") }}</small>
+              </span>
+            </a>
+            <a href="#landing-roadmap" @click="navigateWithTransition($event, '#landing-roadmap')">
+              <el-icon><Connection /></el-icon>
+              <span>
+                <strong>{{ t("landing.capabilities.erp.title") }}</strong>
+                <small>{{ t("landing.status.planned") }}</small>
+              </span>
+            </a>
+          </div>
+        </details>
+        <a class="landing-nav__tracking" :href="trackingEntryPath" @click="navigateWithTransition($event, trackingEntryPath)">
           {{ t("landing.nav.tracking") }}
-          <span>{{ t("landing.status.public") }}</span>
+          <span>{{ t("landing.status.publicFree") }}</span>
         </a>
-        <a href="#landing-roadmap">{{ t("landing.nav.roadmap") }}</a>
         <a href="#landing-company">{{ t("landing.nav.about") }}</a>
       </nav>
 
       <div class="landing-header__actions">
         <LanguageSwitcher class="landing-language" />
-        <RouterLink class="landing-entry-button" :to="platformEntryPath">
+        <a class="landing-entry-button" :href="platformEntryPath" @click="navigateWithTransition($event, platformEntryPath)">
           <span>{{ platformEntryLabel }}</span>
           <el-icon><ArrowRight /></el-icon>
-        </RouterLink>
+        </a>
       </div>
     </header>
 
@@ -98,7 +125,11 @@
                 <h1>{{ currentSlide.title }}</h1>
                 <p class="landing-hero__description">{{ currentSlide.description }}</p>
                 <div class="landing-hero__actions">
-                  <a class="landing-button landing-button--primary" :href="currentSlide.primaryHref">
+                  <a
+                    class="landing-button landing-button--primary"
+                    :href="currentSlide.primaryHref"
+                    @click="navigateWithTransition($event, currentSlide.primaryHref)"
+                  >
                     {{ currentSlide.primaryLabel }}
                     <el-icon><ArrowRight /></el-icon>
                   </a>
@@ -154,28 +185,43 @@
       </section>
 
       <section id="landing-capabilities" class="landing-capabilities" :aria-label="t('landing.capabilities.aria')">
-        <div class="landing-capabilities__grid">
-          <a
-            v-for="(item, index) in capabilities"
-            :key="item.id"
-            class="landing-capability-card landing-reveal"
-            :class="[`landing-capability-card--${item.id}`, { 'is-public': item.status === 'public' }]"
-            :href="item.href"
-            :style="{ '--landing-reveal-delay': `${index * 80}ms` }"
-          >
-            <span class="landing-capability-card__number">{{ item.number }}</span>
-            <span class="landing-capability-card__icon"><el-icon><component :is="item.icon" /></el-icon></span>
-            <div class="landing-capability-card__status">
-              <i></i>
-              {{ item.statusLabel }}
-            </div>
-            <h2>{{ item.title }}</h2>
-            <p>{{ item.description }}</p>
-            <span class="landing-capability-card__link">
-              {{ item.actionLabel }}
-              <el-icon><ArrowRight /></el-icon>
-            </span>
-          </a>
+        <div class="landing-capabilities__layout">
+          <div class="landing-capabilities__grid">
+            <a
+              v-for="(item, index) in capabilities"
+              :key="item.id"
+              class="landing-capability-card landing-reveal"
+              :class="[`landing-capability-card--${item.id}`, { 'is-public': item.status === 'public' }]"
+              :href="item.href"
+              :style="{ '--landing-reveal-delay': `${index * 70}ms` }"
+              @click="navigateWithTransition($event, item.href)"
+            >
+              <span class="landing-capability-card__number">{{ item.number }}</span>
+              <span class="landing-capability-card__icon"><el-icon><component :is="item.icon" /></el-icon></span>
+              <div class="landing-capability-card__status">
+                <i></i>
+                {{ item.statusLabel }}
+              </div>
+              <h2>{{ item.title }}</h2>
+              <p>{{ item.description }}</p>
+              <span class="landing-capability-card__link">
+                {{ item.actionLabel }}
+                <el-icon><ArrowRight /></el-icon>
+              </span>
+            </a>
+          </div>
+          <aside class="landing-capabilities__aside landing-reveal landing-reveal--delay-1">
+            <article>
+              <small>{{ t("landing.capabilities.summary.current") }}</small>
+              <strong>02 / 04</strong>
+              <span>{{ t("landing.capabilities.summary.currentDetail") }}</span>
+            </article>
+            <a :href="trackingEntryPath" @click="navigateWithTransition($event, trackingEntryPath)">
+              <small>{{ t("landing.capabilities.summary.tracking") }}</small>
+              <strong>ONLINE</strong>
+              <span>{{ t("landing.capabilities.summary.trackingDetail") }}</span>
+            </a>
+          </aside>
         </div>
       </section>
 
@@ -186,14 +232,14 @@
           <span>{{ t("landing.statement.description") }}</span>
         </div>
         <div class="landing-statement__actions landing-reveal landing-reveal--delay-1">
-          <a class="landing-pill landing-pill--dark" :href="trackingEntryPath">
+          <a class="landing-pill landing-pill--dark" :href="trackingEntryPath" @click="navigateWithTransition($event, trackingEntryPath)">
             <el-icon><Search /></el-icon>
             {{ t("landing.statement.track") }}
           </a>
-          <RouterLink class="landing-pill landing-pill--blue" :to="platformEntryPath">
+          <a class="landing-pill landing-pill--blue" :href="platformEntryPath" @click="navigateWithTransition($event, platformEntryPath)">
             <el-icon><Monitor /></el-icon>
             {{ platformEntryLabel }}
-          </RouterLink>
+          </a>
         </div>
         <div class="landing-statement__metrics landing-reveal landing-reveal--delay-2">
           <div>
@@ -218,44 +264,75 @@
             <span class="landing-company__international-name">{{ t("landing.company.internationalName") }}</span>
             <h2>{{ t("landing.company.legalName") }}</h2>
             <p class="landing-company__description">{{ t("landing.company.description") }}</p>
-            <div class="landing-company__tags" :aria-label="t('landing.company.tagsAria')">
-              <span>{{ t("landing.company.tags.forwarding") }}</span>
-              <span>{{ t("landing.company.tags.project") }}</span>
-              <span>{{ t("landing.company.tags.network") }}</span>
-            </div>
+            <p class="landing-company__detail">{{ t("landing.company.detail") }}</p>
+            <dl class="landing-company__registration">
+              <div>
+                <dt>{{ t("landing.company.incorporatedLabel") }}</dt>
+                <dd>2023-03-16</dd>
+              </div>
+              <div>
+                <dt>{{ t("landing.company.typeLabel") }}</dt>
+                <dd>{{ t("landing.company.typeValue") }}</dd>
+              </div>
+              <div>
+                <dt>{{ t("landing.company.industryLabel") }}</dt>
+                <dd>{{ t("landing.company.industryValue") }}</dd>
+              </div>
+            </dl>
             <div class="landing-company__actions">
               <a
                 class="landing-button landing-button--company"
-                href="https://www.logisticsplus.com/directory/our-locations/china/"
-                target="_blank"
-                rel="noopener noreferrer"
+                href="#landing-capabilities"
               >
-                {{ t("landing.company.officialProfile") }}
+                {{ t("landing.company.platformAction") }}
                 <el-icon><ArrowRight /></el-icon>
               </a>
-              <a class="landing-company__email-link" href="mailto:china@logisticsplus.com">
-                china@logisticsplus.com
-              </a>
+              <span class="landing-company__credit-code">
+                {{ t("landing.company.creditCodeLabel") }} · 91310109MACBQ4CP2M
+              </span>
             </div>
             <small class="landing-company__source-note">{{ t("landing.company.sourceNote") }}</small>
           </div>
 
-          <div class="landing-company__facts" :aria-label="t('landing.company.factsAria')">
-            <article
-              v-for="(fact, index) in companyFacts"
-              :key="fact.id"
-              class="landing-company__fact landing-reveal"
-              :style="{ '--landing-reveal-delay': `${index * 90}ms` }"
-            >
-              <span>{{ fact.value }}</span>
-              <strong>{{ fact.label }}</strong>
-              <p>{{ fact.description }}</p>
-            </article>
+          <div class="landing-company__operations landing-reveal landing-reveal--delay-1" aria-hidden="true">
+            <div class="landing-company__operations-head">
+              <span>
+                <small>{{ t("landing.company.operationsEyebrow") }}</small>
+                <strong>{{ t("landing.company.operationsTitle") }}</strong>
+              </span>
+              <i></i>
+            </div>
+            <div class="landing-company__operations-route">
+              <span class="is-origin"><b>SHA</b><small>{{ t("landing.company.operationsOrigin") }}</small></span>
+              <div><i></i><b></b><i></i></div>
+              <span><b>PORT</b><small>{{ t("landing.company.operationsHub") }}</small></span>
+              <div><i></i><b></b><i></i></div>
+              <span><b>GLOBAL</b><small>{{ t("landing.company.operationsGlobal") }}</small></span>
+            </div>
+            <div class="landing-company__operations-modes">
+              <span><el-icon><Ship /></el-icon> SEA</span>
+              <span><el-icon><Connection /></el-icon> ROAD</span>
+              <span><el-icon><Box /></el-icon> AIR</span>
+            </div>
+            <div class="landing-company__operations-foot">
+              <span>{{ t("landing.company.operationsStatus") }}</span>
+              <strong>ACTIVE</strong>
+            </div>
+            <div class="landing-company__operations-float landing-company__operations-float--tracking">
+              <small>CARGO TRACKING</small>
+              <strong>{{ t("landing.status.publicFree") }}</strong>
+            </div>
+            <div class="landing-company__operations-float landing-company__operations-float--planning">
+              <small>LOAD PLANNING</small>
+              <strong>{{ t("landing.status.available") }}</strong>
+            </div>
           </div>
         </div>
+      </section>
 
-        <div class="landing-company__services">
-          <div class="landing-section-heading landing-section-heading--light landing-reveal">
+      <section class="landing-services">
+        <div class="landing-services__inner">
+          <div class="landing-section-heading landing-reveal">
             <p>{{ t("landing.company.servicesEyebrow") }}</p>
             <h2>{{ t("landing.company.servicesTitle") }}</h2>
             <span>{{ t("landing.company.servicesDescription") }}</span>
@@ -274,24 +351,6 @@
                 <p>{{ service.description }}</p>
               </div>
             </article>
-          </div>
-        </div>
-
-        <div class="landing-company__contact landing-reveal">
-          <div class="landing-company__contact-title">
-            <span><el-icon><OfficeBuilding /></el-icon></span>
-            <div>
-              <small>{{ t("landing.company.contactEyebrow") }}</small>
-              <h3>{{ t("landing.company.contactTitle") }}</h3>
-            </div>
-          </div>
-          <div class="landing-company__contact-item">
-            <span>{{ t("landing.company.addressLabel") }}</span>
-            <strong>{{ t("landing.company.address") }}</strong>
-          </div>
-          <div class="landing-company__contact-item">
-            <span>{{ t("landing.company.emailLabel") }}</span>
-            <a href="mailto:china@logisticsplus.com">china@logisticsplus.com</a>
           </div>
         </div>
       </section>
@@ -339,10 +398,10 @@
               <p>{{ t("landing.roadmap.nextDescription") }}</p>
             </div>
           </div>
-          <RouterLink class="landing-text-link" :to="platformEntryPath">
+          <a class="landing-text-link" :href="platformEntryPath" @click="navigateWithTransition($event, platformEntryPath)">
             {{ t("landing.roadmap.viewWorkspaces") }}
             <el-icon><ArrowRight /></el-icon>
-          </RouterLink>
+          </a>
         </div>
       </section>
 
@@ -353,37 +412,62 @@
           <span>{{ t("landing.cta.description") }}</span>
         </div>
         <div class="landing-cta__actions">
-          <a class="landing-button landing-button--light" :href="trackingEntryPath">
+          <a class="landing-button landing-button--light" :href="trackingEntryPath" @click="navigateWithTransition($event, trackingEntryPath)">
             {{ t("landing.cta.publicTracking") }}
             <el-icon><ArrowRight /></el-icon>
           </a>
-          <RouterLink class="landing-button landing-button--outline" :to="platformEntryPath">
+          <a class="landing-button landing-button--outline" :href="platformEntryPath" @click="navigateWithTransition($event, platformEntryPath)">
             {{ platformEntryLabel }}
-          </RouterLink>
+          </a>
         </div>
       </section>
     </main>
 
     <footer class="landing-footer">
-      <div class="landing-footer__brand">
-        <span class="landing-brand__mark" aria-hidden="true"><i></i><i></i><i></i></span>
-        <div>
-          <strong>CROS</strong>
-          <p>{{ t("landing.footer.tagline") }}</p>
+      <div class="landing-footer__main">
+        <div class="landing-footer__brand">
+          <span class="landing-brand__mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <div>
+            <strong>CROS</strong>
+            <p>{{ t("landing.footer.tagline") }}</p>
+            <span>{{ t("landing.company.legalName") }}</span>
+          </div>
+        </div>
+        <div class="landing-footer__column">
+          <h3>{{ t("landing.footer.quickLinks") }}</h3>
+          <a href="#landing-capabilities">{{ t("landing.nav.features") }}</a>
+          <a href="#landing-company">{{ t("landing.nav.about") }}</a>
+          <a :href="trackingEntryPath" @click="navigateWithTransition($event, trackingEntryPath)">Cargo Tracking</a>
+          <a :href="platformEntryPath" @click="navigateWithTransition($event, platformEntryPath)">{{ t("landing.footer.signIn") }}</a>
+        </div>
+        <div class="landing-footer__column landing-footer__registration">
+          <h3>{{ t("landing.footer.registrationTitle") }}</h3>
+          <p><span>{{ t("landing.company.incorporatedLabel") }}</span><strong>2023-03-16</strong></p>
+          <p><span>{{ t("landing.footer.termLabel") }}</span><strong>{{ t("landing.footer.termValue") }}</strong></p>
+          <p><span>{{ t("landing.company.typeLabel") }}</span><strong>{{ t("landing.company.typeValue") }}</strong></p>
+          <p><span>{{ t("landing.company.industryLabel") }}</span><strong>{{ t("landing.company.industryValue") }}</strong></p>
+        </div>
+        <div class="landing-footer__column landing-footer__contact">
+          <h3>{{ t("landing.footer.contactTitle") }}</h3>
+          <p><span>{{ t("landing.company.creditCodeLabel") }}</span>91310109MACBQ4CP2M</p>
+          <p><span>{{ t("landing.footer.registeredAddressLabel") }}</span>{{ t("landing.footer.registeredAddress") }}</p>
+          <p><span>{{ t("landing.footer.authorityLabel") }}</span>{{ t("landing.footer.authority") }}</p>
         </div>
       </div>
-      <div class="landing-footer__links">
-        <a href="#landing-capabilities">{{ t("landing.nav.capabilities") }}</a>
-        <a href="#landing-company">{{ t("landing.nav.about") }}</a>
-        <a href="#landing-roadmap">{{ t("landing.nav.roadmap") }}</a>
-        <a :href="trackingEntryPath">Cargo Tracking</a>
-        <RouterLink :to="platformEntryPath">{{ t("landing.footer.signIn") }}</RouterLink>
-      </div>
-      <div class="landing-footer__meta">
+      <div class="landing-footer__bottom">
         <span>{{ t("landing.footer.copyright") }}</span>
-        <span>{{ t("landing.footer.platform") }}</span>
+        <span>{{ t("landing.footer.disclaimer") }}</span>
       </div>
     </footer>
+
+    <Transition name="landing-route-transition">
+      <div v-if="isPageLeaving" class="landing-route-transition" role="status" aria-live="polite">
+        <div class="landing-route-transition__mark" aria-hidden="true"><i></i><i></i><i></i></div>
+        <strong>CROS</strong>
+        <span>{{ t("landing.transition.copy") }}</span>
+        <b></b>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -421,8 +505,10 @@ const showIntro = ref(!introWasSeen());
 const activeSlideIndex = ref(0);
 const reducedMotion = ref(false);
 const landingRoot = ref<HTMLElement | null>(null);
+const isPageLeaving = ref(false);
 let introTimer = 0;
 let autoplayTimer = 0;
+let navigationTimer = 0;
 let previousBodyOverflow = "";
 let revealObserver: IntersectionObserver | null = null;
 
@@ -434,10 +520,12 @@ const platformEntryLabel = computed(() => {
   return t("landing.entry.enter");
 });
 
+const compactHeroMedia = window.matchMedia("(max-width: 760px)").matches;
+const heroImageOptions = compactHeroMedia ? "w=1200&q=62" : "w=1800&q=66";
 const slideImages = {
-  platform: "https://images.unsplash.com/photo-1724597500306-a4cbb7d1324e?auto=format&fit=crop&w=2400&q=82",
-  planning: "https://images.unsplash.com/photo-1670121180583-39ab653a071c?auto=format&fit=crop&w=2400&q=82",
-  tracking: "https://images.unsplash.com/photo-1725100609222-86a51bee3c3a?auto=format&fit=crop&w=2400&q=82"
+  platform: `https://images.unsplash.com/photo-1724597500306-a4cbb7d1324e?auto=format&fit=crop&${heroImageOptions}`,
+  planning: `https://images.unsplash.com/photo-1670121180583-39ab653a071c?auto=format&fit=crop&${heroImageOptions}`,
+  tracking: `https://images.unsplash.com/photo-1725100609222-86a51bee3c3a?auto=format&fit=crop&${heroImageOptions}`
 };
 
 const slides = computed(() => {
@@ -525,36 +613,6 @@ const capabilities = computed(() => {
   ];
 });
 
-const companyFacts = computed(() => {
-  currentLocale.value;
-  return [
-    {
-      id: "since",
-      value: t("landing.company.facts.since.value"),
-      label: t("landing.company.facts.since.label"),
-      description: t("landing.company.facts.since.description")
-    },
-    {
-      id: "expansion",
-      value: t("landing.company.facts.expansion.value"),
-      label: t("landing.company.facts.expansion.label"),
-      description: t("landing.company.facts.expansion.description")
-    },
-    {
-      id: "model",
-      value: t("landing.company.facts.model.value"),
-      label: t("landing.company.facts.model.label"),
-      description: t("landing.company.facts.model.description")
-    },
-    {
-      id: "modes",
-      value: t("landing.company.facts.modes.value"),
-      label: t("landing.company.facts.modes.label"),
-      description: t("landing.company.facts.modes.description")
-    }
-  ];
-});
-
 const companyServices = computed(() => {
   currentLocale.value;
   return [
@@ -628,6 +686,20 @@ function previousSlide() {
   startAutoplay();
 }
 
+function navigateWithTransition(event: MouseEvent, href: string) {
+  (event.currentTarget as HTMLElement | null)?.closest("details")?.removeAttribute("open");
+  if (!href || href.startsWith("#")) return;
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  if (isPageLeaving.value) return;
+  isPageLeaving.value = true;
+  stopAutoplay();
+  document.body.style.overflow = "hidden";
+  navigationTimer = window.setTimeout(() => {
+    window.location.assign(href);
+  }, reducedMotion.value ? 40 : 360);
+}
+
 function finishIntro() {
   if (!showIntro.value) return;
   showIntro.value = false;
@@ -678,7 +750,7 @@ onMounted(() => {
   if (showIntro.value) {
     previousBodyOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    introTimer = window.setTimeout(finishIntro, reducedMotion.value ? 480 : 2100);
+    introTimer = window.setTimeout(finishIntro, reducedMotion.value ? 360 : 1100);
   } else {
     startAutoplay();
   }
@@ -690,6 +762,7 @@ watch(currentLocale, updateDocumentTitle);
 
 onUnmounted(() => {
   window.clearTimeout(introTimer);
+  window.clearTimeout(navigationTimer);
   stopAutoplay();
   revealObserver?.disconnect();
   document.body.style.overflow = previousBodyOverflow;
@@ -814,11 +887,11 @@ onUnmounted(() => {
   bottom: 4px;
   background: linear-gradient(90deg, #dceeff, #fff 45%, #cfe6f8);
   box-shadow: inset 6px 0 12px rgba(13, 48, 76, 0.15);
-  animation: landing-flip-page 1.35s cubic-bezier(0.7, 0, 0.25, 1) infinite;
+  animation: landing-flip-page 0.86s cubic-bezier(0.7, 0, 0.25, 1) infinite;
 }
 
-.landing-intro__page--two { animation-delay: 0.18s; }
-.landing-intro__page--three { animation-delay: 0.36s; }
+.landing-intro__page--two { animation-delay: 0.12s; }
+.landing-intro__page--three { animation-delay: 0.24s; }
 
 .landing-intro__cover {
   display: flex;
@@ -827,7 +900,7 @@ onUnmounted(() => {
   gap: 4px;
   background: linear-gradient(145deg, #1689f5, #0753af);
   box-shadow: inset 1px 0 rgba(255, 255, 255, 0.3);
-  animation: landing-open-cover 2.1s cubic-bezier(0.7, 0, 0.2, 1) both;
+  animation: landing-open-cover 1.05s cubic-bezier(0.7, 0, 0.2, 1) both;
 }
 
 .landing-intro__cover i,
@@ -886,7 +959,7 @@ onUnmounted(() => {
   height: 100%;
   background: linear-gradient(90deg, #26c7ff, #fff);
   transform-origin: left;
-  animation: landing-intro-progress 2.05s ease both;
+  animation: landing-intro-progress 1.02s ease both;
 }
 
 button.landing-intro__skip {
@@ -981,7 +1054,8 @@ button.landing-intro__skip:hover {
   white-space: nowrap;
 }
 
-.landing-nav a {
+.landing-nav > a,
+.landing-nav__dropdown > summary {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -992,7 +1066,8 @@ button.landing-intro__skip:hover {
   font-weight: 650;
 }
 
-.landing-nav a::after {
+.landing-nav > a::after,
+.landing-nav__dropdown > summary::after {
   content: "";
   position: absolute;
   right: 0;
@@ -1004,8 +1079,72 @@ button.landing-intro__skip:hover {
   transition: transform 0.2s ease;
 }
 
-.landing-nav a:hover::after,
-.landing-nav a:focus-visible::after { transform: scaleX(1); }
+.landing-nav > a:hover::after,
+.landing-nav > a:focus-visible::after,
+.landing-nav__dropdown > summary:hover::after,
+.landing-nav__dropdown > summary:focus-visible::after,
+.landing-nav__dropdown[open] > summary::after { transform: scaleX(1); }
+
+.landing-nav__dropdown { position: relative; }
+.landing-nav__dropdown > summary { list-style: none; cursor: pointer; }
+.landing-nav__dropdown > summary::-webkit-details-marker { display: none; }
+.landing-nav__dropdown > summary > span {
+  width: 7px;
+  height: 7px;
+  margin: -3px 2px 0 3px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 0.2s ease;
+}
+.landing-nav__dropdown[open] > summary > span { margin-top: 3px; transform: rotate(225deg); }
+
+.landing-nav__menu {
+  position: absolute;
+  top: 72px;
+  left: 50%;
+  width: 286px;
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid #dce7f0;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 58px rgba(12, 48, 77, 0.16);
+  transform: translateX(-50%);
+}
+
+.landing-nav__menu::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  width: 11px;
+  height: 11px;
+  border-top: 1px solid #dce7f0;
+  border-left: 1px solid #dce7f0;
+  background: #fff;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.landing-nav__menu a {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 11px;
+  border-radius: 10px;
+  color: #25435b;
+  white-space: normal;
+}
+
+.landing-nav__menu a:hover { background: #f1f7fc; }
+.landing-nav__menu .el-icon { width: 36px; height: 36px; border-radius: 9px; color: #0b70cf; background: #eaf4fd; }
+.landing-nav__menu a > span { display: flex; flex-direction: column; gap: 3px; }
+.landing-nav__menu strong { font-size: 12px; }
+.landing-nav__menu small { color: #8092a1; font-size: 9px; font-weight: 700; }
 
 .landing-nav__tracking span {
   padding: 3px 6px;
@@ -1397,8 +1536,14 @@ button.landing-intro__skip:hover {
 .landing-capabilities {
   position: relative;
   z-index: 8;
-  width: min(1260px, calc(100% - 64px));
+  width: min(1440px, calc(100% - 64px));
   margin: -54px auto 0;
+}
+
+.landing-capabilities__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 216px;
+  gap: 16px;
 }
 
 .landing-capabilities__grid {
@@ -1409,10 +1554,10 @@ button.landing-intro__skip:hover {
 
 .landing-capability-card {
   position: relative;
-  min-height: 270px;
+  min-height: 212px;
   display: flex;
   flex-direction: column;
-  padding: 30px 27px 26px;
+  padding: 22px 20px 20px;
   overflow: hidden;
   border: 1px solid #dce6ef;
   border-radius: 12px;
@@ -1451,8 +1596,8 @@ button.landing-intro__skip:hover {
 
 .landing-capability-card__number {
   position: absolute;
-  top: 22px;
-  right: 23px;
+  top: 18px;
+  right: 18px;
   color: #a9b9c7;
   font-size: 11px;
   font-weight: 800;
@@ -1460,21 +1605,21 @@ button.landing-intro__skip:hover {
 }
 
 .landing-capability-card__icon {
-  width: 50px;
-  height: 50px;
+  width: 42px;
+  height: 42px;
   display: grid;
   place-items: center;
   border-radius: 12px;
   color: #0b6fd2;
   background: #eaf4ff;
-  font-size: 24px;
+  font-size: 20px;
 }
 
 .landing-capability-card__status {
   display: flex;
   align-items: center;
   gap: 7px;
-  margin-top: 20px;
+  margin-top: 15px;
   color: #71879a;
   font-size: 10px;
   font-weight: 800;
@@ -1497,17 +1642,17 @@ button.landing-intro__skip:hover {
 }
 
 .landing-capability-card h2 {
-  margin: 13px 0 8px;
+  margin: 10px 0 6px;
   color: #10283e;
-  font-size: 20px;
+  font-size: 17px;
   letter-spacing: -0.02em;
 }
 
 .landing-capability-card p {
   margin: 0;
   color: #63788b;
-  font-size: 13px;
-  line-height: 1.65;
+  font-size: 11px;
+  line-height: 1.6;
 }
 
 .landing-capability-card__link {
@@ -1515,7 +1660,7 @@ button.landing-intro__skip:hover {
   align-items: center;
   gap: 7px;
   margin-top: auto;
-  padding-top: 14px;
+  padding-top: 10px;
   color: #0b68c7;
   font-size: 12px;
   font-weight: 800;
@@ -1531,6 +1676,35 @@ button.landing-intro__skip:hover {
   color: #fff;
   background: rgba(255, 255, 255, 0.14);
 }
+
+.landing-capabilities__aside {
+  display: grid;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.landing-capabilities__aside article,
+.landing-capabilities__aside > a {
+  min-height: 100px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 18px;
+  border: 1px solid #dce6ef;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 34px rgba(8, 36, 59, 0.075);
+}
+
+.landing-capabilities__aside > a {
+  border-color: #a8dbc9;
+  background: linear-gradient(145deg, #f8fffc, #effaf6);
+}
+
+.landing-capabilities__aside small { color: #8092a1; font-size: 9px; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase; }
+.landing-capabilities__aside strong { margin-top: 9px; color: #0b70cf; font-size: 23px; letter-spacing: -0.04em; }
+.landing-capabilities__aside > a strong { color: #078163; }
+.landing-capabilities__aside span { margin-top: 5px; color: #6c8193; font-size: 10px; line-height: 1.45; }
 
 .landing-statement {
   padding: 120px max(32px, calc((100vw - 1260px) / 2)) 100px;
@@ -1620,48 +1794,41 @@ button.landing-intro__skip:hover {
 
 .landing-company {
   position: relative;
-  padding: 118px max(32px, calc((100vw - 1260px) / 2)) 108px;
+  padding: 112px max(32px, calc((100vw - 1260px) / 2));
   overflow: hidden;
-  color: #fff;
+  color: #10283e;
   background:
-    radial-gradient(circle at 88% 4%, rgba(30, 140, 255, 0.22), transparent 28%),
-    radial-gradient(circle at 10% 64%, rgba(42, 196, 173, 0.1), transparent 27%),
-    linear-gradient(132deg, #061725 0%, #08263f 58%, #073456 100%);
+    radial-gradient(circle at 93% 16%, rgba(32, 141, 232, 0.08), transparent 26%),
+    #fff;
 }
 
 .landing-company::before {
   content: "";
   position: absolute;
-  inset: 0;
-  opacity: 0.12;
+  top: -180px;
+  right: -170px;
+  width: 520px;
+  height: 520px;
+  border: 86px solid rgba(23, 119, 208, 0.035);
+  border-radius: 50%;
   pointer-events: none;
-  background-image:
-    linear-gradient(rgba(148, 205, 244, 0.22) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 205, 244, 0.18) 1px, transparent 1px);
-  background-size: 74px 74px;
-  mask-image: linear-gradient(90deg, #000, transparent 72%);
 }
 
-.landing-company__intro,
-.landing-company__services,
-.landing-company__contact {
+.landing-company__intro {
   position: relative;
   z-index: 1;
   max-width: 1260px;
+  display: grid;
+  grid-template-columns: minmax(0, 0.94fr) minmax(430px, 1.06fr);
+  align-items: center;
+  gap: clamp(64px, 7vw, 104px);
   margin-right: auto;
   margin-left: auto;
 }
 
-.landing-company__intro {
-  display: grid;
-  grid-template-columns: minmax(0, 1.02fr) minmax(460px, 0.98fr);
-  align-items: start;
-  gap: clamp(56px, 7vw, 104px);
-}
-
 .landing-company__eyebrow {
   margin: 0 0 18px;
-  color: #75c8ff;
+  color: #0b70cf;
   font-size: 11px;
   font-weight: 850;
   letter-spacing: 0.19em;
@@ -1670,7 +1837,7 @@ button.landing-intro__skip:hover {
 .landing-company__international-name {
   display: block;
   margin-bottom: 12px;
-  color: rgba(218, 239, 255, 0.62);
+  color: #6f8598;
   font-size: 12px;
   font-weight: 750;
   letter-spacing: 0.12em;
@@ -1679,8 +1846,8 @@ button.landing-intro__skip:hover {
 .landing-company__identity h2 {
   max-width: 680px;
   margin: 0;
-  color: #fff;
-  font-size: clamp(34px, 3.55vw, 52px);
+  color: #0b2134;
+  font-size: clamp(34px, 3.35vw, 50px);
   font-weight: 690;
   letter-spacing: -0.035em;
   line-height: 1.16;
@@ -1695,28 +1862,32 @@ button.landing-intro__skip:hover {
 .landing-company__description {
   max-width: 720px;
   margin: 26px 0 0;
-  color: rgba(221, 239, 252, 0.76);
-  font-size: 15px;
-  line-height: 1.82;
+  color: #334f68;
+  font-size: 16px;
+  line-height: 1.78;
 }
 
-.landing-company__tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 9px;
-  margin-top: 26px;
+.landing-company__detail {
+  max-width: 720px;
+  margin: 13px 0 0;
+  color: #6a7f91;
+  font-size: 13px;
+  line-height: 1.8;
 }
 
-.landing-company__tags span {
-  padding: 8px 11px;
-  border: 1px solid rgba(133, 203, 249, 0.18);
-  border-radius: 999px;
-  color: #c9e9ff;
-  background: rgba(99, 180, 235, 0.08);
-  font-size: 10px;
-  font-weight: 750;
-  letter-spacing: 0.04em;
+.landing-company__registration {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 28px 0 0;
+  padding: 20px 0;
+  border-top: 1px solid #e1e9f0;
+  border-bottom: 1px solid #e1e9f0;
 }
+
+.landing-company__registration div { padding-right: 18px; }
+.landing-company__registration div + div { padding-left: 18px; border-left: 1px solid #e1e9f0; }
+.landing-company__registration dt { color: #8193a3; font-size: 10px; font-weight: 750; }
+.landing-company__registration dd { margin: 7px 0 0; color: #173650; font-size: 13px; font-weight: 780; }
 
 .landing-company__actions {
   display: flex;
@@ -1728,119 +1899,229 @@ button.landing-intro__skip:hover {
 
 .landing-button--company {
   min-height: 50px;
-  border: 1px solid rgba(124, 205, 255, 0.5);
+  border: 1px solid #0c72ce;
   color: #fff !important;
   background: linear-gradient(135deg, #0c70cf, #108ce8);
   box-shadow: 0 16px 34px rgba(0, 90, 173, 0.26);
 }
 
-.landing-company__email-link {
-  color: #8fd4ff !important;
-  font-size: 13px;
+.landing-company__credit-code {
+  color: #5f778b;
+  font-size: 11px;
   font-weight: 750;
+  letter-spacing: 0.035em;
 }
-
-.landing-company__email-link:hover { color: #fff !important; }
 
 .landing-company__source-note {
   display: block;
   max-width: 680px;
   margin-top: 22px;
-  color: rgba(193, 219, 237, 0.48);
+  color: #94a3af;
   font-size: 10px;
   line-height: 1.65;
 }
 
-.landing-company__facts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+.landing-company__operations {
+  position: relative;
+  min-height: 390px;
+  padding: 30px;
+  border: 1px solid #d7e6f2;
+  border-radius: 24px;
+  background:
+    linear-gradient(rgba(39, 126, 196, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(39, 126, 196, 0.055) 1px, transparent 1px),
+    linear-gradient(145deg, #f8fbfe, #edf6fd);
+  background-size: 42px 42px, 42px 42px, auto;
+  box-shadow: 0 28px 70px rgba(19, 64, 99, 0.13);
 }
 
-.landing-company__fact {
-  min-height: 200px;
+.landing-company__operations::after {
+  content: "";
+  position: absolute;
+  right: 46px;
+  bottom: 54px;
+  width: 140px;
+  height: 140px;
+  border: 32px solid rgba(24, 120, 200, 0.055);
+  border-radius: 50%;
+}
+
+.landing-company__operations-head,
+.landing-company__operations-foot {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.landing-company__operations-head span { display: flex; flex-direction: column; gap: 5px; }
+.landing-company__operations-head small { color: #7c91a3; font-size: 9px; font-weight: 850; letter-spacing: 0.14em; }
+.landing-company__operations-head strong { color: #173c59; font-size: 17px; }
+.landing-company__operations-head > i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #2ac38d;
+  box-shadow: 0 0 0 6px rgba(42, 195, 141, 0.12);
+}
+
+.landing-company__operations-route {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr auto;
+  align-items: center;
+  gap: 13px;
+  margin: 74px 0 58px;
+}
+
+.landing-company__operations-route > span {
   display: flex;
   flex-direction: column;
-  padding: 25px;
-  border: 1px solid rgba(152, 211, 249, 0.14);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.055);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(12px);
+  align-items: center;
+  gap: 7px;
 }
 
-.landing-company__fact span {
-  color: #6fc8ff;
-  font-size: clamp(25px, 2.35vw, 36px);
-  font-weight: 760;
-  letter-spacing: -0.035em;
-  line-height: 1;
+.landing-company__operations-route > span b {
+  min-width: 52px;
+  min-height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0 10px;
+  border: 1px solid #cbddea;
+  border-radius: 12px;
+  color: #315875;
+  background: #fff;
+  font-size: 10px;
+  box-shadow: 0 9px 22px rgba(25, 75, 112, 0.09);
 }
 
-.landing-company__fact strong {
-  margin-top: auto;
-  padding-top: 34px;
-  color: #fff;
-  font-size: 14px;
+.landing-company__operations-route > span.is-origin b { color: #fff; border-color: #0b73d7; background: #0b73d7; }
+.landing-company__operations-route > span small { color: #8193a2; font-size: 9px; white-space: nowrap; }
+
+.landing-company__operations-route > div {
+  position: relative;
+  height: 2px;
+  overflow: visible;
+  background: #bdd8ea;
 }
 
-.landing-company__fact p {
-  margin: 8px 0 0;
-  color: rgba(207, 230, 245, 0.62);
-  font-size: 11px;
-  line-height: 1.65;
+.landing-company__operations-route > div i {
+  position: absolute;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid #42a3e4;
+  border-radius: 50%;
+  background: #f3f9fd;
 }
 
-.landing-company__services {
-  margin-top: 104px;
-  padding-top: 88px;
-  border-top: 1px solid rgba(151, 208, 246, 0.14);
+.landing-company__operations-route > div i:first-child { left: 0; }
+.landing-company__operations-route > div i:last-child { right: 0; }
+.landing-company__operations-route > div b {
+  position: absolute;
+  top: -4px;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #0b73d7;
+  box-shadow: 0 0 0 5px rgba(11, 115, 215, 0.12);
+  animation: landing-operation-pulse 4.8s ease-in-out infinite;
 }
 
-.landing-section-heading--light h2 { color: #fff; }
-.landing-section-heading--light > span { color: rgba(214, 235, 249, 0.68); }
-.landing-section-heading--light > p { color: #70c7ff; }
+.landing-company__operations-route > div:nth-of-type(2) b { animation-delay: 1.6s; }
+.landing-company__operations-modes { position: relative; z-index: 2; display: flex; flex-wrap: wrap; gap: 8px; }
+.landing-company__operations-modes span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border: 1px solid #d5e4ef;
+  border-radius: 999px;
+  color: #517088;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.landing-company__operations-foot { margin-top: 25px; padding-top: 18px; border-top: 1px solid #d8e7f1; }
+.landing-company__operations-foot span { color: #7890a2; font-size: 10px; }
+.landing-company__operations-foot strong { color: #08795c; font-size: 10px; letter-spacing: 0.1em; }
+.landing-company__operations-float {
+  position: absolute;
+  z-index: 3;
+  min-width: 148px;
+  padding: 13px 15px;
+  border: 1px solid #d5e5f0;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 16px 34px rgba(25, 70, 105, 0.12);
+}
+.landing-company__operations-float small { display: block; color: #8394a2; font-size: 8px; font-weight: 850; letter-spacing: 0.11em; }
+.landing-company__operations-float strong { display: block; margin-top: 6px; color: #0b70cf; font-size: 11px; }
+.landing-company__operations-float--tracking { top: 78px; right: -24px; }
+.landing-company__operations-float--planning { right: 54px; bottom: -26px; }
+
+.landing-services {
+  padding: 98px max(32px, calc((100vw - 1260px) / 2));
+  background: #f7f9fc;
+}
+
+.landing-services__inner {
+  max-width: 1260px;
+  display: grid;
+  grid-template-columns: minmax(320px, 0.72fr) minmax(0, 1.28fr);
+  align-items: start;
+  gap: clamp(54px, 7vw, 96px);
+  margin: 0 auto;
+}
+
+.landing-services .landing-section-heading { position: sticky; top: 124px; }
+.landing-services .landing-section-heading h2 { max-width: 480px; font-size: clamp(32px, 3.5vw, 46px); }
+.landing-services .landing-section-heading > span { max-width: 480px; font-size: 14px; }
 
 .landing-company__service-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: 46px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .landing-company__service-card {
-  min-height: 190px;
+  min-height: 138px;
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: start;
   gap: 18px;
-  padding: 24px;
-  border: 1px solid rgba(161, 214, 248, 0.14);
+  padding: 18px;
+  border: 1px solid #dce6ee;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.05);
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(18, 51, 76, 0.055);
   transition: border-color 0.22s ease, background 0.22s ease, transform 0.22s ease;
 }
 
 .landing-company__service-card:hover {
-  border-color: rgba(108, 198, 255, 0.34);
-  background: rgba(255, 255, 255, 0.09);
+  border-color: #a9d2ef;
+  background: #fbfdff;
   transform: translateY(-4px);
 }
 
 .landing-company__service-icon {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   display: grid;
   place-items: center;
   border-radius: 11px;
-  color: #63c5ff;
-  background: rgba(70, 171, 235, 0.13);
-  font-size: 21px;
+  color: #0b73d7;
+  background: #edf6ff;
+  font-size: 19px;
 }
 
 .landing-company__service-card small {
   display: block;
-  color: #5ebcf7;
+  color: #0b73d7;
   font-size: 9px;
   font-weight: 850;
   letter-spacing: 0.14em;
@@ -1848,75 +2129,17 @@ button.landing-intro__skip:hover {
 
 .landing-company__service-card h3 {
   margin: 12px 0 8px;
-  color: #fff;
-  font-size: 17px;
+  color: #17354d;
+  font-size: 15px;
   letter-spacing: -0.015em;
 }
 
 .landing-company__service-card p {
   margin: 0;
-  color: rgba(206, 229, 244, 0.62);
-  font-size: 12px;
-  line-height: 1.7;
-}
-
-.landing-company__contact {
-  display: grid;
-  grid-template-columns: minmax(260px, 0.95fr) minmax(340px, 1.35fr) minmax(190px, 0.7fr);
-  align-items: center;
-  gap: 34px;
-  margin-top: 28px;
-  padding: 26px 30px;
-  border: 1px solid rgba(130, 205, 252, 0.2);
-  border-radius: 13px;
-  background: linear-gradient(100deg, rgba(16, 106, 176, 0.32), rgba(255, 255, 255, 0.055));
-}
-
-.landing-company__contact-title {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.landing-company__contact-title > span {
-  width: 46px;
-  height: 46px;
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  color: #7ed0ff;
-  background: rgba(95, 190, 249, 0.12);
-  font-size: 20px;
-}
-
-.landing-company__contact small,
-.landing-company__contact-item > span {
-  display: block;
-  margin-bottom: 6px;
-  color: rgba(181, 218, 241, 0.58);
-  font-size: 9px;
-  font-weight: 850;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.landing-company__contact h3 {
-  margin: 0;
-  color: #fff;
-  font-size: 16px;
-  line-height: 1.35;
-}
-
-.landing-company__contact-item strong,
-.landing-company__contact-item a {
-  color: #e8f6ff;
-  font-size: 12px;
-  font-weight: 680;
+  color: #667d90;
+  font-size: 11px;
   line-height: 1.65;
 }
-
-.landing-company__contact-item a:hover { color: #6fcbff; }
 
 .landing-roadmap {
   min-height: 690px;
@@ -2142,22 +2365,81 @@ button.landing-intro__skip:hover {
 .landing-button--outline { border: 1px solid rgba(255, 255, 255, 0.55); color: #fff !important; }
 
 .landing-footer {
-  display: grid;
-  grid-template-columns: 1.2fr auto 1fr;
-  align-items: center;
-  gap: 42px;
-  padding: 44px max(32px, calc((100vw - 1260px) / 2));
-  color: #93a8b9;
-  background: #06131f;
+  color: #486378;
+  background: #edf4fa;
 }
 
-.landing-footer__brand { display: flex; align-items: center; gap: 15px; }
-.landing-footer__brand .landing-brand__mark { color: #59baff; }
-.landing-footer__brand strong { color: #fff; font-size: 18px; letter-spacing: 0.1em; }
-.landing-footer__brand p { margin: 4px 0 0; font-size: 11px; }
-.landing-footer__links { display: flex; gap: 22px; font-size: 11px; font-weight: 750; }
-.landing-footer__links a:hover { color: #fff; }
-.landing-footer__meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-size: 10px; }
+.landing-footer__main {
+  max-width: 1380px;
+  display: grid;
+  grid-template-columns: minmax(260px, 1.1fr) minmax(130px, 0.5fr) minmax(250px, 0.9fr) minmax(310px, 1.15fr);
+  gap: clamp(34px, 5vw, 76px);
+  margin: 0 auto;
+  padding: 68px 32px 58px;
+}
+
+.landing-footer__brand { display: flex; align-items: flex-start; gap: 15px; }
+.landing-footer__brand .landing-brand__mark { margin-top: 2px; color: #0b73d7; }
+.landing-footer__brand strong { color: #0b2134; font-size: 21px; letter-spacing: 0.12em; }
+.landing-footer__brand p { max-width: 260px; margin: 8px 0 0; color: #5b7285; font-size: 12px; line-height: 1.65; }
+.landing-footer__brand div > span { display: block; margin-top: 14px; color: #7f92a1; font-size: 10px; line-height: 1.6; }
+
+.landing-footer__column { display: flex; flex-direction: column; align-items: flex-start; gap: 9px; }
+.landing-footer__column h3 { margin: 0 0 11px; color: #17374f; font-size: 12px; letter-spacing: 0.05em; }
+.landing-footer__column > a { color: #527088; font-size: 11px; font-weight: 700; }
+.landing-footer__column > a:hover { color: #0b70cf; }
+.landing-footer__column p { margin: 0; color: #637c90; font-size: 10px; line-height: 1.65; }
+.landing-footer__column p > span { display: block; color: #91a0ac; font-size: 8px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.landing-footer__registration p { width: 100%; display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding-bottom: 7px; border-bottom: 1px solid rgba(96, 128, 152, 0.13); }
+.landing-footer__registration p > span { display: inline; flex: 0 0 auto; }
+.landing-footer__registration strong { color: #294c66; font-size: 9px; text-align: right; }
+
+.landing-footer__bottom {
+  max-width: 1380px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 0 auto;
+  padding: 22px 32px;
+  border-top: 1px solid #d5e2ec;
+  color: #8394a2;
+  font-size: 9px;
+}
+
+.landing-route-transition {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  color: #fff;
+  background:
+    radial-gradient(circle at 50% 44%, rgba(38, 146, 236, 0.22), transparent 24%),
+    #061725;
+}
+
+.landing-route-transition__mark { display: flex; align-items: center; gap: 3px; margin-bottom: 19px; color: #55baff; }
+.landing-route-transition__mark i { width: 10px; height: 29px; border: 2px solid currentColor; border-radius: 2px; transform: skewY(-20deg); }
+.landing-route-transition strong { font-size: 27px; letter-spacing: 0.18em; }
+.landing-route-transition span { margin-top: 9px; color: rgba(221, 239, 252, 0.65); font-size: 11px; }
+.landing-route-transition > b { width: 180px; height: 2px; margin-top: 22px; overflow: hidden; background: rgba(255, 255, 255, 0.12); }
+.landing-route-transition > b::after { content: ""; display: block; width: 100%; height: 100%; background: #46baff; transform-origin: left; animation: landing-route-progress 0.36s ease-out both; }
+.landing-route-transition-enter-active,
+.landing-route-transition-leave-active { transition: opacity 0.18s ease; }
+.landing-route-transition-enter-from,
+.landing-route-transition-leave-to { opacity: 0; }
+
+.landing-statement,
+.landing-company,
+.landing-services,
+.landing-roadmap,
+.landing-cta,
+.landing-footer {
+  content-visibility: auto;
+  contain-intrinsic-size: 1px 720px;
+}
 
 @keyframes landing-flip-page {
   0% { opacity: 0; transform: rotateY(0); }
@@ -2176,6 +2458,18 @@ button.landing-intro__skip:hover {
 }
 
 @keyframes landing-slide-progress {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes landing-operation-pulse {
+  0%, 12% { left: 0; transform: scale(0.82); opacity: 0; }
+  20% { opacity: 1; }
+  78% { opacity: 1; }
+  88%, 100% { left: calc(100% - 10px); transform: scale(1); opacity: 0; }
+}
+
+@keyframes landing-route-progress {
   from { transform: scaleX(0); }
   to { transform: scaleX(1); }
 }
@@ -2207,17 +2501,20 @@ button.landing-intro__skip:hover {
   .landing-header { grid-template-columns: minmax(200px, 1fr) auto; }
   .landing-nav { display: none; }
   .landing-hero__inner { width: min(100% - 64px, 1100px); grid-template-columns: 1fr minmax(280px, 0.45fr); gap: 5vw; }
+  .landing-capabilities__layout { grid-template-columns: 1fr; }
   .landing-capabilities__grid { grid-template-columns: repeat(2, 1fr); }
-  .landing-capability-card { min-height: 238px; }
-  .landing-company__intro { grid-template-columns: 1fr; }
-  .landing-company__fact { min-height: 188px; }
+  .landing-capabilities__aside { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; }
+  .landing-capability-card { min-height: 218px; }
+  .landing-company__intro { max-width: 820px; grid-template-columns: 1fr; }
+  .landing-company__operations { width: min(100%, 720px); margin: 0 auto; }
+  .landing-services__inner { grid-template-columns: 1fr; }
+  .landing-services .landing-section-heading { position: static; }
+  .landing-services .landing-section-heading h2,
+  .landing-services .landing-section-heading > span { max-width: 760px; }
   .landing-company__service-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .landing-company__contact { grid-template-columns: 1fr 1.35fr; }
-  .landing-company__contact-title { grid-column: 1 / -1; }
   .landing-roadmap__content { padding-right: 48px; padding-left: 48px; }
   .landing-cta { align-items: flex-start; flex-direction: column; }
-  .landing-footer { grid-template-columns: 1fr auto; }
-  .landing-footer__meta { grid-column: 1 / -1; flex-direction: row; justify-content: space-between; align-items: center; }
+  .landing-footer__main { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (min-width: 761px) and (max-height: 800px) {
@@ -2276,8 +2573,10 @@ button.landing-intro__skip:hover {
   .landing-hero__arrows button { width: 42px; height: 42px; }
 
   .landing-capabilities { width: calc(100% - 28px); margin-top: -48px; }
+  .landing-capabilities__layout { gap: 12px; }
   .landing-capabilities__grid { grid-template-columns: 1fr; }
-  .landing-capability-card { min-height: 220px; }
+  .landing-capabilities__aside { grid-template-columns: 1fr; }
+  .landing-capability-card { min-height: 204px; }
 
   .landing-statement { padding: 90px 20px 74px; }
   .landing-section-heading h2 { font-size: 34px; }
@@ -2293,13 +2592,20 @@ button.landing-intro__skip:hover {
   .landing-page.is-english .landing-company__identity h2 { font-size: 29px; }
   .landing-company__description { font-size: 14px; }
   .landing-company__actions { align-items: flex-start; flex-direction: column; gap: 15px; }
-  .landing-company__facts { grid-template-columns: 1fr; }
-  .landing-company__fact { min-height: 170px; }
-  .landing-company__services { margin-top: 72px; padding-top: 64px; }
-  .landing-company__service-grid { grid-template-columns: 1fr; margin-top: 34px; }
-  .landing-company__service-card { min-height: 170px; }
-  .landing-company__contact { grid-template-columns: 1fr; gap: 24px; padding: 24px; }
-  .landing-company__contact-title { grid-column: auto; }
+  .landing-company__registration { grid-template-columns: 1fr; }
+  .landing-company__registration div { padding: 0 0 14px; }
+  .landing-company__registration div + div { padding: 14px 0; border-top: 1px solid #e1e9f0; border-left: 0; }
+  .landing-company__registration div:last-child { padding-bottom: 0; }
+  .landing-company__operations { min-height: 350px; padding: 24px 18px; border-radius: 18px; }
+  .landing-company__operations-route { gap: 7px; margin: 64px 0 48px; }
+  .landing-company__operations-route > span b { min-width: 40px; min-height: 40px; padding: 0 6px; }
+  .landing-company__operations-float { min-width: 126px; padding: 11px 12px; }
+  .landing-company__operations-float--tracking { top: 76px; right: 12px; }
+  .landing-company__operations-float--planning { right: 18px; bottom: -20px; }
+  .landing-services { padding: 76px 20px; }
+  .landing-services__inner { gap: 38px; }
+  .landing-company__service-grid { grid-template-columns: 1fr; }
+  .landing-company__service-card { min-height: 132px; }
 
   .landing-roadmap { grid-template-columns: 1fr; }
   .landing-roadmap__visual { min-height: 440px; }
@@ -2310,9 +2616,8 @@ button.landing-intro__skip:hover {
   .landing-cta__actions { width: 100%; flex-direction: column; }
   .landing-cta__actions .landing-button { width: 100%; }
 
-  .landing-footer { grid-template-columns: 1fr; padding: 42px 22px; }
-  .landing-footer__links { flex-wrap: wrap; }
-  .landing-footer__meta { grid-column: auto; flex-direction: column; align-items: flex-start; }
+  .landing-footer__main { grid-template-columns: 1fr; gap: 34px; padding: 52px 22px 42px; }
+  .landing-footer__bottom { align-items: flex-start; flex-direction: column; padding: 20px 22px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2320,7 +2625,9 @@ button.landing-intro__skip:hover {
   .landing-intro__page,
   .landing-intro__cover,
   .landing-intro__progress i,
-  .landing-hero__pagination button.active i::after { animation: none; }
+  .landing-hero__pagination button.active i::after,
+  .landing-company__operations-route > div b,
+  .landing-route-transition > b::after { animation: none; }
   .landing-hero-page-enter-active,
   .landing-hero-page-leave-active { transition-duration: 0.01ms; }
   .landing-page.is-reveal-ready .landing-reveal,

@@ -1,5 +1,8 @@
 import * as XLSX from "xlsx";
 import { normalizeCargoConstraints } from "../utils/cargoConstraints.js";
+import { assignCargoModels } from "../utils/cargoModels.js";
+
+export { assignCargoModels } from "../utils/cargoModels.js";
 
 const STANDARD_FIELDS = [
   { key: "name", label: "货物名称", required: true },
@@ -1573,25 +1576,6 @@ function sumNumericField(left, right, field) {
   return (hasLeft ? leftValue : 0) + (hasRight ? rightValue : 0);
 }
 
-export function assignCargoModels(cargos) {
-  const byName = new Map();
-  cargos.forEach((cargo) => {
-    const name = cleanCell(cargo.name);
-    if (!name) return;
-    if (!byName.has(name)) byName.set(name, []);
-    byName.get(name).push(cargo);
-  });
-
-  return cargos.map((cargo) => {
-    const siblings = byName.get(cleanCell(cargo.name)) || [];
-    const dimensionKeys = new Set(siblings.map(dimensionKey));
-    if (dimensionKeys.size <= 1 || cleanCell(cargo.model)) return { ...cargo };
-    const orderedKeys = [...dimensionKeys].sort(compareDimensionKey);
-    const modelIndex = Math.max(0, orderedKeys.indexOf(dimensionKey(cargo)));
-    return { ...cargo, model: `型号 ${modelLabel(modelIndex)}` };
-  });
-}
-
 export function validateCargo(cargo) {
   const errors = [];
   if (!cleanCell(cargo.name)) errors.push("缺少货物名称");
@@ -1942,34 +1926,6 @@ function normalizeColor(value) {
   const text = cleanCell(value);
   if (/^#[0-9a-f]{6}$/i.test(text)) return text;
   return "";
-}
-
-function dimensionKey(cargo) {
-  return [
-    round2(cargo.lengthCm),
-    round2(cargo.widthCm),
-    round2(cargo.heightCm),
-    round2(cargo.weightKg),
-    cargo.type || "normal",
-    Boolean(cargo.nonStack),
-    Boolean(cargo.keepUpright)
-  ].join("|");
-}
-
-function compareDimensionKey(a, b) {
-  const aParts = a.split("|");
-  const bParts = b.split("|");
-  for (let i = 0; i < 4; i += 1) {
-    const diff = Number(aParts[i] || 0) - Number(bParts[i] || 0);
-    if (diff) return diff;
-  }
-  return String(aParts[4] || "").localeCompare(String(bParts[4] || ""));
-}
-
-function modelLabel(index) {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  if (index < alphabet.length) return alphabet[index];
-  return `${alphabet[index % alphabet.length]}${Math.floor(index / alphabet.length) + 1}`;
 }
 
 function round2(value) {

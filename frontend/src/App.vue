@@ -24,7 +24,7 @@
     :current-user="currentUser"
     @logout="handleLogout"
   />
-  <div v-else class="app-shell">
+  <div v-else class="app-shell" :class="{ 'is-page-leaving': pageLeaving }">
     <header class="topbar">
       <div class="brand">
         <span class="brand-mark">CP</span>
@@ -39,6 +39,15 @@
         <el-breadcrumb-item v-if="activePage === 'planner'">{{ activePlannerStepLabel }}</el-breadcrumb-item>
       </el-breadcrumb>
       <div class="top-user">
+        <a
+          class="top-home-link"
+          href="/"
+          :aria-label="t('landing.brandAria')"
+          @click="handleReturnHome"
+        >
+          <el-icon><House /></el-icon>
+          <span>CROS {{ t("landing.nav.home") }}</span>
+        </a>
         <LanguageSwitcher class="topbar-language-switcher" />
         <el-tag effect="plain" type="primary">{{ pageTitle }}</el-tag>
         <el-button type="primary" plain class="user-button" @click="profileOpen = true">
@@ -833,7 +842,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { UploadFile } from "element-plus";
 import {
@@ -856,20 +865,9 @@ import {
   Tickets,
   Upload
 } from "@element-plus/icons-vue";
-import AdminDashboard from "./components/AdminDashboard.vue";
-import AlgorithmPage from "./components/AlgorithmPage.vue";
-import ExcelTemplatePage from "./components/ExcelTemplatePage.vue";
-import HomePage from "./components/HomePage.vue";
-import LoginPage from "./components/LoginPage.vue";
-import PublicLandingPage from "./components/PublicLandingPage.vue";
-import WorkbenchPortal from "./components/WorkbenchPortal.vue";
-import CargoModal from "./components/CargoModal.vue";
-import ContainerModal from "./components/ContainerModal.vue";
-import ContainerReferencePage from "./components/ContainerReferencePage.vue";
-import ContainerScene from "./components/ContainerScene.vue";
 import LanguageSwitcher from "./components/LanguageSwitcher.vue";
 import { exportPackingReportsZip, exportPackingReport } from "./services/exportReport";
-import { assignCargoModels } from "./services/excelImport";
+import { assignCargoModels } from "./utils/cargoModels";
 import { buildPreviewInWorker, readWorkbookInWorker } from "./services/excelImportClient";
 import { calculatePacking, estimatePackingWorkload } from "./services/packingClient";
 import { cloneDefaultContainers, defaultContainerForId, effectiveContainerHeight, isDefaultContainerId, mergeDefaultContainers, normalizeContainerHeightFields, restoreDefaultContainer, restoreDefaultContainerPrice } from "./services/localData";
@@ -880,6 +878,18 @@ import { translateLegacyText } from "./i18n/legacyText";
 import { translateUiText } from "./i18n/uiText";
 import { cargoLabel, fmt, shortType, uid } from "./utils/format";
 import { cargoConstraintFlags, cargoHandlingUnitType, normalizeCargoConstraints } from "./utils/cargoConstraints";
+
+const AdminDashboard = defineAsyncComponent(() => import("./components/AdminDashboard.vue"));
+const AlgorithmPage = defineAsyncComponent(() => import("./components/AlgorithmPage.vue"));
+const ExcelTemplatePage = defineAsyncComponent(() => import("./components/ExcelTemplatePage.vue"));
+const HomePage = defineAsyncComponent(() => import("./components/HomePage.vue"));
+const LoginPage = defineAsyncComponent(() => import("./components/LoginPage.vue"));
+const PublicLandingPage = defineAsyncComponent(() => import("./components/PublicLandingPage.vue"));
+const WorkbenchPortal = defineAsyncComponent(() => import("./components/WorkbenchPortal.vue"));
+const CargoModal = defineAsyncComponent(() => import("./components/CargoModal.vue"));
+const ContainerModal = defineAsyncComponent(() => import("./components/ContainerModal.vue"));
+const ContainerReferencePage = defineAsyncComponent(() => import("./components/ContainerReferencePage.vue"));
+const ContainerScene = defineAsyncComponent(() => import("./components/ContainerScene.vue"));
 
 const STORAGE_KEY = "cargo-planner-vue-state";
 const TEMPLATE_STORAGE_KEY = "cargo-planner-cargo-templates";
@@ -923,6 +933,7 @@ const workspaceReady = ref(false);
 const hasStoredWorkspace = ref(false);
 const currentUser = ref(storedUser());
 const profileOpen = ref(false);
+const pageLeaving = ref(false);
 const loginRedirecting = ref(false);
 const loginRedirectText = ref("正在进入系统...");
 const routeName = computed(() => String(route.name || ""));
@@ -1013,6 +1024,7 @@ const calcElapsedSeconds = ref(0);
 let timer = 0;
 let calcSeq = 0;
 let calcElapsedTimer = 0;
+let pageLeaveTimer = 0;
 
 const sortedEvaluations = computed(() => result.value?.evaluations || []);
 const cargoImportNoticeText = computed(() => {
@@ -1199,6 +1211,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener("auth-expired", handleAuthExpired);
   stopPackingElapsedTimer();
+  window.clearTimeout(pageLeaveTimer);
 });
 
 watch([cargos, containers, priorityContainerIds, utilizationPercent, globalGapCm, supportRatioPercent, nonStackSupportRatioPercent, balanceSettings], () => {
@@ -1386,6 +1399,28 @@ function handleMenuSelect(index) {
     return;
   }
   router.push(index);
+}
+
+function handleReturnHome(event: MouseEvent) {
+  if (
+    event.defaultPrevented
+    || event.button !== 0
+    || event.metaKey
+    || event.ctrlKey
+    || event.shiftKey
+    || event.altKey
+  ) return;
+
+  event.preventDefault();
+  if (pageLeaving.value) return;
+  pageLeaving.value = true;
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  window.clearTimeout(pageLeaveTimer);
+  pageLeaveTimer = window.setTimeout(() => {
+    // A full navigation releases the heavy planning workspace and lets `/`
+    // boot through the dedicated lightweight landing entry.
+    window.location.assign("/");
+  }, reduceMotion ? 0 : 180);
 }
 
 function buildPackingPayload(activeContainers = calculationContainers.value) {

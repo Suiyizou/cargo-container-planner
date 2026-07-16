@@ -1,7 +1,14 @@
 import { createServer } from "node:http";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import {
+  brotliCompress,
+  constants as zlibConstants,
+  gzip
+} from "node:zlib";
 import {
   closeCoscoPlaywrightBrowser,
   fetchCoscoTrackingViaPlaywright
@@ -115,6 +122,12 @@ const MIME_TYPES = Object.freeze({
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml"
 });
+const COMPRESSIBLE_EXTENSIONS = new Set([".css", ".html", ".js", ".json", ".svg"]);
+const HASHED_ASSET_PATTERN = /[.-][a-z0-9_-]{8,}\.(?:css|gif|ico|jpe?g|js|json|png|svg|woff2?)$/i;
+const STATIC_COMPRESSION_CACHE_LIMIT = 64;
+const compressWithBrotli = promisify(brotliCompress);
+const compressWithGzip = promisify(gzip);
+const staticCompressionCache = new Map();
 
 const cache = new Map();
 const inFlightTrackingRequests = new Map();
@@ -152,6 +165,108 @@ function setCommonHeaders(response) {
     "Content-Security-Policy",
     "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'"
   );
+}
+
+function staticCacheControl(pathname) {
+  if (pathname.endsWith(".html") || pathname === "/") {
+    return "no-cache, no-store, must-revalidate";
+  }
+  if (HASHED_ASSET_PATTERN.test(pathname)) {
+    return "public, max-age=31536000, immutable";
+  }
+  return "no-cache, must-revalidate";
+}
+
+function staticEtag(content) {
+  const digest = createHash("sha256").update(content).digest("base64url").slice(0, 16);
+  return `W/\"${content.length.toString(16)}-${digest}\"`;
+}
+
+function acceptsEncoding(request, encoding) {
+  const value = String(request.headers["accept-encoding"] || "").toLowerCase();
+  const entries = value.split(",").map((entry) => {
+    const [name, ...parameters] = entry.trim().split(";");
+    return {
+      name,
+      allowed: !parameters.some((parameter) => /^q=0(?:\.0*)?$/.test(parameter.trim()))
+    };
+  });
+  const explicit = entries.find((entry) => entry.name === encoding);
+  if (explicit) return explicit.allowed;
+  return entries.some((entry) => entry.name === "*" && entry.allowed);
+}
+
+function rememberCompressedStatic(key, content) {
+  if (staticCompressionCache.has(key)) staticCompressionCache.delete(key);
+  staticCompressionCache.set(key, content);
+  while (staticCompressionCache.size > STATIC_COMPRESSION_CACHE_LIMIT) {
+    staticCompressionCache.delete(staticCompressionCache.keys().next().value);
+  }
+}
+
+async function cachedCompressedStatic(key, compress) {
+  let pending = staticCompressionCache.get(key);
+  if (!pending) {
+    pending = Promise.resolve().then(compress);
+    rememberCompressedStatic(key, pending);
+  }
+  try {
+    return await pending;
+  } catch (error) {
+    if (staticCompressionCache.get(key) === pending) staticCompressionCache.delete(key);
+    throw error;
+  }
+}
+
+async function compressStaticContent(request, content, extension, etag) {
+  if (content.length < 1024 || !COMPRESSIBLE_EXTENSIONS.has(extension)) {
+    return { content, encoding: null };
+  }
+  if (acceptsEncoding(request, "br")) {
+    const key = `${etag}:br`;
+    const compressed = await cachedCompressedStatic(key, () =>
+      compressWithBrotli(content, {
+        params: {
+          [zlibConstants.BROTLI_PARAM_QUALITY]: 5
+        }
+      })
+    );
+    return { content: compressed, encoding: "br" };
+  }
+  if (acceptsEncoding(request, "gzip")) {
+    const key = `${etag}:gzip`;
+    const compressed = await cachedCompressedStatic(key, () =>
+      compressWithGzip(content, { level: 6 })
+    );
+    return { content: compressed, encoding: "gzip" };
+  }
+  return { content, encoding: null };
+}
+
+async function sendStaticContent(request, response, content, options) {
+  const extension = options.extension || "";
+  const etag = staticEtag(content);
+  const headers = {
+    "Content-Type": options.contentType,
+    "Cache-Control": options.cacheControl,
+    ETag: etag
+  };
+
+  if (COMPRESSIBLE_EXTENSIONS.has(extension)) headers.Vary = "Accept-Encoding";
+
+  if (request.headers["if-none-match"] === etag) {
+    setCommonHeaders(response);
+    response.writeHead(304, headers);
+    response.end();
+    return;
+  }
+
+  const representation = await compressStaticContent(request, content, extension, etag);
+  if (representation.encoding) headers["Content-Encoding"] = representation.encoding;
+  headers["Content-Length"] = representation.content.length;
+  setCommonHeaders(response);
+  response.writeHead(200, headers);
+  response.end(request.method === "HEAD" ? undefined : representation.content);
 }
 
 function sendJson(response, status, payload) {
@@ -1076,15 +1191,14 @@ async function handleTrackRequest(request, response, forcedCarrier, forcedChanne
   sendJson(response, 200, { ...value, cached: false });
 }
 
-async function serveFlag(response, ratio, countryCode) {
+async function serveFlag(request, response, ratio, countryCode) {
   try {
     const content = await readFile(join(FLAG_ICONS_DIR, ratio, `${countryCode}.svg`));
-    setCommonHeaders(response);
-    response.writeHead(200, {
-      "Content-Type": MIME_TYPES[".svg"],
-      "Cache-Control": "public, max-age=86400"
+    await sendStaticContent(request, response, content, {
+      extension: ".svg",
+      contentType: MIME_TYPES[".svg"],
+      cacheControl: "public, max-age=604800"
     });
-    response.end(content);
   } catch (error) {
     if (error?.code === "ENOENT") throw new HttpError(404, "国旗资源不存在");
     throw error;
@@ -1095,19 +1209,18 @@ async function serveStatic(request, response) {
   const url = new URL(request.url, "http://localhost");
   if (url.pathname === "/vendor/element-plus.css") {
     const content = await readFile(ELEMENT_PLUS_CSS);
-    setCommonHeaders(response);
-    response.writeHead(200, {
-      "Content-Type": MIME_TYPES[".css"],
-      "Cache-Control": "public, max-age=86400"
+    await sendStaticContent(request, response, content, {
+      extension: ".css",
+      contentType: MIME_TYPES[".css"],
+      cacheControl: "no-cache, must-revalidate"
     });
-    response.end(content);
     return;
   }
 
   const flagMatch = url.pathname.match(/^\/vendor\/flags\/(1x1|4x3)\/([a-z]{2})\.svg$/);
   if (flagMatch) {
     const [, ratio, countryCode] = flagMatch;
-    await serveFlag(response, ratio, countryCode);
+    await serveFlag(request, response, ratio, countryCode);
     return;
   }
 
@@ -1121,12 +1234,12 @@ async function serveStatic(request, response) {
 
   try {
     const content = await readFile(filePath);
-    setCommonHeaders(response);
-    response.writeHead(200, {
-      "Content-Type": MIME_TYPES[extname(filePath)] ?? "application/octet-stream",
-      "Cache-Control": "no-cache"
+    const extension = extname(filePath);
+    await sendStaticContent(request, response, content, {
+      extension,
+      contentType: MIME_TYPES[extension] ?? "application/octet-stream",
+      cacheControl: staticCacheControl(url.pathname)
     });
-    response.end(content);
   } catch (error) {
     if (error?.code === "ENOENT") {
       throw new HttpError(404, "页面不存在");
@@ -1161,7 +1274,7 @@ export const server = createServer(async (request, response) => {
     const flagApiMatch = url.pathname.match(/^\/api\/flags\/(1x1|4x3)\/([a-z]{2})$/);
     if (request.method === "GET" && flagApiMatch) {
       const [, ratio, countryCode] = flagApiMatch;
-      await serveFlag(response, ratio, countryCode);
+      await serveFlag(request, response, ratio, countryCode);
       return;
     }
 

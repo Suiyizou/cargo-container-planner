@@ -19,7 +19,7 @@ export const messages = {
       loadingAuth: "正在检查登录状态..."
     },
     landing: {
-      metaTitle: "CROS · 上海罗加国际货物运输代理有限公司",
+      metaTitle: "CROS · 德鲁威斯（上海）供应链管理有限公司",
       brandAria: "返回 CROS 首页",
       loader: {
         aria: "CROS 平台正在加载",
@@ -30,13 +30,15 @@ export const messages = {
         aria: "主页导航",
         home: "首页",
         capabilities: "平台能力",
+        features: "平台功能",
         tracking: "Cargo Tracking",
         roadmap: "建设路线",
-        about: "关于罗加"
+        about: "关于德鲁威斯"
       },
       status: {
         available: "已上线",
         public: "公开查询",
+        publicFree: "公开免费",
         planned: "规划中"
       },
       entry: {
@@ -93,6 +95,12 @@ export const messages = {
           title: "企业 ERP 接入",
           description: "计划通过标准接口连接订单、货物与运输数据，形成连贯业务流。",
           action: "查看建设路线"
+        },
+        summary: {
+          current: "当前能力",
+          currentDetail: "装箱与追踪已可使用",
+          tracking: "公共追踪",
+          trackingDetail: "无需登录，直接查询"
         }
       },
       statement: {
@@ -106,74 +114,53 @@ export const messages = {
       },
       company: {
         eyebrow: "COMPANY PROFILE · 上海",
-        internationalName: "LOGISTICS PLUS CHINA LIMITED",
-        legalName: "上海罗加国际货物运输代理有限公司",
-        description: "Logistics Plus 官方公开资料将上海罗加与其中国上海团队对应介绍。中国团队自 1999 年进入 Logistics Plus 全球网络，以本地执行连接海运、空运、陆运、铁路与项目物流能力。",
-        tagsAria: "公司核心服务标签",
-        tags: {
-          forwarding: "海空货运代理",
-          project: "项目物流",
-          network: "全球协同网络"
-        },
-        officialProfile: "查看官方上海介绍",
-        sourceNote: "公司信息整理自 Logistics Plus 官方公开资料；当前地址取自官方英文上海页，来访前请通过业务邮箱确认。",
-        factsAria: "上海罗加公司概览",
-        facts: {
-          since: {
-            value: "1999",
-            label: "中国团队网络起点",
-            description: "官方资料记载，Logistics Plus 中国团队自 1999 年进入全球网络。"
-          },
-          expansion: {
-            value: "2022",
-            label: "上海服务网络扩展",
-            description: "近虹桥与国家会展中心的第二个上海办公室于该年启用。"
-          },
-          model: {
-            value: "3PL / 4PL",
-            label: "综合服务模式",
-            description: "覆盖运输、仓储、履约及供应链管理协同。"
-          },
-          modes: {
-            value: "SEA · AIR · RAIL",
-            label: "多式联运能力",
-            description: "连接海运、空运、地面运输、铁路与项目货物。"
-          }
-        },
-        servicesEyebrow: "SERVICES & SOLUTIONS",
-        servicesTitle: "围绕每票货物，组织从运输到交付的执行能力。",
-        servicesDescription: "以下服务范围来自 Logistics Plus 中国团队公开资料；CROS 正在把其中高频信息逐步转化为可查询、可协同的数字化工作流。",
+        internationalName: "SUPPLY CHAIN MANAGEMENT · SHANGHAI",
+        legalName: "德鲁威斯（上海）供应链管理有限公司",
+        description: "德鲁威斯（上海）供应链管理有限公司成立于 2023 年 3 月 16 日，注册于上海市虹口区，业务围绕供应链管理、国际与国内货运代理，以及船舶和运输设备相关服务展开。",
+        detail: "经营范围包括供应链管理服务、国际货物运输代理、海上／航空／陆路国际货运代理、报检业务、国际船舶代理、国内货运代理、运输设备与船舶租赁、集装箱销售及无船承运业务。",
+        incorporatedLabel: "成立日期",
+        typeLabel: "企业类型",
+        typeValue: "有限责任公司（自然人独资）",
+        industryLabel: "所属行业",
+        industryValue: "商务服务业",
+        platformAction: "查看平台能力",
+        creditCodeLabel: "统一社会信用代码",
+        sourceNote: "企业基础信息与经营范围依据用户提供的公开工商登记截图整理；登记信息可能发生变更，请以国家企业信用信息公示系统最新记录为准。",
+        operationsEyebrow: "SHANGHAI OPERATIONS",
+        operationsTitle: "运输协同台",
+        operationsOrigin: "上海执行",
+        operationsHub: "节点协同",
+        operationsGlobal: "全球交付",
+        operationsStatus: "多式联运链路",
+        servicesEyebrow: "PRIMARY BUSINESS",
+        servicesTitle: "围绕供应链与货运代理，连接每一个关键环节。",
+        servicesDescription: "从工商登记经营范围中提炼六项主要业务，清晰呈现企业当前登记的服务边界。",
         services: {
           oceanAir: {
-            title: "海运与空运",
-            description: "处理进出口海运、空运需求，并持续同步关键运输进展。"
+            title: "供应链管理服务",
+            description: "围绕货物流转与运输资源，组织供应链环节协同。"
           },
           groundRail: {
-            title: "陆运与铁路",
-            description: "衔接内陆地面运输与铁路服务，组织跨区域多式联运。"
+            title: "海上国际货运代理",
+            description: "承接海上国际货物运输代理及相关节点衔接。"
           },
           project: {
-            title: "项目与超限货",
-            description: "面向大型、重型及偏远目的地货物制定定制化项目方案。"
+            title: "航空与陆路国际货运代理",
+            description: "衔接航空、陆路国际货运代理与多运输方式协同。"
           },
           warehouse: {
-            title: "仓储与配送",
-            description: "衔接仓储、分拨、配送与履约环节，保持货物流转连续。"
+            title: "国际船舶代理与无船承运",
+            description: "开展国际船舶代理及无船承运相关业务。"
           },
           compliance: {
-            title: "进出口与合规",
-            description: "协同进出口服务、报关报检与全球贸易合规要求。"
+            title: "国内货运代理与报检",
+            description: "提供国内货运代理并衔接报检业务。"
           },
           technology: {
-            title: "物流技术与可视化",
-            description: "以业务信息、追踪与数字工具提升运输过程透明度。"
+            title: "租赁与集装箱服务",
+            description: "涵盖运输设备、船舶租赁与集装箱销售。"
           }
-        },
-        contactEyebrow: "SHANGHAI OFFICE",
-        contactTitle: "联系 Logistics Plus 中国上海团队",
-        addressLabel: "官方现列地址",
-        address: "上海市青浦区蟠龙路 899 号，Lanyun Cultural Center 南楼 19 层 1902–1903 室，邮编 201702",
-        emailLabel: "业务联系"
+        }
       },
       roadmap: {
         eyebrow: "建设路线",
@@ -193,10 +180,23 @@ export const messages = {
         description: "公开追踪无需登录；进入装箱工作台或总后台时，平台会验证企业账号与权限。",
         publicTracking: "打开 Cargo Tracking"
       },
+      transition: {
+        copy: "正在进入业务工作台"
+      },
       footer: {
         tagline: "面向货代业务的模块化数字运营平台",
         signIn: "企业登录",
-        copyright: "© 2026 上海罗加国际货物运输代理有限公司",
+        quickLinks: "快速入口",
+        registrationTitle: "企业登记信息",
+        termLabel: "营业期限",
+        termValue: "无固定期限",
+        contactTitle: "登记与地址",
+        registeredAddressLabel: "工商注册地址",
+        registeredAddress: "上海市虹口区海宁路 137 号 7 层（集中登记地）",
+        authorityLabel: "登记机关",
+        authority: "虹口区市场监督管理局",
+        disclaimer: "企业登记信息可能发生变更，请以国家企业信用信息公示系统最新记录为准。",
+        copyright: "© 2026 德鲁威斯（上海）供应链管理有限公司",
         platform: "Cargo Operations Suite"
       }
     },
@@ -527,7 +527,7 @@ export const messages = {
       loadingAuth: "Checking login status..."
     },
     landing: {
-      metaTitle: "CROS · Shanghai Luojia International Freight Forwarding",
+      metaTitle: "CROS · 德鲁威斯（上海）供应链管理有限公司",
       brandAria: "Return to the CROS home page",
       loader: {
         aria: "CROS platform is loading",
@@ -538,13 +538,15 @@ export const messages = {
         aria: "Home page navigation",
         home: "Home",
         capabilities: "Capabilities",
+        features: "Platform features",
         tracking: "Cargo Tracking",
         roadmap: "Roadmap",
-        about: "About Luojia"
+        about: "Company profile"
       },
       status: {
         available: "Available",
         public: "Public",
+        publicFree: "Free & public",
         planned: "Planned"
       },
       entry: {
@@ -601,6 +603,12 @@ export const messages = {
           title: "ERP Connectivity",
           description: "Planned standard interfaces will connect order, cargo, and shipment data into a continuous workflow.",
           action: "View the roadmap"
+        },
+        summary: {
+          current: "Current capability",
+          currentDetail: "Planning and tracking are ready",
+          tracking: "Public tracking",
+          trackingDetail: "Open directly without signing in"
         }
       },
       statement: {
@@ -614,74 +622,53 @@ export const messages = {
       },
       company: {
         eyebrow: "COMPANY PROFILE · SHANGHAI",
-        internationalName: "LOGISTICS PLUS CHINA LIMITED",
-        legalName: "Shanghai Luojia International Freight Forwarding Co., Ltd.",
-        description: "Official Logistics Plus materials identify Shanghai Luojia International Freight Forwarding Co., Ltd. with its Shanghai-based China operation. Since 1999, the team has connected local execution with ocean, air, ground, rail, and project logistics across the global network.",
-        tagsAria: "Core company service tags",
-        tags: {
-          forwarding: "Ocean & air forwarding",
-          project: "Project logistics",
-          network: "Global network coordination"
-        },
-        officialProfile: "View the official Shanghai profile",
-        sourceNote: "Company information is compiled from official Logistics Plus materials. Please confirm the current office address by email before visiting.",
-        factsAria: "Shanghai Luojia company overview",
-        facts: {
-          since: {
-            value: "1999",
-            label: "China network origin",
-            description: "Official materials trace the Logistics Plus China team in the global network to 1999."
-          },
-          expansion: {
-            value: "2022",
-            label: "Shanghai network expanded",
-            description: "A second Shanghai office near Hongqiao and the NECC opened that year."
-          },
-          model: {
-            value: "3PL / 4PL",
-            label: "Integrated service model",
-            description: "Transportation, warehousing, fulfillment, and supply-chain coordination."
-          },
-          modes: {
-            value: "SEA · AIR · RAIL",
-            label: "Multimodal capability",
-            description: "Ocean, air, ground, rail, and project cargo execution."
-          }
-        },
-        servicesEyebrow: "SERVICES & SOLUTIONS",
-        servicesTitle: "Execution capabilities organized around every shipment.",
-        servicesDescription: "The service scope below comes from official Logistics Plus China materials. CROS is gradually turning frequent information flows into searchable, coordinated digital workflows.",
+        internationalName: "SUPPLY CHAIN MANAGEMENT & FREIGHT FORWARDING",
+        legalName: "德鲁威斯（上海）供应链管理有限公司",
+        description: "Registered on March 16, 2023 in Hongkou District, Shanghai, the company focuses on supply chain management, international and domestic freight forwarding, ship agency, and transport equipment services.",
+        detail: "Its registered scope includes supply chain management; international, ocean, air, and road freight forwarding; inspection declaration; international ship agency; domestic freight forwarding; equipment and vessel leasing; container sales; and NVOCC services.",
+        incorporatedLabel: "Incorporated",
+        typeLabel: "Entity type",
+        typeValue: "Limited liability company (sole natural-person ownership)",
+        industryLabel: "Registered industry",
+        industryValue: "Business services",
+        platformAction: "Explore platform capabilities",
+        creditCodeLabel: "Unified social credit code",
+        sourceNote: "Company details and scope are based on the public registration snapshot supplied by the user. Refer to the latest national enterprise credit record for changes.",
+        operationsEyebrow: "SHANGHAI OPERATIONS",
+        operationsTitle: "Transport coordination desk",
+        operationsOrigin: "Shanghai execution",
+        operationsHub: "Node coordination",
+        operationsGlobal: "Global delivery",
+        operationsStatus: "Multimodal route",
+        servicesEyebrow: "PRIMARY BUSINESS",
+        servicesTitle: "Connecting the critical steps across supply chain and freight forwarding.",
+        servicesDescription: "Six primary activities distilled from the registered business scope, presented with clear service boundaries.",
         services: {
           oceanAir: {
-            title: "Ocean & air freight",
-            description: "Coordinate import and export ocean and air movements while keeping critical progress visible."
+            title: "Supply chain management",
+            description: "Coordinate supply-chain activities around cargo flow and transport resources."
           },
           groundRail: {
-            title: "Ground & rail",
-            description: "Connect inland transportation and rail services into practical multimodal movements."
+            title: "Ocean freight forwarding",
+            description: "Provide ocean international freight forwarding and related coordination."
           },
           project: {
-            title: "Project & oversized cargo",
-            description: "Develop tailored plans for large, heavy, and remote-destination cargo."
+            title: "Air & road freight forwarding",
+            description: "Connect international air and road forwarding across transport modes."
           },
           warehouse: {
-            title: "Warehousing & distribution",
-            description: "Link storage, distribution, delivery, and fulfillment into a continuous cargo flow."
+            title: "Ship agency & NVOCC",
+            description: "Cover international ship agency and NVOCC services."
           },
           compliance: {
-            title: "Import, export & compliance",
-            description: "Coordinate import/export services, customs requirements, and global trade compliance."
+            title: "Domestic forwarding & inspection",
+            description: "Provide domestic freight forwarding and inspection declaration support."
           },
           technology: {
-            title: "Logistics technology",
-            description: "Use business intelligence, tracking, and digital tools to improve shipment visibility."
+            title: "Leasing & container services",
+            description: "Cover transport equipment and vessel leasing, plus container sales."
           }
-        },
-        contactEyebrow: "SHANGHAI OFFICE",
-        contactTitle: "Connect with the Logistics Plus China team",
-        addressLabel: "Current official address",
-        address: "Offices 1902–1903, 19F, South Building, Lanyun Cultural Center, 899 PanLong Road, Qingpu District, Shanghai 201702, China",
-        emailLabel: "Business inquiries"
+        }
       },
       roadmap: {
         eyebrow: "Product roadmap",
@@ -701,10 +688,23 @@ export const messages = {
         description: "Public tracking needs no sign-in. Enterprise accounts and role checks protect load planning and administration.",
         publicTracking: "Open Cargo Tracking"
       },
+      transition: {
+        copy: "Opening the operations workspace"
+      },
       footer: {
         tagline: "A modular digital operations platform for freight forwarders",
         signIn: "Enterprise sign in",
-        copyright: "© 2026 Shanghai Luojia International Freight Forwarding Co., Ltd.",
+        quickLinks: "Quick links",
+        registrationTitle: "Registration details",
+        termLabel: "Operating term",
+        termValue: "No fixed term",
+        contactTitle: "Registration & address",
+        registeredAddressLabel: "Registered address",
+        registeredAddress: "7F, No. 137 Haining Road, Hongkou District, Shanghai (centralized registration address)",
+        authorityLabel: "Registration authority",
+        authority: "Hongkou District Market Supervision Administration",
+        disclaimer: "Registration details may change. Refer to the latest National Enterprise Credit Information Publicity System record.",
+        copyright: "© 2026 德鲁威斯（上海）供应链管理有限公司",
         platform: "Cargo Operations Suite"
       }
     },

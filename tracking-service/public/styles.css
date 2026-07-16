@@ -6116,3 +6116,29 @@ td {
   color: #ffffff;
   background: rgba(22, 119, 255, 0.28);
 }
+
+.nav-item.portal-return-link .nav-icon {
+  transition: transform 160ms ease;
+}
+
+.nav-item.portal-return-link:hover .nav-icon {
+  transform: translateX(-2px);
+}
+
+.app-shell,
+.ambient {
+  transition: opacity 180ms ease, transform 180ms cubic-bezier(.22, 1, .36, 1);
+}
+
+body.is-page-leaving {
+  pointer-events: none;
+}
+
+body.is-page-leaving .app-shell {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+body.is-page-leaving .ambient {
+  opacity: 0;
+}

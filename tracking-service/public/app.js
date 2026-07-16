@@ -2008,6 +2008,26 @@ document.querySelectorAll("[data-view-target]").forEach((link) => {
   });
 });
 
+document.querySelectorAll("[data-home-link]").forEach((link) => {
+  link.addEventListener("click", (event) => {
+    if (
+      event.defaultPrevented
+      || event.button !== 0
+      || event.metaKey
+      || event.ctrlKey
+      || event.shiftKey
+      || event.altKey
+    ) return;
+
+    event.preventDefault();
+    if (document.body.classList.contains("is-page-leaving")) return;
+    document.body.classList.add("is-page-leaving");
+    document.body.setAttribute("aria-busy", "true");
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.setTimeout(() => window.location.assign(link.href), reduceMotion ? 0 : 180);
+  });
+});
+
 document.querySelector("#start-tracking-button").addEventListener("click", () => {
   showView("tracking");
   trackingNumber.focus();
