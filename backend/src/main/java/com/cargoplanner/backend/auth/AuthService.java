@@ -67,6 +67,9 @@ public class AuthService {
     }
 
     String deviceId = normalizeDeviceId(request.deviceId(), ip, userAgent);
+    // Serialize admission for all devices of the same account. Without this row lock,
+    // parallel logins with different device ids can all observe a stale count below the cap.
+    lockUserForDeviceAdmission(account.id());
     int activeOtherDevices = countActiveOtherDevices(account.id(), deviceId);
     if (activeOtherDevices >= deviceLimit) {
       recordEvent(account.id(), username, "DEVICE_LIMIT", deviceId, ip, userAgent, "Device limit reached");
@@ -91,7 +94,7 @@ public class AuthService {
     String tokenHash = sha256Hex(token.trim());
     List<AuthenticatedUser> users = jdbcTemplate.query(
         """
-        SELECT u.id, u.username, u.display_name, u.role, u.status
+        SELECT u.id, u.username, u.display_name, u.role, u.status, u.party_role
         FROM cp_login_devices d
         JOIN cp_users u ON u.id = d.user_id
         WHERE d.session_token_hash = ?
@@ -167,10 +170,19 @@ public class AuthService {
     );
   }
 
+  private void lockUserForDeviceAdmission(long userId) {
+    jdbcTemplate.queryForObject(
+        "SELECT id FROM cp_users WHERE id = ? FOR UPDATE",
+        Long.class,
+        userId
+    );
+  }
+
   private UserAccount findAccount(String username) {
     List<UserAccount> users = jdbcTemplate.query(
         """
-        SELECT id, username, display_name, role, status, password_salt, password_hash, password_iterations
+        SELECT id, username, display_name, role, status, party_role,
+               password_salt, password_hash, password_iterations
         FROM cp_users
         WHERE username = ?
         """,
@@ -307,6 +319,7 @@ public class AuthService {
         rs.getString("display_name"),
         rs.getString("role"),
         rs.getString("status"),
+        rs.getString("party_role"),
         rs.getString("password_salt"),
         rs.getString("password_hash"),
         rs.getInt("password_iterations")
@@ -319,12 +332,20 @@ public class AuthService {
         rs.getString("username"),
         rs.getString("display_name"),
         rs.getString("role"),
-        rs.getString("status")
+        rs.getString("status"),
+        rs.getString("party_role")
     );
   }
 
   private AuthenticatedUser toAuthenticatedUser(UserAccount account) {
-    return new AuthenticatedUser(account.id(), account.username(), account.displayName(), account.role(), account.status());
+    return new AuthenticatedUser(
+        account.id(),
+        account.username(),
+        account.displayName(),
+        account.role(),
+        account.status(),
+        account.partyRole()
+    );
   }
 
   private String blankToNull(String value) {
@@ -337,6 +358,7 @@ public class AuthService {
       String displayName,
       String role,
       String status,
+      String partyRole,
       String passwordSalt,
       String passwordHash,
       int passwordIterations

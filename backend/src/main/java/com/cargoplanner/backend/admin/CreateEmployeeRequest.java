@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Size;
 public record CreateEmployeeRequest(
     @NotBlank @Size(max = 64) String username,
     @NotBlank @Size(max = 80) String displayName,
-    @NotBlank @Size(min = 8, max = 128) String password,
-    String role
+    @NotBlank @Size(min = 12, max = 128) String password,
+    String role,
+    String partyRole
 ) {}

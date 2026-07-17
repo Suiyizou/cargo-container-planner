@@ -170,6 +170,7 @@
                   <th>账号</th>
                   <th>姓名</th>
                   <th>角色</th>
+                  <th>{{ t("admin.employee.partyRole") }}</th>
                   <th>状态</th>
                   <th>最近登录</th>
                   <th>操作</th>
@@ -180,6 +181,7 @@
                   <td>{{ user.username }}</td>
                   <td>{{ user.displayName }}</td>
                   <td>{{ roleText(user.role) }}</td>
+                  <td>{{ partyRoleText(user.partyRole, user.role) }}</td>
                   <td>
                     <span class="admin-status" :class="{ off: user.status !== 'ACTIVE' }">
                       {{ statusText(user.status) }}
@@ -188,7 +190,13 @@
                   <td>{{ formatDate(user.lastLoginAt) }}</td>
                   <td>
                     <div class="table-actions">
-                      <button type="button" @click="handleResetPassword(user)">重置密码</button>
+                      <button type="button" @click="openEmployeeDialog(user)">{{ t("admin.employee.edit") }}</button>
+                      <button
+                        type="button"
+                        :disabled="user.id === currentUser?.id"
+                        :title="user.id === currentUser?.id ? t('admin.employee.selfResetDisabled') : ''"
+                        @click="handleResetPassword(user)"
+                      >{{ t("admin.employee.resetPassword") }}</button>
                       <button type="button" @click="toggleEmployee(user)">
                         {{ user.status === "ACTIVE" ? "禁用" : "启用" }}
                       </button>
@@ -197,7 +205,7 @@
                   </td>
                 </tr>
                 <tr v-if="!employees.length">
-                  <td colspan="6">暂无员工账号</td>
+                  <td colspan="7">{{ t("admin.employee.empty") }}</td>
                 </tr>
               </tbody>
             </table>
@@ -278,11 +286,36 @@
       </section>
 
       <section v-else-if="activeAdminPage === 'files'" class="admin-page-pane">
-        <article class="admin-panel">
+        <div class="admin-file-scope-tabs" role="tablist" :aria-label="ui('admin.files.scopeAria')">
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="activeAdminFileSection === 'workspace'"
+            :class="{ active: activeAdminFileSection === 'workspace' }"
+            @click="activeAdminFileSection = 'workspace'"
+          >
+            <span>{{ ui('admin.files.workspaceTab') }}</span>
+            <b>{{ adminWorkspaceFileTotal }}</b>
+            <small>{{ ui('admin.files.workspaceTabDescription') }}</small>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="activeAdminFileSection === 'shipment'"
+            :class="{ active: activeAdminFileSection === 'shipment' }"
+            @click="activeAdminFileSection = 'shipment'"
+          >
+            <span>{{ ui('admin.files.shipmentTab') }}</span>
+            <b>{{ adminShipmentFileTotal }}</b>
+            <small>{{ ui('admin.files.shipmentTabDescription') }}</small>
+          </button>
+        </div>
+
+        <article v-if="activeAdminFileSection === 'workspace'" class="admin-panel">
           <div class="admin-panel-head">
             <div>
-              <p>Workspace Files</p>
-              <h2>{{ ui('admin.files.title') }}</h2>
+              <p>Temporary Workspace Files</p>
+              <h2>{{ ui('admin.files.workspaceTitle') }}</h2>
             </div>
             <div class="admin-inline-actions">
               <label class="admin-files-expired-filter">
@@ -331,7 +364,92 @@
                   </td>
                 </tr>
                 <tr v-if="!adminWorkspaceFiles.length">
-                  <td colspan="7">{{ ui('admin.files.empty') }}</td>
+                  <td colspan="7">{{ ui('admin.files.workspaceEmpty') }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article v-else class="admin-panel">
+          <div class="admin-panel-head">
+            <div>
+              <p>Shipment Documents</p>
+              <h2>{{ ui('admin.files.shipmentTitle') }}</h2>
+            </div>
+            <div class="admin-inline-actions">
+              <span>{{ ui('admin.files.total', { count: adminShipmentFileTotal }) }}</span>
+              <button type="button" @click="loadAdminShipmentFiles">{{ ui('admin.files.refresh') }}</button>
+            </div>
+          </div>
+          <div class="admin-table-wrap">
+            <table class="admin-table admin-files-table shipment-files">
+              <thead>
+                <tr>
+                  <th>{{ ui('admin.files.shipmentReference') }}</th>
+                  <th>{{ ui('admin.files.uploader') }}</th>
+                  <th>{{ ui('admin.files.fileName') }}</th>
+                  <th>{{ ui('admin.files.visibility') }}</th>
+                  <th>{{ ui('admin.files.size') }}</th>
+                  <th>{{ ui('admin.files.uploadedAt') }}</th>
+                  <th>{{ ui('admin.files.status') }}</th>
+                  <th>{{ ui('admin.files.action') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="file in adminShipmentFiles" :key="shipmentFileKey(file)">
+                  <td>
+                    <b>{{ shipmentFileReference(file) }}</b>
+                    <small>{{ ui('admin.files.publicId') }} {{ shipmentPublicId(file) }}</small>
+                  </td>
+                  <td>
+                    <b>{{ shipmentFileUploader(file) }}</b>
+                    <small>{{ shipmentFileUploaderDetail(file) }}</small>
+                  </td>
+                  <td>
+                    <b>{{ file.originalFileName || file.fileName || '-' }}</b>
+                    <small>{{ file.documentCategory || file.category || file.contentType || '-' }}</small>
+                  </td>
+                  <td>
+                    <span class="admin-visibility-pill" :class="shipmentFileVisibilityClass(file.visibility)">
+                      {{ shipmentFileVisibilityText(file.visibility) }}
+                    </span>
+                  </td>
+                  <td>{{ formatFileSize(file.sizeBytes) }}</td>
+                  <td>{{ formatDate(file.uploadedAt || file.createdAt) }}</td>
+                  <td>
+                    <span
+                      class="admin-status"
+                      :class="{
+                        off: isShipmentFileDeleted(file),
+                        warn: isShipmentFilePending(file)
+                      }"
+                    >
+                      {{ shipmentFileStatusText(file.status) }}
+                    </span>
+                  </td>
+                  <td>
+                    <div class="table-actions">
+                      <button
+                        type="button"
+                        :disabled="isShipmentFileDeleted(file)"
+                        @click="handleDownloadShipmentFile(file)"
+                      >
+                        {{ ui('admin.files.download') }}
+                      </button>
+                      <button
+                        class="danger ghost"
+                        type="button"
+                        :disabled="isShipmentFileDeleted(file)"
+                        @click="handleDeleteShipmentFile(file)"
+                      >
+                        {{ ui('admin.files.delete') }}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                <tr v-if="!adminShipmentFiles.length">
+                  <td colspan="8">{{ ui('admin.files.shipmentEmpty') }}</td>
                 </tr>
               </tbody>
             </table>
@@ -489,29 +607,47 @@
         <header>
           <div>
             <p>Employee Account</p>
-            <h2>新增员工</h2>
+            <h2>{{ t(editingEmployeeId ? "admin.employee.editTitle" : "admin.employee.createTitle") }}</h2>
           </div>
           <button type="button" @click="closeEmployeeDialog">×</button>
         </header>
         <form class="admin-form-grid employee-dialog-form" @submit.prevent="handleSaveEmployee">
           <label>
             <span>账号</span>
-            <input v-model.trim="employeeForm.username" placeholder="例如 zhangsan" />
+            <input
+              v-model.trim="employeeForm.username"
+              :placeholder="t('admin.employee.usernamePlaceholder')"
+              :disabled="Boolean(editingEmployeeId)"
+            />
           </label>
           <label>
             <span>姓名</span>
             <input v-model.trim="employeeForm.displayName" placeholder="例如 张三" />
           </label>
-          <label>
-            <span>初始密码</span>
-            <input v-model="employeeForm.password" type="password" placeholder="至少 8 位" />
+          <label v-if="!editingEmployeeId">
+            <span>{{ t("admin.employee.initialPassword") }}</span>
+            <input
+              v-model="employeeForm.password"
+              type="password"
+              :placeholder="t('admin.employee.passwordPlaceholder')"
+            />
           </label>
           <label>
             <span>角色</span>
             <select v-model="employeeForm.role">
-              <option value="EMPLOYEE">员工</option>
-              <option value="ADMIN">管理员</option>
+              <option value="EMPLOYEE">{{ ui('profile.role.employee') }}</option>
+              <option value="BUSINESS">{{ ui('profile.role.business') }}</option>
+              <option value="ADMIN">{{ ui('profile.role.admin') }}</option>
             </select>
+          </label>
+          <label>
+            <span>{{ t("admin.employee.partyRole") }}</span>
+            <select v-model="employeeForm.partyRole" :disabled="employeeForm.role !== 'EMPLOYEE'">
+              <option value="AGENT">{{ t("customers.roleAgent") }}</option>
+              <option value="SHIPPER">{{ t("customers.roleShipper") }}</option>
+              <option value="CONSIGNEE">{{ t("customers.roleConsignee") }}</option>
+            </select>
+            <small v-if="employeeForm.role !== 'EMPLOYEE'">{{ t("admin.employee.agentForcedHint") }}</small>
           </label>
           <label>
             <span>状态</span>
@@ -522,9 +658,36 @@
           </label>
           <div class="modal-actions">
             <button type="button" @click="closeEmployeeDialog">取消</button>
-            <button class="primary" type="submit" :disabled="loading">创建员工</button>
+            <button class="primary" type="submit" :disabled="loading">
+              {{ t(editingEmployeeId ? "admin.employee.save" : "admin.employee.create") }}
+            </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <div v-if="temporaryPasswordDialog.open" class="modal-backdrop">
+      <div class="modal temporary-password-modal" role="dialog" aria-modal="true">
+        <header>
+          <div>
+            <p>RESET CREDENTIAL</p>
+            <h2>{{ t("admin.employee.temporaryPasswordTitle") }}</h2>
+          </div>
+          <button type="button" @click="closeTemporaryPasswordDialog">×</button>
+        </header>
+        <div class="temporary-password-content">
+          <p>{{ t("admin.employee.temporaryPasswordDescription", { username: temporaryPasswordDialog.username }) }}</p>
+          <code>{{ temporaryPasswordDialog.password }}</code>
+          <strong>{{ t("admin.employee.temporaryPasswordWarning") }}</strong>
+        </div>
+        <div class="modal-actions">
+          <button type="button" @click="copyTemporaryPassword">
+            {{ t(temporaryPasswordDialog.copied ? "admin.employee.temporaryPasswordCopied" : "admin.employee.copyTemporaryPassword") }}
+          </button>
+          <button class="primary" type="button" @click="closeTemporaryPasswordDialog">
+            {{ t("admin.employee.temporaryPasswordStored") }}
+          </button>
+        </div>
       </div>
     </div>
   </section>
@@ -535,9 +698,11 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import {
   clearAdminToken,
   createEmployee,
+  deleteAdminShipmentFile,
   deleteDevice,
   deleteEmployee,
   fetchAdminMe,
+  fetchAdminShipmentFiles,
   fetchAdminWorkspaceFiles,
   fetchDevices,
   fetchEmployees,
@@ -547,6 +712,7 @@ import {
   loginAdmin,
   resetEmployeePassword,
   storedAdminToken,
+  downloadAdminShipmentFile,
   downloadAdminWorkspaceFile,
   updateEmployee,
   updateLlmSettings
@@ -577,13 +743,23 @@ const employees = ref([]);
 const devices = ref([]);
 const adminWorkspaceFiles = ref([]);
 const adminWorkspaceFileTotal = ref(0);
+const adminShipmentFiles = ref([]);
+const adminShipmentFileTotal = ref(0);
 const includeExpiredFiles = ref(false);
+const activeAdminFileSection = ref("workspace");
 const monitoring = ref(null);
 const llmSettings = ref(null);
 const activeAdminPage = ref("overview");
 const loginForm = reactive({ username: "admin", password: "" });
 const employeeDialogOpen = ref(false);
-const employeeForm = reactive({ username: "", displayName: "", password: "", role: "EMPLOYEE", status: "ACTIVE" });
+const editingEmployeeId = ref("");
+const employeeForm = reactive({ username: "", displayName: "", password: "", role: "EMPLOYEE", partyRole: "AGENT", status: "ACTIVE" });
+const temporaryPasswordDialog = reactive({
+  open: false,
+  username: "",
+  password: "",
+  copied: false
+});
 const llmForm = reactive({
   enabled: true,
   baseUrl: "https://api.deepseek.com",
@@ -637,6 +813,10 @@ watch(() => props.currentUser, (user) => {
   currentUser.value = user;
 }, { immediate: true });
 
+watch(() => employeeForm.role, (role) => {
+  if (role === "BUSINESS" || role === "ADMIN") employeeForm.partyRole = "AGENT";
+});
+
 async function handleLogin() {
   if (loading.value) return;
   await withLoading(async () => {
@@ -659,12 +839,21 @@ async function loadDashboard(showSuccess = true) {
   await withLoading(async () => {
     currentUser.value = normalizeDisplayName(await fetchAdminMe());
     emit("user-updated", currentUser.value);
-    const [employeeRows, deviceRows, monitoringData, llmData, workspaceFileData] = await Promise.all([
+    const [
+      employeeRows,
+      deviceRows,
+      monitoringData,
+      llmData,
+      workspaceFileData,
+      shipmentFileData
+    ] = await Promise.all([
       fetchEmployees(),
       fetchDevices(),
       fetchMonitoring(),
       fetchLlmSettings(),
       fetchAdminWorkspaceFiles({ page: 0, size: 200, includeExpired: includeExpiredFiles.value })
+        .catch(() => null),
+      fetchAdminShipmentFiles({ page: 0, size: 200, includeDeleted: true })
         .catch(() => null)
     ]);
     employees.value = employeeRows;
@@ -675,45 +864,87 @@ async function loadDashboard(showSuccess = true) {
       adminWorkspaceFiles.value = Array.isArray(workspaceFileData.items) ? workspaceFileData.items : [];
       adminWorkspaceFileTotal.value = Number(workspaceFileData.total ?? adminWorkspaceFiles.value.length);
     }
+    if (shipmentFileData) {
+      adminShipmentFiles.value = Array.isArray(shipmentFileData.items) ? shipmentFileData.items : [];
+      adminShipmentFileTotal.value = Number(shipmentFileData.total ?? adminShipmentFiles.value.length);
+    }
     syncLlmForm(llmData);
     if (showSuccess) showMessage("后台数据已刷新");
   });
 }
 
-function openEmployeeDialog() {
-  employeeForm.username = "";
-  employeeForm.displayName = "";
+function openEmployeeDialog(user = null) {
+  editingEmployeeId.value = user?.id || "";
+  employeeForm.username = user?.username || "";
+  employeeForm.displayName = user?.displayName || "";
   employeeForm.password = "";
-  employeeForm.role = "EMPLOYEE";
-  employeeForm.status = "ACTIVE";
+  employeeForm.role = user?.role || "EMPLOYEE";
+  employeeForm.partyRole = user?.partyRole || "AGENT";
+  employeeForm.status = user?.status || "ACTIVE";
   employeeDialogOpen.value = true;
 }
 
 function closeEmployeeDialog() {
   employeeDialogOpen.value = false;
+  editingEmployeeId.value = "";
   employeeForm.username = "";
   employeeForm.displayName = "";
   employeeForm.password = "";
   employeeForm.role = "EMPLOYEE";
+  employeeForm.partyRole = "AGENT";
   employeeForm.status = "ACTIVE";
 }
 
 async function handleSaveEmployee() {
   await withLoading(async () => {
-    await createEmployee({ ...employeeForm });
+    const wasEditing = Boolean(editingEmployeeId.value);
+    if (wasEditing) {
+      await updateEmployee(editingEmployeeId.value, {
+        displayName: employeeForm.displayName,
+        role: employeeForm.role,
+        partyRole: employeeForm.partyRole,
+        status: employeeForm.status
+      });
+    } else {
+      await createEmployee({ ...employeeForm });
+    }
     closeEmployeeDialog();
     await loadDashboard(false);
-    showMessage("员工已创建");
+    showMessage(t(wasEditing ? "admin.employee.saved" : "admin.employee.created"));
   });
 }
 
 async function handleResetPassword(user) {
-  if (!window.confirm(`确认将账号「${user.username}」密码重置为 123456 吗？该账号已登录设备会下线。`)) return;
+  if (user.id === currentUser.value?.id) return;
+  if (!window.confirm(t("admin.employee.resetPasswordConfirm", { username: user.username }))) return;
   await withLoading(async () => {
-    await resetEmployeePassword(user.id);
+    const response = await resetEmployeePassword(user.id);
+    const temporaryPassword = String(response?.temporaryPassword ?? "");
+    if (!temporaryPassword) throw new Error(t("admin.employee.temporaryPasswordMissing"));
+    temporaryPasswordDialog.open = true;
+    temporaryPasswordDialog.username = user.username;
+    temporaryPasswordDialog.password = temporaryPassword;
+    temporaryPasswordDialog.copied = false;
     await loadDashboard(false);
-    showMessage(`账号 ${user.username} 的密码已重置为 123456`);
+    showMessage(t("admin.employee.resetPasswordSuccess", { username: user.username }));
   });
+}
+
+async function copyTemporaryPassword() {
+  try {
+    await navigator.clipboard.writeText(temporaryPasswordDialog.password);
+    temporaryPasswordDialog.copied = true;
+  } catch {
+    hasError.value = true;
+    message.value = t("admin.employee.copyTemporaryPasswordFailed");
+  }
+}
+
+function closeTemporaryPasswordDialog() {
+  temporaryPasswordDialog.open = false;
+  temporaryPasswordDialog.username = "";
+  temporaryPasswordDialog.password = "";
+  temporaryPasswordDialog.copied = false;
 }
 
 async function toggleEmployee(user) {
@@ -721,6 +952,7 @@ async function toggleEmployee(user) {
     await updateEmployee(user.id, {
       displayName: user.displayName,
       role: user.role,
+      partyRole: user.partyRole || "AGENT",
       status: user.status === "ACTIVE" ? "DISABLED" : "ACTIVE"
     });
     await loadDashboard(false);
@@ -771,6 +1003,48 @@ async function handleDownloadWorkspaceFile(file) {
   await withLoading(async () => {
     await downloadAdminWorkspaceFile(file.id, file.originalFileName || `workspace-${file.id}.xlsx`);
   });
+}
+
+async function loadAdminShipmentFiles() {
+  await withLoading(async () => {
+    const response = await fetchAdminShipmentFiles({
+      page: 0,
+      size: 200,
+      includeDeleted: true
+    });
+    adminShipmentFiles.value = Array.isArray(response?.items) ? response.items : [];
+    adminShipmentFileTotal.value = Number(response?.total ?? adminShipmentFiles.value.length);
+  });
+}
+
+async function handleDownloadShipmentFile(file) {
+  await withLoading(async () => {
+    const id = shipmentFileApiId(file);
+    await downloadAdminShipmentFile(
+      id,
+      file.originalFileName || file.fileName || `shipment-file-${id}`
+    );
+  });
+}
+
+async function handleDeleteShipmentFile(file) {
+  const fileName = file.originalFileName || file.fileName || shipmentFileKey(file);
+  if (!window.confirm(ui("admin.files.deleteConfirm", { name: fileName }))) return;
+  await withLoading(async () => {
+    await deleteAdminShipmentFile(shipmentFileApiId(file));
+    await loadAdminShipmentFilesWithoutLoading();
+    showMessage(ui("admin.files.deleteSuccess"));
+  });
+}
+
+async function loadAdminShipmentFilesWithoutLoading() {
+  const response = await fetchAdminShipmentFiles({
+    page: 0,
+    size: 200,
+    includeDeleted: true
+  });
+  adminShipmentFiles.value = Array.isArray(response?.items) ? response.items : [];
+  adminShipmentFileTotal.value = Number(response?.total ?? adminShipmentFiles.value.length);
 }
 
 async function handleUpdateLlmSettings() {
@@ -847,7 +1121,22 @@ function countChinese(text) {
 }
 
 function roleText(role) {
-  return tr(role === "ADMIN" ? "管理员" : "员工");
+  const key = {
+    ADMIN: "profile.role.admin",
+    BUSINESS: "profile.role.business",
+    OPERATOR: "profile.role.business",
+    EMPLOYEE: "profile.role.employee"
+  }[role] || "profile.role.employee";
+  return ui(key);
+}
+
+function partyRoleText(partyRole, role) {
+  const normalized = partyRole || ((role === "BUSINESS" || role === "ADMIN") ? "AGENT" : "SHIPPER");
+  return t({
+    AGENT: "customers.roleAgent",
+    SHIPPER: "customers.roleShipper",
+    CONSIGNEE: "customers.roleConsignee"
+  }[normalized] || "customers.roleShipper");
 }
 
 function statusText(status) {
@@ -894,6 +1183,84 @@ function formatFileSize(bytes) {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function shipmentFileKey(file) {
+  return file?.publicId || file?.id || "";
+}
+
+function shipmentFileApiId(file) {
+  return file?.id || file?.publicId || "";
+}
+
+function shipmentPublicId(file) {
+  return file?.shipmentPublicId
+    || file?.shipment?.publicId
+    || file?.shipmentId
+    || "-";
+}
+
+function shipmentFileReference(file) {
+  const reference = file?.shipmentReference
+    || file?.reference
+    || file?.referenceNo
+    || file?.shipment?.primaryReference;
+  if (reference && typeof reference === "object") {
+    const type = reference.referenceType || reference.type || "";
+    const number = reference.referenceNo || reference.normalizedReferenceNo || reference.number || "";
+    return [type, number].filter(Boolean).join(" · ") || "-";
+  }
+  const type = file?.referenceType || file?.shipment?.referenceType || "";
+  const number = reference || file?.shipment?.referenceNo || "";
+  return [type, number].filter(Boolean).join(" · ") || "-";
+}
+
+function shipmentFileUploader(file) {
+  return file?.uploaderDisplayName
+    || file?.uploader?.displayName
+    || file?.ownerDisplayName
+    || file?.uploadedBy
+    || "-";
+}
+
+function shipmentFileUploaderDetail(file) {
+  const role = file?.uploaderRole || file?.uploaderRoleSnapshot || file?.uploader?.role;
+  const id = file?.uploaderUserId || file?.uploader?.id || file?.userId;
+  const details = [];
+  if (role) details.push(roleText(role));
+  if (id) details.push(`ID ${id}`);
+  return details.join(" · ") || "-";
+}
+
+function shipmentFileVisibilityText(visibility) {
+  const key = {
+    INTERNAL: "admin.files.visibilityInternal",
+    PARTIES: "admin.files.visibilityParties",
+    PUBLIC: "admin.files.visibilityPublic"
+  }[String(visibility || "").toUpperCase()] || "admin.files.visibilityParties";
+  return ui(key);
+}
+
+function shipmentFileVisibilityClass(visibility) {
+  return String(visibility || "PARTIES").toLowerCase();
+}
+
+function shipmentFileStatusText(status) {
+  const key = {
+    READY: "admin.files.statusReady",
+    QUARANTINED: "admin.files.statusQuarantined",
+    PENDING: "admin.files.statusPending",
+    DELETED: "admin.files.statusDeleted"
+  }[String(status || "READY").toUpperCase()] || "admin.files.statusReady";
+  return ui(key);
+}
+
+function isShipmentFileDeleted(file) {
+  return String(file?.status || "").toUpperCase() === "DELETED" || Boolean(file?.deletedAt);
+}
+
+function isShipmentFilePending(file) {
+  return ["QUARANTINED", "PENDING"].includes(String(file?.status || "").toUpperCase());
 }
 
 function tr(value) {

@@ -4,8 +4,8 @@
 
 - `frontend`：Nginx 静态前端与统一网关。
 - `backend`：Spring Boot 管理账号、设备登录、监控接口。
-- `tracking`：Node.js + Playwright 货物追踪适配器，仅在 Compose 网络暴露 `3000`。
-- `mysql`：保存用户、设备、登录事件和管理员审计日志。
+- `tracking`：Node.js + Playwright 货物追踪适配器，仅在 Compose 的 `app` 网络暴露 `3000`。
+- `mysql`：保存用户、客户、票单、追踪快照、文件元数据、设备和审计日志，仅接入内部 `data` 网络。
 
 路由关系：
 
@@ -32,16 +32,20 @@ docker compose up -d --build
 backend/sql/schema.sql
 ```
 
-默认总管理员：
+系统不再内置固定管理员账号或密码。首次部署请先复制 `.env.example` 为 `.env`，设置强数据库密码，并临时启用显式管理员引导：
 
-```text
-账号：admin
-密码：Admin@123456
+```env
+APP_BOOTSTRAP_ADMIN_ENABLED=true
+APP_BOOTSTRAP_ADMIN_USERNAME=你的管理员账号
+APP_BOOTSTRAP_ADMIN_PASSWORD=至少12位且包含大小写字母、数字和符号
+APP_BOOTSTRAP_ADMIN_DISPLAY_NAME=系统管理员
 ```
 
-生产环境请先复制 `.env.example` 为 `.env`，修改数据库密码和端口后再启动。
+管理员创建成功后，立即把 `APP_BOOTSTRAP_ADMIN_ENABLED` 改回 `false`，清除部署环境中的引导密码并重建 backend。升级旧数据库时，后端会拒绝带已知历史固定口令的活动账号启动；请先在受控环境中完成口令轮换或停用该账号。
 
-首次构建 `tracking` 会拉取 Playwright Chromium 基础镜像，下载体积较大。Compose 已为浏览器兜底通道设置 `1gb` 共享内存和健康检查；服务器还需要能够访问船司查询站点。
+首次构建 `tracking` 会拉取 Playwright Chromium 基础镜像，下载体积较大。Compose 已为浏览器兜底通道设置 `1gb` 共享内存和健康检查；服务器还需要能够访问船司查询站点。`PLAYWRIGHT_MAX_CONCURRENCY`、`PLAYWRIGHT_QUEUE_LIMIT` 和 `PLAYWRIGHT_QUEUE_TIMEOUT_MS` 分别限制浏览器并发数、排队数量和最长排队时间，默认值为 `2`、`8`、`15000`。海外小规格服务器不要盲目提高并发，队列满或超时会返回 `429`，不会继续挤占内存。
+
+Compose 把 `frontend`、`backend`、`tracking` 放入 `app` 网络，只让 `backend` 额外加入内部 `data` 网络访问 MySQL。这样公开的 Node/Playwright 追踪服务无法直接连接数据库。附件实体文件由 `SHIPMENT_FILE_HOST_PATH` 挂载到宿主机固态硬盘，MySQL 只保存安全文件名、路径和可见性元数据；该目录必须纳入独立备份并限制宿主机权限。
 
 ## 前端路由刷新
 
@@ -70,9 +74,9 @@ docker compose ps
 docker compose logs --tail=100 frontend backend tracking
 ```
 
-追踪容器内部健康接口为 `http://127.0.0.1:3000/api/health`，Compose 会自动探测。浏览器侧的成功查询历史保存在 LocalStorage；服务端短期响应缓存位于 Node 进程内，重建追踪容器后会清空。
+追踪容器内部健康接口为 `http://127.0.0.1:3000/api/health`，Compose 会自动探测。浏览器侧仍可保存本机查询历史；Node 进程缓存用于短期去重，Spring Boot 会把带稳定订舱号或提单号的追踪快照持久化到 MySQL。仅有集装箱号且无法解析出稳定订舱号/提单号的结果只作为临时查询结果，不会作为长期票单主键。
 
-生产环境只需对外开放 Nginx 的 `80/443`。Compose 中后端 `8080` 与 MySQL `3306` 默认绑定 `127.0.0.1`，用于服务器本机排查；如确需远程直连，必须同时调整绑定地址、强密码和防火墙规则。
+生产环境只需对外开放 Nginx 的 `80/443`。Compose 中后端 `8080` 与 MySQL `3306` 默认绑定 `127.0.0.1`，用于服务器本机排查；生产服务器若不需要宿主机直连数据库，建议通过 production override 删除 MySQL 的 `ports`。如确需远程直连，必须同时调整绑定地址、强密码和防火墙规则。
 
 ## LLM 文本识别
 

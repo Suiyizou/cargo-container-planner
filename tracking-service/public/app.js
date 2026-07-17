@@ -47,6 +47,40 @@ const batchPendingCount = document.querySelector("#batch-pending-count");
 const batchStatusText = document.querySelector("#batch-status-text");
 const batchResultList = document.querySelector("#batch-result-list");
 const batchImportMessage = document.querySelector("#batch-import-message");
+const relatedFilesButton = document.querySelector("#related-files-button");
+const relatedFilesCount = document.querySelector("#related-files-count");
+const relatedFilesBackdrop = document.querySelector("#related-files-backdrop");
+const relatedFilesDrawer = document.querySelector("#related-files-drawer");
+const relatedFilesCloseButton = document.querySelector("#related-files-close-button");
+const relatedFilesShipmentReference = document.querySelector("#related-files-shipment-reference");
+const relatedFilesCustomerSession = document.querySelector("#related-files-customer-session");
+const relatedFilesCustomerName = document.querySelector("#related-files-customer-name");
+const relatedFilesCustomerRole = document.querySelector("#related-files-customer-role");
+const relatedFilesCustomerLogoutButton = document.querySelector("#related-files-customer-logout");
+const relatedFilesAuthRequired = document.querySelector("#related-files-auth-required");
+const relatedFilesAuthTitle = document.querySelector("#related-files-auth-title");
+const relatedFilesAuthDescription = document.querySelector("#related-files-auth-description");
+const relatedFilesAuthLink = document.querySelector("#related-files-auth-link");
+const relatedFilesContent = document.querySelector("#related-files-content");
+const relatedFilesLoading = document.querySelector("#related-files-loading");
+const relatedFilesError = document.querySelector("#related-files-error");
+const relatedFilesErrorMessage = document.querySelector("#related-files-error-message");
+const relatedFilesRetryButton = document.querySelector("#related-files-retry-button");
+const relatedFilesEmpty = document.querySelector("#related-files-empty");
+const relatedFilesList = document.querySelector("#related-files-list");
+const relatedFilesUploadPanel = document.querySelector("#related-files-upload-panel");
+const relatedFilesUserName = document.querySelector("#related-files-user-name");
+const relatedFilesCategory = document.querySelector("#related-files-category");
+const relatedFilesUploadVisibilityField = document.querySelector("#related-files-upload-visibility-field");
+const relatedFilesUploadVisibility = document.querySelector("#related-files-upload-visibility");
+const relatedFilesTargetCustomerField = document.querySelector("#related-files-target-customer-field");
+const relatedFilesTargetCustomer = document.querySelector("#related-files-target-customer");
+const relatedFilesTargetCustomerHint = document.querySelector("#related-files-target-customer-hint");
+const relatedFilesUploadInput = document.querySelector("#related-files-upload-input");
+const relatedFilesSelectButton = document.querySelector("#related-files-select-button");
+const relatedFilesUploadButton = document.querySelector("#related-files-upload-button");
+const relatedFilesSelection = document.querySelector("#related-files-selection");
+const relatedFilesUploadMessage = document.querySelector("#related-files-upload-message");
 
 const CACHE_VERSION = 3;
 const CACHE_TTL_MS = 24 * 60 * 60_000;
@@ -64,6 +98,10 @@ const BATCH_REQUEST_INTERVAL_MS = 2_100;
 const BATCH_RETRY_BASE_MS = 2_200;
 const BATCH_RETRY_LIMIT = 2;
 const BATCH_RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
+const PLATFORM_AUTH_TOKEN_KEY = "cargo-planner-auth-token";
+const PLATFORM_AUTH_USER_KEY = "cargo-planner-auth-user";
+const CUSTOMER_AUTH_TOKEN_KEY = "cargo-planner-customer-token";
+const CUSTOMER_AUTH_SESSION_KEY = "cargo-planner-customer-session";
 const APP_BASE_URL = new URL("./", document.baseURI);
 
 function appUrl(path) {
@@ -190,6 +228,65 @@ const MESSAGES = {
     "tracking.kicker": "SHIPMENT INTELLIGENCE",
     "tracking.title": "Shipment tracking",
     "tracking.description": "Query carrier sources and shape them into one consistent snapshot.",
+    "files.trigger": "Related files",
+    "files.unavailable": "Related files will be available after this shipment is saved by the platform.",
+    "files.kicker": "SHIPMENT DOCUMENTS",
+    "files.title": "Related files",
+    "files.close": "Close related files",
+    "files.loginTitle": "Sign in to manage shipment files",
+    "files.loginDescription": "Shipment documents are available to authenticated enterprise users.",
+    "files.loginAction": "Sign in to the platform",
+    "files.customerSession": "Customer access",
+    "files.customerLogout": "Sign out",
+    "files.customerLoginAction": "Sign in with customer code",
+    "files.customerSignedOut": "Customer session ended. Public shipment tracking remains available.",
+    "files.customerLoginExpired": "Your customer session has expired. Sign in again with your customer code to access assigned files.",
+    "files.customerNotAssigned": "This shipment is not assigned to your customer account. Ask your service representative to link the booking or bill number.",
+    "files.forbidden": "Your account does not have access to the files for this shipment.",
+    "files.logisticsRoleAgent": "Freight agent",
+    "files.logisticsRoleShipper": "Shipper",
+    "files.logisticsRoleConsignee": "Consignee",
+    "files.loading": "Loading related files…",
+    "files.errorTitle": "Files could not be loaded",
+    "files.retry": "Try again",
+    "files.emptyTitle": "No related files yet",
+    "files.emptyDescription": "Upload cargo details, invoices or shipping documents for this shipment.",
+    "files.uploadTitle": "Add files",
+    "files.uploadDescription": "Files are linked to this shipment record.",
+    "files.category": "Category",
+    "files.categoryCargo": "Cargo details",
+    "files.categoryInvoice": "Invoice",
+    "files.categoryShipping": "Shipping document",
+    "files.categoryOther": "Other",
+    "files.visibility": "Visibility",
+    "files.visibilityParties": "Both parties",
+    "files.visibilityInternal": "Internal only",
+    "files.targetCustomer": "Share with customer",
+    "files.targetPlaceholder": "Select a customer",
+    "files.targetRequired": "Select a specific customer before uploading a shared file.",
+    "files.targetUnavailable": "No customer is available for sharing. Assign a customer first or keep this file internal.",
+    "files.targetRequiredForFile": "Choose a customer to finish sharing this file.",
+    "files.sharedWith": "Shared with {name}",
+    "files.sharedWithSelf": "Shared with your account",
+    "files.sharedWithCustomer": "Shared with assigned customer",
+    "files.customerSelectionRequired": "Customer selection required",
+    "files.select": "Choose files",
+    "files.upload": "Upload",
+    "files.uploading": "Uploading files…",
+    "files.uploaded": "{count} file(s) uploaded.",
+    "files.noSelection": "No files selected.",
+    "files.selection": "{count} file(s) selected · {size}",
+    "files.uploadFailed": "Upload failed: {message}",
+    "files.download": "Download",
+    "files.downloading": "Downloading…",
+    "files.downloadFailed": "Download failed: {message}",
+    "files.delete": "Delete",
+    "files.confirmDelete": "Delete “{name}” from this shipment?",
+    "files.deleteFailed": "Delete failed: {message}",
+    "files.visibilityUpdateFailed": "Visibility could not be updated: {message}",
+    "files.contextMissing": "This result is not connected to a saved shipment record yet.",
+    "files.unknownUploader": "Enterprise user",
+    "files.unknownDate": "Upload time not provided",
     "result.transportTerms": "Transport terms",
     "result.containerType": "Container type",
     "summary.services": "Selected services",
@@ -212,7 +309,7 @@ const MESSAGES = {
     "batch.subtitle": "Import an Excel or CSV list and query shipments one at a time",
     "batch.localBadge": "This device only",
     "batch.selectFile": "Select Excel / CSV",
-    "batch.columns": "Recognizes Booking / Booking Ref / 订舱号 and Bill of Lading / B/L / MBL / 提单号 columns.",
+    "batch.columns": "Recognizes Booking / Booking Ref / Booking No. and Bill of Lading / B/L / MBL / B/L No. columns.",
     "batch.localNotice": "Queue and result status are stored only in this browser on this device.",
     "batch.resume": "Continue pending queries",
     "batch.clear": "Clear imported queue",
@@ -224,7 +321,7 @@ const MESSAGES = {
     "batch.pending": "Pending",
     "batch.parsing": "Reading {name}…",
     "batch.unsupportedFile": "Choose an .xlsx, .xls, or .csv file no larger than 2 MB.",
-    "batch.noRecognizedColumns": "No supported column was found. Use Booking / Booking Ref / 订舱号 or Bill of Lading / B/L / MBL / 提单号.",
+    "batch.noRecognizedColumns": "No supported column was found. Use Booking / Booking Ref / Booking No. or Bill of Lading / B/L / MBL / B/L No.",
     "batch.noRows": "No valid shipment numbers were found in the recognized columns.",
     "batch.workerUnsupported": "This browser cannot process spreadsheets in a background worker.",
     "batch.workerFailed": "The background spreadsheet parser stopped unexpectedly.",
@@ -407,6 +504,65 @@ const MESSAGES = {
     "tracking.kicker": "货运信息",
     "tracking.title": "货物跟踪",
     "tracking.description": "查询船司数据源，并转换为统一的运输状态快照。",
+    "files.trigger": "相关文件",
+    "files.unavailable": "平台保存这票货物后即可使用相关文件。",
+    "files.kicker": "货物文档",
+    "files.title": "相关文件",
+    "files.close": "关闭相关文件",
+    "files.loginTitle": "登录后管理货物文件",
+    "files.loginDescription": "货物明细、账单和寄运文件仅向已登录企业用户开放。",
+    "files.loginAction": "登录平台",
+    "files.customerSession": "客户身份",
+    "files.customerLogout": "退出客户登录",
+    "files.customerLoginAction": "使用客户码重新登录",
+    "files.customerSignedOut": "已退出客户登录，仍可继续使用公开货物追踪。",
+    "files.customerLoginExpired": "客户登录已过期，请重新使用客户码登录后查看已关联文件。",
+    "files.customerNotAssigned": "这票货物尚未关联到您的客户账号，请联系业务员绑定对应订舱号或提单号。",
+    "files.forbidden": "当前账号无权查看这票货物的相关文件。",
+    "files.logisticsRoleAgent": "货运代理",
+    "files.logisticsRoleShipper": "发货人",
+    "files.logisticsRoleConsignee": "收货人",
+    "files.loading": "正在加载相关文件…",
+    "files.errorTitle": "暂时无法加载文件",
+    "files.retry": "重新加载",
+    "files.emptyTitle": "还没有相关文件",
+    "files.emptyDescription": "可以为这票货物上传货物明细、账单或寄运文件。",
+    "files.uploadTitle": "添加文件",
+    "files.uploadDescription": "文件将关联到当前货物记录。",
+    "files.category": "文件类别",
+    "files.categoryCargo": "货物明细",
+    "files.categoryInvoice": "账单",
+    "files.categoryShipping": "寄运文件",
+    "files.categoryOther": "其他",
+    "files.visibility": "可见范围",
+    "files.visibilityParties": "双方可见",
+    "files.visibilityInternal": "仅内部可见",
+    "files.targetCustomer": "共享给客户",
+    "files.targetPlaceholder": "请选择客户",
+    "files.targetRequired": "共享文件前，请先选择一个具体客户。",
+    "files.targetUnavailable": "当前没有可共享的客户，请先分配客户，或将文件保留为仅内部可见。",
+    "files.targetRequiredForFile": "请选择客户后再完成此文件的共享。",
+    "files.sharedWith": "已共享给 {name}",
+    "files.sharedWithSelf": "已共享给您的账号",
+    "files.sharedWithCustomer": "已共享给关联客户",
+    "files.customerSelectionRequired": "需要选择客户",
+    "files.select": "选择文件",
+    "files.upload": "上传",
+    "files.uploading": "正在上传文件…",
+    "files.uploaded": "已上传 {count} 个文件。",
+    "files.noSelection": "尚未选择文件。",
+    "files.selection": "已选择 {count} 个文件 · {size}",
+    "files.uploadFailed": "上传失败：{message}",
+    "files.download": "下载",
+    "files.downloading": "正在下载…",
+    "files.downloadFailed": "下载失败：{message}",
+    "files.delete": "删除",
+    "files.confirmDelete": "确定从这票货物中删除“{name}”吗？",
+    "files.deleteFailed": "删除失败：{message}",
+    "files.visibilityUpdateFailed": "无法更新可见范围：{message}",
+    "files.contextMissing": "当前结果尚未关联到平台货物记录。",
+    "files.unknownUploader": "企业用户",
+    "files.unknownDate": "未提供上传时间",
     "result.transportTerms": "运输条款",
     "result.containerType": "箱型",
     "summary.services": "已选服务",
@@ -626,6 +782,23 @@ let batchRunning = false;
 let batchImportNotice = null;
 let lastBatchRequestAt = 0;
 const expandedHistoryKeys = new Set();
+let relatedFilesShipmentId = null;
+let relatedFilesShipmentNumber = "";
+let relatedFilesItems = [];
+let relatedFilesPermissions = {};
+let relatedFilesAssignableCustomers = [];
+let relatedFilesSelectedTargetCustomerId = "";
+let relatedFilesCustomerAccess = null;
+let relatedFilesLoadingState = false;
+let relatedFilesErrorText = "";
+let relatedFilesRequestSequence = 0;
+let relatedFilesUploading = false;
+let relatedFilesCloseTimer = null;
+let relatedFilesExpiredSessionKind = "";
+let platformPrincipalAwaitingRefresh = false;
+let customerPrincipalAwaitingRefresh = false;
+let relatedFilesSessionFingerprint = fileSessionFingerprint();
+const trackingPayloadSessionFingerprints = new WeakMap();
 
 function t(key, variables = {}) {
   const template = MESSAGES[currentLanguage]?.[key] ?? MESSAGES.en[key] ?? key;
@@ -661,6 +834,1173 @@ function formatLocalDateTime(value) {
     minute: "2-digit",
     hour12: false
   }).format(date);
+}
+
+function readPlatformSession() {
+  let token = "";
+  let user = null;
+  try {
+    token = localStorage.getItem(PLATFORM_AUTH_TOKEN_KEY) || "";
+    user = JSON.parse(localStorage.getItem(PLATFORM_AUTH_USER_KEY) || "null");
+  } catch {
+    token = "";
+    user = null;
+  }
+  if (platformPrincipalAwaitingRefresh) user = null;
+  return { token, user };
+}
+
+function readCustomerSession() {
+  let token = "";
+  let storedSession = null;
+  try {
+    token = localStorage.getItem(CUSTOMER_AUTH_TOKEN_KEY) || "";
+    storedSession = JSON.parse(
+      localStorage.getItem(CUSTOMER_AUTH_SESSION_KEY) || "null"
+    );
+  } catch {
+    token = "";
+    storedSession = null;
+  }
+  if (customerPrincipalAwaitingRefresh) storedSession = null;
+
+  const customer =
+    storedSession?.customer ??
+    storedSession?.principal ??
+    storedSession?.user ??
+    storedSession;
+  return { token, customer, storedSession };
+}
+
+function readFileSession() {
+  const customerSession = readCustomerSession();
+  if (customerSession.token) {
+    return {
+      kind: "CUSTOMER",
+      token: customerSession.token,
+      principal: customerSession.customer,
+      storedSession: customerSession.storedSession,
+      user: null
+    };
+  }
+
+  const platformSession = readPlatformSession();
+  if (platformSession.token) {
+    return {
+      kind: "INTERNAL",
+      token: platformSession.token,
+      principal: platformSession.user,
+      storedSession: platformSession.user,
+      user: platformSession.user
+    };
+  }
+
+  return { kind: "ANONYMOUS", token: "", principal: null, user: null };
+}
+
+/* TRACKING_CONTRACT_HELPERS_START */
+function hashSessionIdentity(value) {
+  let hashA = 0x811c9dc5;
+  let hashB = 0x9e3779b9;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value.charCodeAt(index);
+    hashA ^= character;
+    hashA = Math.imul(hashA, 0x01000193);
+    hashB ^= character;
+    hashB = Math.imul(hashB, 0x5bd1e995);
+    hashB ^= hashB >>> 13;
+  }
+  return `${(hashA >>> 0).toString(36)}${(hashB >>> 0).toString(36)}`;
+}
+
+function fileSessionFingerprint(session = readFileSession()) {
+  let identity = "";
+  try {
+    identity = JSON.stringify({
+      kind: session?.kind ?? "ANONYMOUS",
+      token: session?.token ?? "",
+      principal: session?.principal ?? null,
+      storedSession: session?.storedSession ?? null,
+      user: session?.user ?? null
+    });
+  } catch {
+    identity = `${session?.kind ?? "ANONYMOUS"}:${session?.token ?? ""}`;
+  }
+  return `${session?.kind ?? "ANONYMOUS"}:${hashSessionIdentity(identity)}`;
+}
+
+function trackingResponseMessage(payload, response) {
+  const directMessage = typeof payload?.message === "string" ? payload.message.trim() : "";
+  const nestedMessage =
+    typeof payload?.error?.message === "string" ? payload.error.message.trim() : "";
+  const stringError = typeof payload?.error === "string" ? payload.error.trim() : "";
+  return (
+    directMessage ||
+    nestedMessage ||
+    stringError ||
+    `${response?.status ?? ""} ${response?.statusText || "Request failed"}`.trim()
+  );
+}
+
+function isPublicTrackingRouteUnavailable(result) {
+  const { response, payload } = result ?? {};
+  if (response?.status === 405) return true;
+  if (response?.status !== 404) return false;
+
+  const headerMarker = response?.headers?.get?.("X-Route-Not-Found");
+  if (String(headerMarker ?? "").toLowerCase() === "true") return true;
+  if (payload?.routeNotFound === true || payload?.endpointNotFound === true) return true;
+
+  const code = String(
+    payload?.code ?? payload?.errorCode ?? payload?.error?.code ?? ""
+  ).trim().toUpperCase();
+  if (["ROUTE_NOT_FOUND", "ENDPOINT_NOT_FOUND", "NO_HANDLER"].includes(code)) return true;
+
+  const path = String(payload?.path ?? payload?.instance ?? "")
+    .split("?", 1)[0]
+    .replace(/\/+$/, "");
+  const targetsPublicRoute = path === "/api/public/shipments/track";
+  const message = trackingResponseMessage(payload, { status: 404, statusText: "" });
+  const routeMarker =
+    /(?:no\s+(?:static\s+resource|handler|route|endpoint)|route\s+not\s+found|endpoint\s+not\s+found|cannot\s+post)/i;
+  const messageNamesPublicRoute = message.includes("/api/public/shipments/track");
+  if (routeMarker.test(message) && (targetsPublicRoute || messageNamesPublicRoute)) return true;
+
+  const hasSpecificMessage =
+    (typeof payload?.message === "string" && payload.message.trim()) ||
+    (typeof payload?.error?.message === "string" && payload.error.message.trim());
+  const genericError = typeof payload?.error === "string" ? payload.error.trim() : "";
+  return (
+    targetsPublicRoute &&
+    !hasSpecificMessage &&
+    /^not found$/i.test(genericError)
+  );
+}
+/* TRACKING_CONTRACT_HELPERS_END */
+
+function clearSensitiveRelatedFilesDom() {
+  relatedFilesList.replaceChildren();
+  relatedFilesCount.textContent = "0";
+  relatedFilesCount.hidden = true;
+  relatedFilesCustomerName.textContent = "";
+  relatedFilesCustomerRole.textContent = "";
+  relatedFilesUserName.textContent = "";
+  relatedFilesErrorMessage.textContent = "";
+  relatedFilesLoading.hidden = true;
+  relatedFilesError.hidden = true;
+  relatedFilesSelection.textContent = "";
+  relatedFilesTargetCustomerField.hidden = true;
+  relatedFilesTargetCustomerHint.hidden = true;
+  renderRelatedFilesTargetOptions();
+}
+
+function resetRelatedFilesSessionState({ expiredKind = "" } = {}) {
+  relatedFilesRequestSequence += 1;
+  relatedFilesItems = [];
+  relatedFilesPermissions = {};
+  relatedFilesAssignableCustomers = [];
+  relatedFilesSelectedTargetCustomerId = "";
+  relatedFilesCustomerAccess = null;
+  relatedFilesLoadingState = false;
+  relatedFilesErrorText = "";
+  relatedFilesUploading = false;
+  relatedFilesExpiredSessionKind = expiredKind;
+  relatedFilesUploadInput.value = "";
+  relatedFilesCategory.value = "OTHER";
+  relatedFilesUploadVisibility.value = "INTERNAL";
+  setRelatedFilesUploadMessage();
+  closeRelatedFilesDrawer({ immediate: true });
+  clearSensitiveRelatedFilesDom();
+}
+
+function synchronizeRelatedFilesSession(
+  session = readFileSession(),
+  { force = false, expiredKind = "" } = {}
+) {
+  const nextFingerprint = fileSessionFingerprint(session);
+  if (!force && nextFingerprint === relatedFilesSessionFingerprint) return false;
+  relatedFilesSessionFingerprint = nextFingerprint;
+  resetRelatedFilesSessionState({ expiredKind });
+  return true;
+}
+
+function isCurrentRelatedFilesSession(fingerprint) {
+  return (
+    fingerprint === relatedFilesSessionFingerprint &&
+    fingerprint === fileSessionFingerprint(readFileSession())
+  );
+}
+
+function clearPlatformSession(expectedToken = null) {
+  try {
+    if (
+      expectedToken !== null &&
+      localStorage.getItem(PLATFORM_AUTH_TOKEN_KEY) !== expectedToken
+    ) {
+      return false;
+    }
+    localStorage.removeItem(PLATFORM_AUTH_TOKEN_KEY);
+    localStorage.removeItem(PLATFORM_AUTH_USER_KEY);
+    return true;
+  } catch {
+    // The public tracking page remains usable when browser storage is unavailable.
+    return false;
+  }
+}
+
+function clearCustomerSession(expectedToken = null) {
+  try {
+    if (
+      expectedToken !== null &&
+      localStorage.getItem(CUSTOMER_AUTH_TOKEN_KEY) !== expectedToken
+    ) {
+      return false;
+    }
+    localStorage.removeItem(CUSTOMER_AUTH_TOKEN_KEY);
+    localStorage.removeItem(CUSTOMER_AUTH_SESSION_KEY);
+    return true;
+  } catch {
+    // Public tracking remains available even if browser storage is unavailable.
+    return false;
+  }
+}
+
+function clearFileSession(session = readFileSession(), { expired = false } = {}) {
+  if (fileSessionFingerprint(readFileSession()) !== fileSessionFingerprint(session)) {
+    return false;
+  }
+
+  let cleared = false;
+  if (session.kind === "CUSTOMER") cleared = clearCustomerSession(session.token);
+  if (session.kind === "INTERNAL") cleared = clearPlatformSession(session.token);
+  if (!cleared) return false;
+
+  synchronizeRelatedFilesSession(readFileSession(), {
+    force: true,
+    expiredKind: expired ? session.kind : ""
+  });
+  renderRelatedFilesDrawer();
+  return true;
+}
+
+function platformAuthHeaders() {
+  const { token } = readPlatformSession();
+  return token ? { "X-Auth-Token": token } : {};
+}
+
+function trackingAuthHeaders() {
+  const session = readFileSession();
+  if (session.kind === "CUSTOMER") return { "X-Customer-Token": session.token };
+  if (session.kind === "INTERNAL") return { "X-Auth-Token": session.token };
+  return {};
+}
+
+function fileAuthHeaders(session = readFileSession()) {
+  if (session.kind === "CUSTOMER") return { "X-Customer-Token": session.token };
+  if (session.kind === "INTERNAL") return { "X-Auth-Token": session.token };
+  return {};
+}
+
+function shipmentFilesPath(session, shipmentId) {
+  const encodedShipmentId = encodeURIComponent(shipmentId);
+  return session.kind === "CUSTOMER"
+    ? `/api/customer/shipments/${encodedShipmentId}/files`
+    : `/api/shipments/${encodedShipmentId}/files`;
+}
+
+function shipmentFilePath(session, fileId, suffix = "") {
+  const encodedFileId = encodeURIComponent(fileId);
+  const base = session.kind === "CUSTOMER"
+    ? `/api/customer/shipment-files/${encodedFileId}`
+    : `/api/shipment-files/${encodedFileId}`;
+  return `${base}${suffix}`;
+}
+
+function fileSessionDisplayName(session = readFileSession()) {
+  const principal = session.principal ?? {};
+  return (
+    principal.displayName ??
+    principal.customerName ??
+    principal.name ??
+    principal.username ??
+    principal.customerCode ??
+    principal.code ??
+    ""
+  );
+}
+
+function customerLogisticsRoleLabel(session = readFileSession()) {
+  if (session.kind !== "CUSTOMER") return "";
+  const role = String(
+    session.principal?.partyRole ??
+    session.principal?.logisticsRole ??
+    session.storedSession?.partyRole ??
+    session.storedSession?.logisticsRole ??
+    ""
+  ).trim().toUpperCase();
+  return logisticsPartyRoleLabel(role);
+}
+
+function logisticsPartyRoleLabel(value) {
+  const key = {
+    AGENT: "files.logisticsRoleAgent",
+    SHIPPER: "files.logisticsRoleShipper",
+    CONSIGNEE: "files.logisticsRoleConsignee"
+  }[String(value ?? "").trim().toUpperCase()];
+  return key ? t(key) : "";
+}
+
+function canManageFileVisibility(session = readFileSession()) {
+  if (session.kind !== "INTERNAL") return false;
+  const role = String(session.user?.role ?? "").trim().toUpperCase();
+  return role === "BUSINESS" || role === "ADMIN";
+}
+
+function canAssignRelatedFilesCustomer(session = readFileSession()) {
+  return (
+    canManageFileVisibility(session) &&
+    relatedFilesPermissions?.canAssignCustomer === true
+  );
+}
+
+function normalizeAssignableCustomer(customer) {
+  return {
+    id: String(customer?.id ?? customer?.publicId ?? "").trim(),
+    username: String(customer?.username ?? customer?.customerCode ?? "").trim(),
+    displayName: String(customer?.displayName ?? customer?.customerName ?? "").trim(),
+    partyRole: String(customer?.partyRole ?? "").trim().toUpperCase(),
+    relationshipRole: String(customer?.relationshipRole ?? "").trim().toUpperCase()
+  };
+}
+
+function relatedFilesCustomerOptionLabel(customer) {
+  const primary = customer.displayName || customer.username || customer.id;
+  const roleLabel = logisticsPartyRoleLabel(customer.partyRole);
+  const details = [
+    customer.username && customer.username !== primary ? customer.username : "",
+    roleLabel
+  ].filter(Boolean);
+  return details.length > 0 ? `${primary} · ${details.join(" · ")}` : primary;
+}
+
+function renderRelatedFilesTargetOptions() {
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = t("files.targetPlaceholder");
+  const options = relatedFilesAssignableCustomers.map((customer) => {
+    const option = document.createElement("option");
+    option.value = customer.id;
+    option.textContent = relatedFilesCustomerOptionLabel(customer);
+    return option;
+  });
+  relatedFilesTargetCustomer.replaceChildren(placeholder, ...options);
+  const selectionAvailable = relatedFilesAssignableCustomers.some(
+    (customer) => customer.id === relatedFilesSelectedTargetCustomerId
+  );
+  if (!selectionAvailable) relatedFilesSelectedTargetCustomerId = "";
+  relatedFilesTargetCustomer.value = relatedFilesSelectedTargetCustomerId;
+}
+
+function shipmentRecordId(payload) {
+  return (
+    payload?.shipmentRecord?.publicId ??
+    payload?.shipmentRecord?.id ??
+    payload?.shipmentId ??
+    null
+  );
+}
+
+function setRelatedFilesContext(payload) {
+  const session = readFileSession();
+  synchronizeRelatedFilesSession(session);
+  const nextShipmentId = shipmentRecordId(payload);
+  const nextShipmentNumber = String(
+    payload?.snapshot?.tracking?.number ?? payload?.shipmentRecord?.trackingNumber ?? ""
+  );
+  const contextChanged = String(nextShipmentId ?? "") !== String(relatedFilesShipmentId ?? "");
+  const payloadSessionFingerprint =
+    payload && typeof payload === "object"
+      ? trackingPayloadSessionFingerprints.get(payload)
+      : null;
+
+  relatedFilesShipmentId = nextShipmentId ? String(nextShipmentId) : null;
+  relatedFilesShipmentNumber = nextShipmentNumber;
+  relatedFilesCustomerAccess =
+    payloadSessionFingerprint === relatedFilesSessionFingerprint &&
+    typeof payload?.fileAccess === "boolean"
+      ? payload.fileAccess
+      : null;
+  relatedFilesButton.disabled = !relatedFilesShipmentId;
+  relatedFilesButton.title = relatedFilesShipmentId ? "" : t("files.unavailable");
+  relatedFilesShipmentReference.textContent = nextShipmentNumber || "—";
+
+  if (contextChanged) {
+    relatedFilesRequestSequence += 1;
+    relatedFilesItems = [];
+    relatedFilesPermissions = {};
+    relatedFilesAssignableCustomers = [];
+    relatedFilesSelectedTargetCustomerId = "";
+    relatedFilesErrorText = "";
+    relatedFilesLoadingState = false;
+    relatedFilesUploadInput.value = "";
+    setRelatedFilesUploadMessage();
+    if (!relatedFilesDrawer.hidden) closeRelatedFilesDrawer();
+  }
+
+  renderRelatedFilesDrawer();
+}
+
+function formatFileSize(value) {
+  const bytes = Number(value ?? 0);
+  if (!Number.isFinite(bytes) || bytes <= 0) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  }
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
+}
+
+function fileCategoryLabel(value) {
+  const key = {
+    CARGO_DETAIL: "files.categoryCargo",
+    INVOICE: "files.categoryInvoice",
+    SHIPPING: "files.categoryShipping",
+    OTHER: "files.categoryOther"
+  }[String(value ?? "").toUpperCase()];
+  return t(key ?? "files.categoryOther");
+}
+
+function fileVisibilityLabel(value) {
+  return t(
+    String(value ?? "").toUpperCase() === "INTERNAL"
+      ? "files.visibilityInternal"
+      : "files.visibilityParties"
+  );
+}
+
+function normalizeRelatedFileItem(item) {
+  const rawVisibility = String(item?.visibility ?? "PARTIES").toUpperCase();
+  return {
+    ...item,
+    id: item?.id ?? item?.publicId ?? item?.fileId,
+    originalFileName:
+      item?.originalFileName ?? item?.fileName ?? item?.name ?? "shipment-file",
+    extension:
+      item?.extension ??
+      String(item?.originalFileName ?? item?.fileName ?? "")
+        .split(".")
+        .pop(),
+    sizeBytes: Number(item?.sizeBytes ?? item?.size ?? 0),
+    category: String(item?.category ?? "OTHER").toUpperCase(),
+    visibility: rawVisibility === "INTERNAL_ONLY" ? "INTERNAL" : rawVisibility,
+    targetCustomerId: String(item?.targetCustomerId ?? "").trim(),
+    targetCustomerDisplayName: String(
+      item?.targetCustomerDisplayName ?? item?.targetCustomerName ?? ""
+    ).trim(),
+    uploaderDisplayName:
+      item?.uploaderDisplayName ??
+      item?.uploadedBy?.displayName ??
+      item?.uploadedBy?.username ??
+      item?.uploaderName ??
+      "",
+    uploadedAt: item?.uploadedAt ?? item?.createdAt ?? null,
+    canDelete: item?.canDelete === true,
+    canChangeVisibility: item?.canChangeVisibility === true
+  };
+}
+
+function relatedFilesApiMessage(payload, response) {
+  return (
+    payload?.message ??
+    payload?.error?.message ??
+    `${response.status} ${response.statusText || "Request failed"}`
+  );
+}
+
+async function requestRelatedFilesApi(path, options = {}) {
+  const session = options.session ?? readFileSession();
+  if (!session.token) {
+    const error = new Error(t("files.loginTitle"));
+    error.status = 401;
+    throw error;
+  }
+
+  const headers = {
+    Accept: "application/json",
+    ...fileAuthHeaders(session),
+    ...(options.headers ?? {})
+  };
+  const isFormData = options.body instanceof FormData;
+  if (options.body && !isFormData && !headers["Content-Type"]) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  const response = await fetch(path, {
+    method: options.method ?? "GET",
+    headers,
+    body:
+      options.body && !isFormData && typeof options.body !== "string"
+        ? JSON.stringify(options.body)
+        : options.body
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (response.status === 401) {
+    clearFileSession(session, { expired: true });
+    const error = new Error(
+      session.kind === "CUSTOMER"
+        ? t("files.customerLoginExpired")
+        : t("files.loginTitle")
+    );
+    error.status = 401;
+    throw error;
+  }
+  if (!response.ok) {
+    const error = new Error(
+      response.status === 403
+        ? session.kind === "CUSTOMER"
+          ? t("files.customerNotAssigned")
+          : t("files.forbidden")
+        : relatedFilesApiMessage(payload, response)
+    );
+    error.status = response.status;
+    throw error;
+  }
+  return payload;
+}
+
+function setRelatedFilesUploadMessage(message = "", variant = "") {
+  relatedFilesUploadMessage.hidden = !message;
+  relatedFilesUploadMessage.textContent = message;
+  relatedFilesUploadMessage.dataset.variant = variant;
+}
+
+function relatedFilesUploadTargetMissing(session = readFileSession()) {
+  return (
+    session.kind === "INTERNAL" &&
+    relatedFilesUploadVisibility.value === "PARTIES" &&
+    (!canAssignRelatedFilesCustomer(session) || !relatedFilesSelectedTargetCustomerId)
+  );
+}
+
+function updateRelatedFilesSelection() {
+  const session = readFileSession();
+  const files = Array.from(relatedFilesUploadInput.files ?? []);
+  const totalSize = files.reduce((total, file) => total + Number(file.size ?? 0), 0);
+  const targetMissing = relatedFilesUploadTargetMissing(session);
+  const targetFieldVisible =
+    canAssignRelatedFilesCustomer(session) &&
+    relatedFilesUploadVisibility.value === "PARTIES";
+  relatedFilesTargetCustomerField.hidden = !targetFieldVisible;
+  relatedFilesTargetCustomerHint.hidden = !targetFieldVisible || !targetMissing;
+  relatedFilesTargetCustomerHint.textContent = t(
+    relatedFilesAssignableCustomers.length > 0
+      ? "files.targetRequired"
+      : "files.targetUnavailable"
+  );
+  relatedFilesSelection.textContent =
+    files.length > 0
+      ? t("files.selection", { count: files.length, size: formatFileSize(totalSize) })
+      : t("files.noSelection");
+  relatedFilesUploadButton.disabled =
+    relatedFilesUploading ||
+    files.length === 0 ||
+    !relatedFilesShipmentId ||
+    targetMissing;
+}
+
+function relatedFileActionButton(labelKey, className, handler) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = className;
+  button.textContent = t(labelKey);
+  button.addEventListener("click", handler);
+  return button;
+}
+
+function relatedFileTargetCustomer(file) {
+  return relatedFilesAssignableCustomers.find(
+    (customer) => customer.id === String(file.targetCustomerId ?? "")
+  );
+}
+
+function relatedFileTargetDisplayName(file) {
+  const customer = relatedFileTargetCustomer(file);
+  return (
+    file.targetCustomerDisplayName ||
+    customer?.displayName ||
+    customer?.username ||
+    ""
+  );
+}
+
+function relatedFileSharingLabel(file, session = readFileSession()) {
+  if (file.visibility === "INTERNAL") return t("files.visibilityInternal");
+  if (session.kind === "CUSTOMER") return t("files.sharedWithSelf");
+  const targetName = relatedFileTargetDisplayName(file);
+  return targetName
+    ? t("files.sharedWith", { name: targetName })
+    : t("files.customerSelectionRequired");
+}
+
+function createRelatedFileItem(file) {
+  const session = readFileSession();
+  synchronizeRelatedFilesSession(session);
+  const sessionFingerprint = relatedFilesSessionFingerprint;
+  const item = document.createElement("li");
+  item.className = "related-file-item";
+  item.dataset.fileId = String(file.id ?? "");
+
+  const extension = document.createElement("span");
+  extension.className = "related-file-extension";
+  extension.textContent = String(file.extension || "FILE").slice(0, 5).toUpperCase();
+
+  const content = document.createElement("div");
+  content.className = "related-file-content";
+  const name = document.createElement("strong");
+  name.textContent = file.originalFileName;
+  name.title = file.originalFileName;
+  const metadata = document.createElement("span");
+  metadata.textContent = [
+    file.uploaderDisplayName || t("files.unknownUploader"),
+    file.uploadedAt ? formatLocalDateTime(file.uploadedAt) : t("files.unknownDate"),
+    formatFileSize(file.sizeBytes)
+  ].join(" · ");
+  const badges = document.createElement("div");
+  badges.className = "related-file-badges";
+  const category = document.createElement("span");
+  category.textContent = fileCategoryLabel(file.category);
+  badges.append(category);
+
+  const sharing = document.createElement("span");
+  sharing.className = `related-file-sharing is-${file.visibility.toLowerCase()}`;
+  sharing.textContent = relatedFileSharingLabel(file, session);
+  badges.append(sharing);
+
+  if (file.canChangeVisibility && canManageFileVisibility(session)) {
+    const canAssignCustomer = canAssignRelatedFilesCustomer(session);
+    const editor = document.createElement("div");
+    editor.className = "related-file-sharing-editor";
+    const visibility = document.createElement("select");
+    visibility.className = "related-file-visibility-select";
+    visibility.setAttribute("aria-label", t("files.visibility"));
+    for (const value of ["PARTIES", "INTERNAL"]) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = fileVisibilityLabel(value);
+      option.disabled =
+        value === "PARTIES" &&
+        !canAssignCustomer &&
+        file.visibility !== "PARTIES";
+      visibility.append(option);
+    }
+    visibility.value = file.visibility === "INTERNAL" ? "INTERNAL" : "PARTIES";
+
+    const targetCustomer = document.createElement("select");
+    targetCustomer.className = "related-file-target-select";
+    targetCustomer.setAttribute("aria-label", t("files.targetCustomer"));
+    const targetPlaceholder = document.createElement("option");
+    targetPlaceholder.value = "";
+    targetPlaceholder.textContent = t("files.targetPlaceholder");
+    targetCustomer.append(targetPlaceholder);
+    for (const customer of relatedFilesAssignableCustomers) {
+      const option = document.createElement("option");
+      option.value = customer.id;
+      option.textContent = relatedFilesCustomerOptionLabel(customer);
+      targetCustomer.append(option);
+    }
+    if (
+      file.targetCustomerId &&
+      !relatedFilesAssignableCustomers.some(
+        (customer) => customer.id === file.targetCustomerId
+      )
+    ) {
+      const currentTarget = document.createElement("option");
+      currentTarget.value = file.targetCustomerId;
+      currentTarget.textContent =
+        file.targetCustomerDisplayName || t("files.sharedWithCustomer");
+      targetCustomer.append(currentTarget);
+    }
+    targetCustomer.value = file.targetCustomerId || "";
+
+    const editorHint = document.createElement("span");
+    editorHint.className = "related-file-sharing-hint";
+    editorHint.textContent = t(
+      relatedFilesAssignableCustomers.length > 0
+        ? "files.targetRequiredForFile"
+        : "files.targetUnavailable"
+    );
+
+    const syncEditor = () => {
+      const sharingWithCustomer = visibility.value === "PARTIES";
+      targetCustomer.hidden = !canAssignCustomer || !sharingWithCustomer;
+      editorHint.hidden =
+        !canAssignCustomer ||
+        !sharingWithCustomer ||
+        Boolean(targetCustomer.value);
+      editor.classList.toggle(
+        "needs-target",
+        canAssignCustomer && sharingWithCustomer && !targetCustomer.value
+      );
+    };
+
+    const persistSharing = async (nextVisibility, nextTargetCustomerId) => {
+      if (!isCurrentRelatedFilesSession(sessionFingerprint)) return;
+      if (
+        nextVisibility === "PARTIES" &&
+        (!canAssignCustomer || !nextTargetCustomerId)
+      ) {
+        syncEditor();
+        targetCustomer.focus({ preventScroll: true });
+        return;
+      }
+      const previousVisibility = file.visibility;
+      const previousTargetCustomerId = file.targetCustomerId;
+      const previousTargetCustomerDisplayName = file.targetCustomerDisplayName;
+      visibility.disabled = true;
+      targetCustomer.disabled = true;
+      try {
+        await requestRelatedFilesApi(
+          shipmentFilePath(session, file.id, "/visibility"),
+          {
+            method: "PATCH",
+            body: {
+              visibility: nextVisibility,
+              targetCustomerId:
+                nextVisibility === "PARTIES" ? nextTargetCustomerId : null
+            },
+            session
+          }
+        );
+        if (!isCurrentRelatedFilesSession(sessionFingerprint)) return;
+        file.visibility = nextVisibility;
+        file.targetCustomerId =
+          nextVisibility === "PARTIES" ? String(nextTargetCustomerId) : "";
+        file.targetCustomerDisplayName =
+          nextVisibility === "PARTIES"
+            ? relatedFileTargetCustomer(file)?.displayName ||
+              relatedFileTargetCustomer(file)?.username ||
+              file.targetCustomerDisplayName
+            : "";
+        sharing.className = `related-file-sharing is-${file.visibility.toLowerCase()}`;
+        sharing.textContent = relatedFileSharingLabel(file, session);
+        setRelatedFilesUploadMessage();
+      } catch (error) {
+        if (!isCurrentRelatedFilesSession(sessionFingerprint)) return;
+        file.visibility = previousVisibility;
+        file.targetCustomerId = previousTargetCustomerId;
+        file.targetCustomerDisplayName = previousTargetCustomerDisplayName;
+        visibility.value = previousVisibility;
+        targetCustomer.value = previousTargetCustomerId || "";
+        setRelatedFilesUploadMessage(
+          t("files.visibilityUpdateFailed", { message: error?.message || t("error.generic") }),
+          "error"
+        );
+      } finally {
+        if (isCurrentRelatedFilesSession(sessionFingerprint)) {
+          visibility.disabled = false;
+          targetCustomer.disabled = false;
+          syncEditor();
+        }
+      }
+    };
+
+    visibility.addEventListener("change", () => {
+      if (!isCurrentRelatedFilesSession(sessionFingerprint)) return;
+      if (visibility.value === "INTERNAL") {
+        targetCustomer.value = "";
+        syncEditor();
+        void persistSharing("INTERNAL", null);
+        return;
+      }
+      syncEditor();
+      if (targetCustomer.value) {
+        void persistSharing("PARTIES", targetCustomer.value);
+      } else {
+        targetCustomer.focus({ preventScroll: true });
+      }
+    });
+    targetCustomer.addEventListener("change", () => {
+      if (!isCurrentRelatedFilesSession(sessionFingerprint)) return;
+      syncEditor();
+      if (visibility.value === "PARTIES" && targetCustomer.value) {
+        void persistSharing("PARTIES", targetCustomer.value);
+      }
+    });
+    editor.append(visibility);
+    if (canAssignCustomer) editor.append(targetCustomer, editorHint);
+    syncEditor();
+    badges.append(editor);
+  }
+  content.append(name, metadata, badges);
+
+  const actions = document.createElement("div");
+  actions.className = "related-file-actions";
+  actions.append(
+    relatedFileActionButton("files.download", "related-file-download", (event) => {
+      void downloadRelatedFile(file, event.currentTarget);
+    })
+  );
+  if (file.canDelete) {
+    actions.append(
+      relatedFileActionButton("files.delete", "related-file-delete", () => {
+        void deleteRelatedFile(file);
+      })
+    );
+  }
+
+  item.append(extension, content, actions);
+  return item;
+}
+
+function renderRelatedFilesDrawer() {
+  const session = readFileSession();
+  synchronizeRelatedFilesSession(session);
+  const authenticated = Boolean(session.token);
+  const hasItems = relatedFilesItems.length > 0;
+  const isCustomer = session.kind === "CUSTOMER";
+  const canManageVisibility = canManageFileVisibility(session);
+  const canAssignCustomer = canAssignRelatedFilesCustomer(session);
+
+  if (
+    session.kind !== "INTERNAL" ||
+    !canManageVisibility ||
+    (relatedFilesUploadVisibility.value === "PARTIES" && !canAssignCustomer)
+  ) {
+    relatedFilesUploadVisibility.value = "INTERNAL";
+    relatedFilesSelectedTargetCustomerId = "";
+  }
+  if (relatedFilesUploadVisibility.value === "INTERNAL") {
+    relatedFilesSelectedTargetCustomerId = "";
+  }
+  renderRelatedFilesTargetOptions();
+  const partiesOption = relatedFilesUploadVisibility.querySelector(
+    'option[value="PARTIES"]'
+  );
+  if (partiesOption) partiesOption.disabled = !canAssignCustomer;
+
+  relatedFilesShipmentReference.textContent = relatedFilesShipmentNumber || "—";
+  relatedFilesButton.hidden = !authenticated;
+  relatedFilesButton.disabled = !authenticated || !relatedFilesShipmentId;
+  relatedFilesButton.title =
+    isCustomer && relatedFilesCustomerAccess === false
+      ? t("files.customerNotAssigned")
+      : authenticated && !relatedFilesShipmentId
+        ? t("files.unavailable")
+        : "";
+  relatedFilesCount.textContent = String(relatedFilesItems.length);
+  relatedFilesCount.hidden = !hasItems;
+
+  relatedFilesAuthRequired.hidden = authenticated;
+  const customerSessionExpired =
+    !authenticated && relatedFilesExpiredSessionKind === "CUSTOMER";
+  relatedFilesAuthTitle.textContent = t(
+    customerSessionExpired ? "files.customerLoginExpired" : "files.loginTitle"
+  );
+  relatedFilesAuthDescription.textContent = t(
+    customerSessionExpired ? "files.customerLoginExpired" : "files.loginDescription"
+  );
+  relatedFilesAuthLink.textContent = t(
+    customerSessionExpired ? "files.customerLoginAction" : "files.loginAction"
+  );
+  relatedFilesAuthLink.href = customerSessionExpired ? "/" : "/workbenches";
+  relatedFilesCustomerSession.hidden = !isCustomer;
+  relatedFilesCustomerName.textContent = isCustomer ? fileSessionDisplayName(session) : "";
+  const customerRoleLabel = customerLogisticsRoleLabel(session);
+  relatedFilesCustomerRole.textContent = customerRoleLabel;
+  relatedFilesCustomerRole.hidden = !customerRoleLabel;
+  relatedFilesContent.hidden = !authenticated;
+  relatedFilesUploadPanel.hidden =
+    !authenticated ||
+    !relatedFilesShipmentId ||
+    relatedFilesPermissions?.canUpload === false;
+  relatedFilesUserName.textContent =
+    fileSessionDisplayName(session);
+  relatedFilesUploadVisibilityField.hidden = !canManageVisibility;
+
+  relatedFilesLoading.hidden = !relatedFilesLoadingState;
+  relatedFilesError.hidden = !relatedFilesErrorText || relatedFilesLoadingState;
+  relatedFilesErrorMessage.textContent = relatedFilesErrorText;
+  relatedFilesEmpty.hidden =
+    relatedFilesLoadingState || Boolean(relatedFilesErrorText) || hasItems;
+  relatedFilesList.hidden =
+    relatedFilesLoadingState || Boolean(relatedFilesErrorText) || !hasItems;
+  relatedFilesList.replaceChildren(
+    ...relatedFilesItems.map((item) => createRelatedFileItem(item))
+  );
+
+  relatedFilesSelectButton.disabled = relatedFilesUploading;
+  relatedFilesUploadInput.disabled = relatedFilesUploading;
+  relatedFilesCategory.disabled = relatedFilesUploading;
+  relatedFilesUploadVisibility.disabled = relatedFilesUploading;
+  relatedFilesTargetCustomer.disabled = relatedFilesUploading;
+  updateRelatedFilesSelection();
+}
+
+function openRelatedFilesDrawer() {
+  const session = readFileSession();
+  synchronizeRelatedFilesSession(session);
+  if (!relatedFilesShipmentId || !session.token) return;
+  if (relatedFilesCloseTimer) {
+    window.clearTimeout(relatedFilesCloseTimer);
+    relatedFilesCloseTimer = null;
+  }
+  relatedFilesBackdrop.hidden = false;
+  relatedFilesDrawer.hidden = false;
+  relatedFilesButton.setAttribute("aria-expanded", "true");
+  document.body.classList.add("related-files-open");
+  requestAnimationFrame(() => {
+    relatedFilesBackdrop.classList.add("is-open");
+    relatedFilesDrawer.classList.add("is-open");
+    relatedFilesDrawer.focus({ preventScroll: true });
+  });
+
+  if (session.kind === "CUSTOMER" && relatedFilesCustomerAccess === false) {
+    relatedFilesErrorText = t("files.customerNotAssigned");
+    renderRelatedFilesDrawer();
+  } else {
+    void loadRelatedFiles();
+  }
+}
+
+function closeRelatedFilesDrawer({ immediate = false } = {}) {
+  relatedFilesButton.setAttribute("aria-expanded", "false");
+  relatedFilesBackdrop.classList.remove("is-open");
+  relatedFilesDrawer.classList.remove("is-open");
+  document.body.classList.remove("related-files-open");
+  if (relatedFilesCloseTimer) window.clearTimeout(relatedFilesCloseTimer);
+  if (immediate) {
+    relatedFilesBackdrop.hidden = true;
+    relatedFilesDrawer.hidden = true;
+    relatedFilesCloseTimer = null;
+    return;
+  }
+  relatedFilesCloseTimer = window.setTimeout(() => {
+    relatedFilesBackdrop.hidden = true;
+    relatedFilesDrawer.hidden = true;
+    relatedFilesCloseTimer = null;
+  }, 220);
+}
+
+async function loadRelatedFiles() {
+  const session = readFileSession();
+  synchronizeRelatedFilesSession(session);
+  if (!relatedFilesShipmentId || !session.token) {
+    renderRelatedFilesDrawer();
+    return;
+  }
+
+  const sessionFingerprint = relatedFilesSessionFingerprint;
+  const requestSequence = ++relatedFilesRequestSequence;
+  relatedFilesLoadingState = true;
+  relatedFilesErrorText = "";
+  relatedFilesPermissions = {};
+  relatedFilesAssignableCustomers = [];
+  relatedFilesSelectedTargetCustomerId = "";
+  renderRelatedFilesDrawer();
+
+  try {
+    const payload = await requestRelatedFilesApi(
+      shipmentFilesPath(session, relatedFilesShipmentId),
+      { session }
+    );
+    if (
+      requestSequence !== relatedFilesRequestSequence ||
+      !isCurrentRelatedFilesSession(sessionFingerprint)
+    ) return;
+    const items = Array.isArray(payload?.items)
+      ? payload.items
+      : Array.isArray(payload?.files)
+        ? payload.files
+        : [];
+    relatedFilesItems = items.map(normalizeRelatedFileItem);
+    relatedFilesPermissions = payload?.permissions ?? {};
+    const assignableCustomers =
+      session.kind === "INTERNAL" &&
+      relatedFilesPermissions?.canAssignCustomer === true &&
+      Array.isArray(payload?.assignableCustomers)
+        ? payload.assignableCustomers
+        : [];
+    const seenCustomerIds = new Set();
+    relatedFilesAssignableCustomers = assignableCustomers
+      .map(normalizeAssignableCustomer)
+      .filter((customer) => {
+        if (!customer.id || seenCustomerIds.has(customer.id)) return false;
+        seenCustomerIds.add(customer.id);
+        return true;
+      });
+    if (session.kind === "CUSTOMER") relatedFilesCustomerAccess = true;
+  } catch (error) {
+    if (
+      requestSequence !== relatedFilesRequestSequence ||
+      !isCurrentRelatedFilesSession(sessionFingerprint)
+    ) return;
+    if (session.kind === "CUSTOMER" && error?.status === 403) {
+      relatedFilesCustomerAccess = false;
+    }
+    if (error?.status !== 401 || relatedFilesExpiredSessionKind === "CUSTOMER") {
+      relatedFilesErrorText = error?.message || t("error.generic");
+    }
+  } finally {
+    if (
+      requestSequence === relatedFilesRequestSequence &&
+      isCurrentRelatedFilesSession(sessionFingerprint)
+    ) {
+      relatedFilesLoadingState = false;
+      renderRelatedFilesDrawer();
+    }
+  }
+}
+
+async function uploadRelatedFiles() {
+  const files = Array.from(relatedFilesUploadInput.files ?? []);
+  if (!relatedFilesShipmentId || files.length === 0 || relatedFilesUploading) return;
+
+  const session = readFileSession();
+  synchronizeRelatedFilesSession(session);
+  if (!session.token) {
+    renderRelatedFilesDrawer();
+    return;
+  }
+
+  const internalVisibility =
+    canManageFileVisibility(session)
+      ? relatedFilesUploadVisibility.value || "INTERNAL"
+      : "INTERNAL";
+  const targetCustomerId = relatedFilesSelectedTargetCustomerId;
+  if (
+    session.kind === "INTERNAL" &&
+    internalVisibility === "PARTIES" &&
+    (!canAssignRelatedFilesCustomer(session) || !targetCustomerId)
+  ) {
+    setRelatedFilesUploadMessage(t("files.targetRequired"), "error");
+    updateRelatedFilesSelection();
+    relatedFilesTargetCustomer.focus({ preventScroll: true });
+    return;
+  }
+
+  const sessionFingerprint = relatedFilesSessionFingerprint;
+  relatedFilesUploading = true;
+  setRelatedFilesUploadMessage(t("files.uploading"));
+  renderRelatedFilesDrawer();
+  const formData = new FormData();
+  for (const file of files) formData.append("files", file);
+  formData.append("category", relatedFilesCategory.value || "OTHER");
+  if (session.kind === "INTERNAL") {
+    formData.append("visibility", internalVisibility);
+    if (internalVisibility === "PARTIES") {
+      formData.append("targetCustomerId", targetCustomerId);
+    }
+  }
+
+  try {
+    await requestRelatedFilesApi(
+      shipmentFilesPath(session, relatedFilesShipmentId),
+      { method: "POST", body: formData, session }
+    );
+    if (!isCurrentRelatedFilesSession(sessionFingerprint)) return;
+    relatedFilesUploadInput.value = "";
+    setRelatedFilesUploadMessage(t("files.uploaded", { count: files.length }), "success");
+    await loadRelatedFiles();
+  } catch (error) {
+    if (!isCurrentRelatedFilesSession(sessionFingerprint)) return;
+    if (error?.status !== 401) {
+      setRelatedFilesUploadMessage(
+        t("files.uploadFailed", { message: error?.message || t("error.generic") }),
+        "error"
+      );
+    }
+  } finally {
+    if (isCurrentRelatedFilesSession(sessionFingerprint)) {
+      relatedFilesUploading = false;
+      renderRelatedFilesDrawer();
+    }
+  }
+}
+
+async function downloadRelatedFile(file, button) {
+  const session = readFileSession();
+  synchronizeRelatedFilesSession(session);
+  if (!file?.id || !session.token) return;
+  const sessionFingerprint = relatedFilesSessionFingerprint;
+  const previousLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = t("files.downloading");
+  try {
+    const response = await fetch(
+      shipmentFilePath(session, file.id, "/download"),
+      { headers: { ...fileAuthHeaders(session) } }
+    );
+    if (response.status === 401) {
+      clearFileSession(session, { expired: true });
+      return;
+    }
+    if (!isCurrentRelatedFilesSession(sessionFingerprint)) return;
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(
+        response.status === 403
+          ? session.kind === "CUSTOMER"
+            ? t("files.customerNotAssigned")
+            : t("files.forbidden")
+          : relatedFilesApiMessage(payload, response)
+      );
+    }
+    const blob = await response.blob();
+    if (!isCurrentRelatedFilesSession(sessionFingerprint)) return;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = file.originalFileName;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  } catch (error) {
+    if (!isCurrentRelatedFilesSession(sessionFingerprint)) return;
+    setRelatedFilesUploadMessage(
+      t("files.downloadFailed", { message: error?.message || t("error.generic") }),
+      "error"
+    );
+  } finally {
+    if (isCurrentRelatedFilesSession(sessionFingerprint)) {
+      button.disabled = false;
+      button.textContent = previousLabel;
+    }
+  }
+}
+
+async function deleteRelatedFile(file) {
+  if (
+    !file?.id ||
+    !file.canDelete ||
+    !window.confirm(t("files.confirmDelete", { name: file.originalFileName }))
+  ) {
+    return;
+  }
+  const session = readFileSession();
+  synchronizeRelatedFilesSession(session);
+  if (!session.token) return;
+  const sessionFingerprint = relatedFilesSessionFingerprint;
+  try {
+    await requestRelatedFilesApi(
+      shipmentFilePath(session, file.id),
+      { method: "DELETE", session }
+    );
+    if (!isCurrentRelatedFilesSession(sessionFingerprint)) return;
+    relatedFilesItems = relatedFilesItems.filter((item) => item.id !== file.id);
+    setRelatedFilesUploadMessage();
+    renderRelatedFilesDrawer();
+  } catch (error) {
+    if (!isCurrentRelatedFilesSession(sessionFingerprint)) return;
+    if (error?.status !== 401) {
+      setRelatedFilesUploadMessage(
+        t("files.deleteFailed", { message: error?.message || t("error.generic") }),
+        "error"
+      );
+    }
+  }
 }
 
 function normalizeCountryCode(countryCode) {
@@ -761,7 +2101,9 @@ function saveSnapshot(query, payload, savedAt = new Date().toISOString()) {
         version: CACHE_VERSION,
         savedAt,
         query: normalized,
-        snapshot: payload.snapshot
+        snapshot: payload.snapshot,
+        shipmentId: shipmentRecordId(payload),
+        shipmentRecord: payload.shipmentRecord ?? null
       })
     );
     rememberCacheKey(key);
@@ -808,7 +2150,9 @@ function loadSnapshot(query) {
     raw: null,
     cached: false,
     browserCached: true,
-    browserCachedAt: stored.savedAt
+    browserCachedAt: stored.savedAt,
+    shipmentId: stored.shipmentId ?? stored.shipmentRecord?.publicId ?? null,
+    shipmentRecord: stored.shipmentRecord ?? null
   };
 }
 
@@ -1293,7 +2637,8 @@ async function runBatchQueue() {
           const { response, payload } = await requestBatchTracking(query);
           if (!response.ok) {
             throw new Error(
-              payload?.error?.message || t("error.http", { status: response.status })
+              trackingResponseMessage(payload, response) ||
+              t("error.http", { status: response.status })
             );
           }
           saveSnapshot(query, payload);
@@ -1679,6 +3024,7 @@ function renderResult(payload) {
   const isContainerOnly = snapshot.viewMode === "CONTAINER";
 
   currentPayload = payload;
+  setRelatedFilesContext(payload);
   results.classList.toggle("is-container-only", isContainerOnly);
   sourceTag.textContent = t(resultChannel.sourceKey);
   elements["result-carrier"].textContent = providerCode;
@@ -2181,6 +3527,7 @@ function updateCarrierUI({ resetResult = false } = {}) {
       currentPayload?.snapshot?.channel !== channel.code)
   ) {
     currentPayload = null;
+    setRelatedFilesContext(null);
     results.hidden = true;
     emptyState.hidden = false;
     clearError();
@@ -2373,7 +3720,9 @@ function openHistoryEntry(entry) {
     raw: null,
     cached: false,
     browserCached: true,
-    browserCachedAt: entry.savedAt
+    browserCachedAt: entry.savedAt,
+    shipmentId: entry.shipmentId ?? entry.shipmentRecord?.publicId ?? null,
+    shipmentRecord: entry.shipmentRecord ?? null
   };
   renderResult(currentPayload);
   updateUrl(entry.query, { push: true });
@@ -2436,6 +3785,7 @@ function openBatchItem(item) {
     renderResult(localPayload);
   } else {
     currentPayload = null;
+    setRelatedFilesContext(null);
     results.hidden = true;
     emptyState.hidden = false;
     clearError();
@@ -2495,6 +3845,7 @@ function applyLanguage(language, { persist = true } = {}) {
   renderHistory();
   renderBatchState();
   if (currentPayload) renderResult(currentPayload);
+  renderRelatedFilesDrawer();
 }
 
 async function postTrackingRequest(path, query) {
@@ -2509,7 +3860,33 @@ async function postTrackingRequest(path, query) {
   return { response, payload };
 }
 
+async function postPublicShipmentTrackingRequest(query, { includeAuth = true } = {}) {
+  const session = readFileSession();
+  const sessionFingerprint = fileSessionFingerprint(session);
+  const response = await fetch("/api/public/shipments/track", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(includeAuth ? fileAuthHeaders(session) : {})
+    },
+    body: JSON.stringify(query)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (payload && typeof payload === "object") {
+    trackingPayloadSessionFingerprints.set(payload, sessionFingerprint);
+  }
+
+  if (response.status === 401 && includeAuth && session.token) {
+    const cleared = clearFileSession(session, { expired: true });
+    if (cleared) return postPublicShipmentTrackingRequest(query, { includeAuth: false });
+  }
+  return { response, payload };
+}
+
 async function requestTracking(query) {
+  const platform = await postPublicShipmentTrackingRequest(query);
+  if (!isPublicTrackingRouteUnavailable(platform)) return platform;
+
   const primary = await postTrackingRequest("/api/track", query);
 
   if (
@@ -2546,7 +3923,10 @@ checkChannelsButton.addEventListener("click", async () => {
     );
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(payload?.error?.message || t("error.http", { status: response.status }));
+      throw new Error(
+        trackingResponseMessage(payload, response) ||
+        t("error.http", { status: response.status })
+      );
     }
     renderChannelCheck(payload);
     completed = true;
@@ -2591,7 +3971,10 @@ form.addEventListener("submit", async (event) => {
     const { response, payload } = await requestTracking(query);
 
     if (!response.ok) {
-      throw new Error(payload?.error?.message || t("error.http", { status: response.status }));
+      throw new Error(
+        trackingResponseMessage(payload, response) ||
+        t("error.http", { status: response.status })
+      );
     }
 
     saveSnapshot(query, payload);
@@ -2690,6 +4073,89 @@ batchClearButton.addEventListener("click", () => {
   setBatchImportNotice();
 });
 
+relatedFilesButton.addEventListener("click", openRelatedFilesDrawer);
+relatedFilesCloseButton.addEventListener("click", closeRelatedFilesDrawer);
+relatedFilesBackdrop.addEventListener("click", closeRelatedFilesDrawer);
+relatedFilesRetryButton.addEventListener("click", () => {
+  void loadRelatedFiles();
+});
+relatedFilesSelectButton.addEventListener("click", () => {
+  if (!relatedFilesUploading) relatedFilesUploadInput.click();
+});
+relatedFilesUploadInput.addEventListener("change", () => {
+  setRelatedFilesUploadMessage();
+  updateRelatedFilesSelection();
+});
+relatedFilesUploadVisibility.addEventListener("change", () => {
+  if (relatedFilesUploadVisibility.value === "INTERNAL") {
+    relatedFilesSelectedTargetCustomerId = "";
+    relatedFilesTargetCustomer.value = "";
+  }
+  setRelatedFilesUploadMessage();
+  updateRelatedFilesSelection();
+});
+relatedFilesTargetCustomer.addEventListener("change", () => {
+  relatedFilesSelectedTargetCustomerId = relatedFilesTargetCustomer.value;
+  setRelatedFilesUploadMessage();
+  updateRelatedFilesSelection();
+});
+relatedFilesUploadButton.addEventListener("click", () => {
+  void uploadRelatedFiles();
+});
+relatedFilesCustomerLogoutButton.addEventListener("click", async () => {
+  const session = readFileSession();
+  if (session.kind !== "CUSTOMER" || !session.token) return;
+  relatedFilesCustomerLogoutButton.disabled = true;
+  try {
+    await fetch("/api/customer/logout", {
+      method: "POST",
+      headers: { ...fileAuthHeaders(session) }
+    });
+  } catch {
+    // Local sign-out must remain available when the server cannot be reached.
+  } finally {
+    clearFileSession(session);
+    relatedFilesCustomerLogoutButton.disabled = false;
+    renderRelatedFilesDrawer();
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !relatedFilesDrawer.hidden) {
+    closeRelatedFilesDrawer();
+  }
+});
+
+window.addEventListener("storage", (event) => {
+  if (
+    event.key === null ||
+    [
+      PLATFORM_AUTH_TOKEN_KEY,
+      PLATFORM_AUTH_USER_KEY,
+      CUSTOMER_AUTH_TOKEN_KEY,
+      CUSTOMER_AUTH_SESSION_KEY
+    ].includes(event.key)
+  ) {
+    if (event.key === null) {
+      platformPrincipalAwaitingRefresh = false;
+      customerPrincipalAwaitingRefresh = false;
+    } else if (event.key === PLATFORM_AUTH_TOKEN_KEY) {
+      platformPrincipalAwaitingRefresh = Boolean(
+        event.newValue && event.newValue !== event.oldValue
+      );
+    } else if (event.key === PLATFORM_AUTH_USER_KEY) {
+      platformPrincipalAwaitingRefresh = false;
+    } else if (event.key === CUSTOMER_AUTH_TOKEN_KEY) {
+      customerPrincipalAwaitingRefresh = Boolean(
+        event.newValue && event.newValue !== event.oldValue
+      );
+    } else if (event.key === CUSTOMER_AUTH_SESSION_KEY) {
+      customerPrincipalAwaitingRefresh = false;
+    }
+    synchronizeRelatedFilesSession(readFileSession(), { expiredKind: "" });
+    renderRelatedFilesDrawer();
+  }
+});
+
 document.querySelectorAll("[data-language]").forEach((button) => {
   button.addEventListener("click", () => applyLanguage(button.dataset.language));
 });
@@ -2750,6 +4216,8 @@ window.addEventListener("pageshow", () => {
   hidePlatformRouteWait();
   activeWaitOperations.clear();
   renderSystemWait();
+  synchronizeRelatedFilesSession(readFileSession(), { expiredKind: "" });
+  renderRelatedFilesDrawer();
 });
 
 migrateLegacyCache();

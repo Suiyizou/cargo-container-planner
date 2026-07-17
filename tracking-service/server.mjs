@@ -869,10 +869,15 @@ async function fetchCoscoTrackingWithPlaywright(request) {
       timeoutMs: PLAYWRIGHT_TIMEOUT_MS
     });
   } catch (error) {
+    const details = error?.code
+      ? { code: error.code, retryAfterMs: error?.retryAfterMs ?? undefined }
+      : error?.upstreamCode
+        ? { upstreamCode: error.upstreamCode }
+        : undefined;
     throw new HttpError(
       error?.httpStatus ?? 502,
       error?.message || "COSCO Playwright 通道查询失败",
-      error?.upstreamCode ? { upstreamCode: error.upstreamCode } : undefined
+      details
     );
   }
 
@@ -934,6 +939,9 @@ async function fetchCoscoTracking(request, queryChannel) {
           }
         };
       } catch (playwrightError) {
+        if (playwrightError instanceof HttpError && playwrightError.status === 429) {
+          throw playwrightError;
+        }
         throw new HttpError(502, "COSCO 两个查询通道均不可用", {
           network: networkError?.message ?? "网络接口失败",
           playwright: playwrightError?.message ?? "DOM 通道失败"
@@ -1346,6 +1354,13 @@ export const server = createServer(async (request, response) => {
     throw new HttpError(405, "不支持的请求方法");
   } catch (error) {
     const status = error instanceof HttpError ? error.status : 500;
+    if (status === 429) {
+      const retryAfterMs = Number(error?.details?.retryAfterMs);
+      response.setHeader(
+        "Retry-After",
+        String(Number.isFinite(retryAfterMs) ? Math.max(1, Math.ceil(retryAfterMs / 1_000)) : 5)
+      );
+    }
     sendJson(response, status, {
       error: {
         message: error?.message || "服务器内部错误",

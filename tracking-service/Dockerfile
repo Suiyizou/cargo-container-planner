@@ -8,11 +8,15 @@ RUN npm ci --omit=dev
 
 COPY . .
 
+RUN chown -R pwuser:pwuser /app
+
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=3000 \
     PLAYWRIGHT_HEADLESS=true \
     PLAYWRIGHT_BROWSER_CHANNEL=chromium
+
+USER pwuser
 
 EXPOSE 3000
 

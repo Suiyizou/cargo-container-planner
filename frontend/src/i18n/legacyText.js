@@ -739,8 +739,6 @@ const patternEn = [
   [/^(.+)\s+个账号$/, "$1 accounts"],
   [/^(.+)\s+台$/, "$1 devices"],
   [/^已配置\s+(.+)$/, "Configured $1"],
-  [/^账号\s+(.+)\s+的密码已重置为\s+123456$/, "Password for account $1 has been reset to 123456"],
-  [/^确认将账号「(.+)」密码重置为\s+123456\s+吗？该账号已登录设备会下线。$/, "Reset password for account \"$1\" to 123456? Logged-in devices for this account will be logged out."],
   [/^确认删除\/禁用账号「(.+)」吗？$/, "Delete/disable account \"$1\"?"],
   [/^确认删除设备记录「(.+)」吗？在线设备会同步下线。$/, "Delete device record \"$1\"? Online devices will be logged out too."],
   [/^你好，(.+)，今天要做些什么呢？$/, "Hello, $1, what would you like to work on today?"],

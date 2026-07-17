@@ -9,7 +9,10 @@ import com.cargoplanner.backend.common.RequestStats;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,7 +24,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AdminService {
-  private static final String DEFAULT_RESET_PASSWORD = "123456";
+  private static final SecureRandom RANDOM = new SecureRandom();
+  private static final String PASSWORD_UPPER = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  private static final String PASSWORD_LOWER = "abcdefghijkmnopqrstuvwxyz";
+  private static final String PASSWORD_DIGITS = "23456789";
+  private static final String PASSWORD_SYMBOLS = "!@#$%*-_=+";
+  private static final String PASSWORD_ALPHABET =
+      PASSWORD_UPPER + PASSWORD_LOWER + PASSWORD_DIGITS + PASSWORD_SYMBOLS;
 
   private final JdbcTemplate jdbcTemplate;
   private final PasswordHasher passwordHasher;
@@ -43,7 +52,7 @@ public class AdminService {
   public List<Map<String, Object>> listEmployees() {
     return jdbcTemplate.query(
         """
-        SELECT id, username, display_name, role, status, created_at, updated_at, last_login_at
+        SELECT id, username, display_name, role, party_role, status, created_at, updated_at, last_login_at
         FROM cp_users
         ORDER BY role = 'ADMIN' DESC, id ASC
         """,
@@ -53,19 +62,23 @@ public class AdminService {
 
   @Transactional
   public Map<String, Object> createEmployee(CreateEmployeeRequest request, AuthenticatedUser admin, String ip) {
+    validateStrongPassword(request.password());
     PasswordHasher.PasswordHash passwordHash = passwordHasher.hash(request.password());
     String role = normalizeRole(request.role(), "EMPLOYEE");
+    String partyRole = normalizePartyRole(request.partyRole(), role, "AGENT");
     try {
       jdbcTemplate.update(
           """
           INSERT INTO cp_users (
-            username, display_name, role, status, password_salt, password_hash, password_iterations, created_by
+            username, display_name, role, party_role, status,
+            password_salt, password_hash, password_iterations, created_by
           )
-          VALUES (?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
           """,
           request.username().trim(),
           request.displayName().trim(),
           role,
+          partyRole,
           passwordHash.salt(),
           passwordHash.hash(),
           passwordHash.iterations(),
@@ -84,21 +97,28 @@ public class AdminService {
     Map<String, Object> existing = findUser(userId);
     String displayName = valueOrExisting(request.displayName(), (String) existing.get("displayName"));
     String role = normalizeRole(request.role(), (String) existing.get("role"));
+    String partyRole = normalizePartyRole(
+        request.partyRole(),
+        role,
+        (String) existing.get("partyRole")
+    );
     String status = normalizeStatus(request.status(), (String) existing.get("status"));
+    boolean passwordChanged = request.password() != null && !request.password().isBlank();
+    preserveActiveAdministrator(userId, admin, existing, role, status);
 
-    if (request.password() != null && !request.password().isBlank()) {
-      if (request.password().length() < 8) {
-        throw new ApiException(HttpStatus.BAD_REQUEST, "Password must contain at least 8 characters");
-      }
+    if (passwordChanged) {
+      validateStrongPassword(request.password());
       PasswordHasher.PasswordHash passwordHash = passwordHasher.hash(request.password());
       jdbcTemplate.update(
           """
           UPDATE cp_users
-          SET display_name = ?, role = ?, status = ?, password_salt = ?, password_hash = ?, password_iterations = ?
+          SET display_name = ?, role = ?, party_role = ?, status = ?,
+              password_salt = ?, password_hash = ?, password_iterations = ?
           WHERE id = ?
           """,
           displayName,
           role,
+          partyRole,
           status,
           passwordHash.salt(),
           passwordHash.hash(),
@@ -107,15 +127,16 @@ public class AdminService {
       );
     } else {
       jdbcTemplate.update(
-          "UPDATE cp_users SET display_name = ?, role = ?, status = ? WHERE id = ?",
+          "UPDATE cp_users SET display_name = ?, role = ?, party_role = ?, status = ? WHERE id = ?",
           displayName,
           role,
+          partyRole,
           status,
           userId
       );
     }
 
-    if ("DISABLED".equals(status)) {
+    if (passwordChanged || "DISABLED".equals(status)) {
       jdbcTemplate.update(
           "UPDATE cp_login_devices SET online = 0, session_token_hash = NULL, revoked_at = ? WHERE user_id = ?",
           Timestamp.from(Instant.now()),
@@ -128,8 +149,15 @@ public class AdminService {
 
   @Transactional
   public Map<String, Object> resetEmployeePassword(long userId, AuthenticatedUser admin, String ip) {
+    if (admin != null && userId == admin.id()) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "Administrators cannot reset their own password from the employee console"
+      );
+    }
     Map<String, Object> existing = findUser(userId);
-    PasswordHasher.PasswordHash passwordHash = passwordHasher.hash(DEFAULT_RESET_PASSWORD);
+    String temporaryPassword = generateTemporaryPassword();
+    PasswordHasher.PasswordHash passwordHash = passwordHasher.hash(temporaryPassword);
     jdbcTemplate.update(
         """
         UPDATE cp_users
@@ -147,7 +175,43 @@ public class AdminService {
         userId
     );
     audit(admin.id(), "RESET_PASSWORD", "USER", userId, "Reset password for " + existing.get("username"), ip);
-    return findUser(userId);
+    Map<String, Object> response = new LinkedHashMap<>(findUser(userId));
+    response.put("temporaryPassword", temporaryPassword);
+    return response;
+  }
+
+  private void validateStrongPassword(String password) {
+    String value = password == null ? "" : password;
+    boolean valid = value.length() >= 12
+        && value.length() <= 128
+        && value.chars().anyMatch(Character::isUpperCase)
+        && value.chars().anyMatch(Character::isLowerCase)
+        && value.chars().anyMatch(Character::isDigit)
+        && value.chars().anyMatch(character -> !Character.isLetterOrDigit(character));
+    boolean knownLegacyPassword = "123456".equals(value) || "Admin@123456".equals(value);
+    if (!valid || knownLegacyPassword) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "Password must be 12-128 characters and include upper, lower, digit, and symbol"
+      );
+    }
+  }
+
+  private String generateTemporaryPassword() {
+    List<Character> characters = new ArrayList<>();
+    characters.add(randomCharacter(PASSWORD_UPPER));
+    characters.add(randomCharacter(PASSWORD_LOWER));
+    characters.add(randomCharacter(PASSWORD_DIGITS));
+    characters.add(randomCharacter(PASSWORD_SYMBOLS));
+    while (characters.size() < 24) characters.add(randomCharacter(PASSWORD_ALPHABET));
+    Collections.shuffle(characters, RANDOM);
+    StringBuilder password = new StringBuilder(characters.size());
+    characters.forEach(password::append);
+    return password.toString();
+  }
+
+  private char randomCharacter(String source) {
+    return source.charAt(RANDOM.nextInt(source.length()));
   }
 
   @Transactional
@@ -156,6 +220,13 @@ public class AdminService {
       throw new ApiException(HttpStatus.BAD_REQUEST, "Cannot delete current admin account");
     }
     Map<String, Object> existing = findUser(userId);
+    preserveActiveAdministrator(
+        userId,
+        admin,
+        existing,
+        (String) existing.get("role"),
+        "DISABLED"
+    );
     jdbcTemplate.update(
         "UPDATE cp_users SET status = 'DISABLED' WHERE id = ?",
         userId
@@ -167,6 +238,35 @@ public class AdminService {
     );
     audit(admin.id(), "DELETE_USER", "USER", userId, "Disabled user " + existing.get("username"), ip);
     return findUser(userId);
+  }
+
+  private void preserveActiveAdministrator(
+      long userId,
+      AuthenticatedUser actor,
+      Map<String, Object> existing,
+      String requestedRole,
+      String requestedStatus
+  ) {
+    boolean removesActiveAdmin = "ADMIN".equals(existing.get("role"))
+        && "ACTIVE".equals(existing.get("status"))
+        && (!"ADMIN".equals(requestedRole) || !"ACTIVE".equals(requestedStatus));
+    if (!removesActiveAdmin) return;
+    if (actor != null && actor.id() == userId) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "Administrators cannot demote or disable their own account"
+      );
+    }
+    List<Long> activeAdministratorIds = jdbcTemplate.query(
+        "SELECT id FROM cp_users WHERE role = 'ADMIN' AND status = 'ACTIVE' FOR UPDATE",
+        (rs, rowNumber) -> rs.getLong(1)
+    );
+    if (activeAdministratorIds.size() <= 1) {
+      throw new ApiException(
+          HttpStatus.CONFLICT,
+          "At least one active administrator account must remain"
+      );
+    }
   }
 
   public List<Map<String, Object>> listDevices() {
@@ -235,7 +335,7 @@ public class AdminService {
   private Map<String, Object> findUser(Long userId) {
     List<Map<String, Object>> users = jdbcTemplate.query(
         """
-        SELECT id, username, display_name, role, status, created_at, updated_at, last_login_at
+        SELECT id, username, display_name, role, party_role, status, created_at, updated_at, last_login_at
         FROM cp_users
         WHERE id = ?
         """,
@@ -311,8 +411,8 @@ public class AdminService {
 
   private String normalizeRole(String role, String fallback) {
     String value = role == null || role.isBlank() ? fallback : role.trim().toUpperCase();
-    if (!"ADMIN".equals(value) && !"EMPLOYEE".equals(value)) {
-      throw new ApiException(HttpStatus.BAD_REQUEST, "Role must be ADMIN or EMPLOYEE");
+    if (!"ADMIN".equals(value) && !"EMPLOYEE".equals(value) && !"BUSINESS".equals(value)) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "Role must be ADMIN, EMPLOYEE, or BUSINESS");
     }
     return value;
   }
@@ -321,6 +421,17 @@ public class AdminService {
     String value = status == null || status.isBlank() ? fallback : status.trim().toUpperCase();
     if (!"ACTIVE".equals(value) && !"DISABLED".equals(value)) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "Status must be ACTIVE or DISABLED");
+    }
+    return value;
+  }
+
+  private String normalizePartyRole(String partyRole, String systemRole, String fallback) {
+    if ("ADMIN".equals(systemRole) || "BUSINESS".equals(systemRole)) return "AGENT";
+    String value = partyRole == null || partyRole.isBlank()
+        ? (fallback == null || fallback.isBlank() ? "AGENT" : fallback.trim().toUpperCase())
+        : partyRole.trim().toUpperCase();
+    if (!"AGENT".equals(value) && !"SHIPPER".equals(value) && !"CONSIGNEE".equals(value)) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "Party role must be AGENT, SHIPPER, or CONSIGNEE");
     }
     return value;
   }
@@ -335,6 +446,7 @@ public class AdminService {
     row.put("username", rs.getString("username"));
     row.put("displayName", rs.getString("display_name"));
     row.put("role", rs.getString("role"));
+    row.put("partyRole", rs.getString("party_role"));
     row.put("status", rs.getString("status"));
     row.put("createdAt", stringTimestamp(rs, "created_at"));
     row.put("updatedAt", stringTimestamp(rs, "updated_at"));

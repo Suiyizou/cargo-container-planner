@@ -20,6 +20,9 @@ public class UserAuthInterceptor implements HandlerInterceptor {
     if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
       return true;
     }
+    if (request.getAttribute(CURRENT_USER_ATTRIBUTE) instanceof AuthenticatedUser) {
+      return true;
+    }
     AuthenticatedUser user = authService.authenticate(request.getHeader("X-Auth-Token"), request);
     request.setAttribute(CURRENT_USER_ATTRIBUTE, user);
     return true;

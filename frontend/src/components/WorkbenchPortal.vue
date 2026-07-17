@@ -26,6 +26,13 @@
         <RouterLink v-if="currentUser?.role === 'ADMIN'" class="portal-admin-link" to="/admin">
           {{ t("portal.adminConsole") }}
         </RouterLink>
+        <RouterLink
+          v-if="['BUSINESS', 'ADMIN'].includes(currentUser?.role)"
+          class="portal-admin-link portal-customer-link"
+          to="/customers"
+        >
+          {{ t("portal.customerWorkspace") }}
+        </RouterLink>
         <div class="portal-user">
           <span class="portal-avatar">{{ userInitial }}</span>
           <span>
@@ -54,7 +61,7 @@
           <p>{{ t("portal.heroDescription") }}</p>
           <div class="portal-hero-meta">
             <span>
-              <b>02</b>
+              <b>{{ ['BUSINESS', 'ADMIN'].includes(currentUser?.role) ? '03' : '02' }}</b>
               {{ t("portal.availableWorkbenches") }}
             </span>
             <span>
@@ -125,7 +132,7 @@
           <p>{{ t("portal.sectionDescription") }}</p>
         </header>
 
-        <div class="portal-card-grid">
+        <div class="portal-card-grid" :class="{ 'has-customer-card': ['BUSINESS', 'ADMIN'].includes(currentUser?.role) }">
           <RouterLink
             class="portal-workbench-card portal-workbench-card--planner"
             to="/planner/config"
@@ -194,6 +201,40 @@
               <svg viewBox="0 0 22 22" aria-hidden="true"><path d="M4 11h13m-5-5 5 5-5 5" /></svg>
             </div>
           </a>
+
+          <RouterLink
+            v-if="['BUSINESS', 'ADMIN'].includes(currentUser?.role)"
+            class="portal-workbench-card portal-workbench-card--customers"
+            to="/customers"
+          >
+            <div class="portal-card-topline">
+              <span>03 / CUSTOMER ACCESS</span>
+              <small><i></i>{{ t("portal.controlled") }}</small>
+            </div>
+            <div class="portal-card-body">
+              <div class="portal-card-icon" aria-hidden="true">
+                <svg viewBox="0 0 88 88">
+                  <circle class="icon-panel" cx="34" cy="34" r="13" />
+                  <circle class="icon-panel" cx="59" cy="39" r="9" />
+                  <path d="M13 68c3-14 11-21 22-21s19 7 22 21M50 51c10 0 17 6 20 17M60 21v12m-6-6h12" />
+                </svg>
+              </div>
+              <div class="portal-card-copy">
+                <span class="portal-card-label">{{ t("portal.customers.label") }}</span>
+                <h3>{{ t("portal.customers.title") }}</h3>
+                <p>{{ t("portal.customers.description") }}</p>
+              </div>
+            </div>
+            <div class="portal-card-features">
+              <span>{{ t("portal.customers.featureCodes") }}</span>
+              <span>{{ t("portal.customers.featureRoles") }}</span>
+              <span>{{ t("portal.customers.featureBindings") }}</span>
+            </div>
+            <div class="portal-card-action">
+              <span>{{ t("portal.enterWorkbench") }}</span>
+              <svg viewBox="0 0 22 22" aria-hidden="true"><path d="M4 11h13m-5-5 5 5-5 5" /></svg>
+            </div>
+          </RouterLink>
         </div>
       </section>
 
@@ -220,7 +261,11 @@ const { t } = useI18n();
 const trackingWorkbenchUrl = import.meta.env.VITE_TRACKING_WORKBENCH_URL || "/tracking/";
 const displayName = computed(() => props.currentUser?.displayName || props.currentUser?.username || t("portal.operator"));
 const userInitial = computed(() => displayName.value.slice(0, 1).toUpperCase());
-const roleLabel = computed(() => t(props.currentUser?.role === "ADMIN" ? "portal.roleAdmin" : "portal.roleEmployee"));
+const roleLabel = computed(() => t({
+  ADMIN: "portal.roleAdmin",
+  BUSINESS: "portal.roleBusiness",
+  EMPLOYEE: "portal.roleEmployee"
+}[props.currentUser?.role] || "portal.roleEmployee"));
 const currentYear = new Date().getFullYear();
 const todayText = computed(() => new Intl.DateTimeFormat(currentLocale.value === "en-US" ? "en-US" : "zh-CN", {
   month: "short",
@@ -716,6 +761,19 @@ const todayText = computed(() => new Intl.DateTimeFormat(currentLocale.value ===
   background: radial-gradient(circle at 14% 15%, rgba(88, 122, 238, 0.2), transparent 46%);
 }
 
+.portal-workbench-card--customers::before {
+  background: linear-gradient(90deg, #6e7cff, #24a5cd);
+}
+
+.portal-card-grid.has-customer-card {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.portal-workbench-card--customers .portal-card-icon {
+  color: #566ee8;
+  background: rgba(86, 110, 232, 0.11);
+}
+
 .portal-workbench-card:hover {
   z-index: 1;
   border-color: rgba(94, 211, 233, 0.5);
@@ -1143,6 +1201,10 @@ const todayText = computed(() => new Intl.DateTimeFormat(currentLocale.value ===
   }
 
   .portal-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .portal-card-grid.has-customer-card {
     grid-template-columns: 1fr;
   }
 

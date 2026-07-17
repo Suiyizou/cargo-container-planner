@@ -49,14 +49,29 @@ VITE_TRACKING_WORKBENCH_URL=/tracking/
 backend/sql/schema.sql
 ```
 
-默认总管理员：
+系统不再创建带固定口令的默认管理员。新数据库首次部署时，请在 `.env` 临时设置一次性引导参数：
 
-```text
-账号：admin
-密码：Admin@123456
+```env
+APP_BOOTSTRAP_ADMIN_ENABLED=true
+APP_BOOTSTRAP_ADMIN_USERNAME=你的管理员账号
+APP_BOOTSTRAP_ADMIN_PASSWORD=至少12位且包含大小写字母、数字和符号的随机密码
+APP_BOOTSTRAP_ADMIN_DISPLAY_NAME=系统管理员
 ```
 
-首次生产登录后请立即修改默认密码。浏览器 Web 端无法可靠读取真实 MAC 地址，因此当前版本记录的是设备指纹、IP、浏览器 UA，并预留 `mac_address` 字段给后续桌面客户端或内网 Agent 上报。
+引导只会在 `cp_users` 为空时创建管理员。首次启动并确认可以登录后，立即将 `APP_BOOTSTRAP_ADMIN_ENABLED=false`，从 `.env` 删除密码并重启服务。升级前必须先轮换或禁用历史 `admin` 默认账户；后端检测到旧版已知固定凭据仍处于启用状态时会拒绝启动。浏览器 Web 端无法可靠读取真实 MAC 地址，因此当前版本记录的是设备指纹、IP、浏览器 UA，并预留 `mac_address` 字段给后续桌面客户端或内网 Agent 上报。
+
+货物相关文件默认通过 Docker 绑定目录持久化。生产环境请把 `SHIPMENT_FILE_HOST_PATH` 指向宿主机 SSD 的专用目录，并按磁盘容量调整以下配额：
+
+```env
+SHIPMENT_FILE_HOST_PATH=/mnt/ssd/drewes/shipment-files
+APP_SHIPMENT_FILE_MAX_SIZE_BYTES=83886080
+APP_SHIPMENT_FILE_MAX_FILES_PER_SHIPMENT=200
+APP_SHIPMENT_FILE_MAX_BYTES_PER_SHIPMENT=2147483648
+APP_SHIPMENT_FILE_MAX_BYTES_PER_CUSTOMER=5368709120
+APP_SHIPMENT_FILE_MIN_FREE_SPACE_BYTES=1073741824
+```
+
+四个容量配额分别控制单文件、单票文件数、单票累计容量、单客户累计容量，并始终保留 `MIN_FREE_SPACE` 指定的磁盘余量。上传临时文件也位于同一持久化目录下，避免占满容器系统盘。
 
 ## LLM 文本识别
 

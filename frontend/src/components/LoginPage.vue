@@ -114,31 +114,54 @@
       </div>
 
       <form class="app-login-card" @submit.prevent="submit">
-        <div class="app-login-card-mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24"><path d="M12 3 19 6v5c0 4.3-2.9 7.7-7 9.6C7.9 18.7 5 15.3 5 11V6zM9.2 12l1.8 1.8 4-4.2" /></svg>
-        </div>
-        <div class="app-login-title">
-          <span>{{ t("login.formEyebrow") }}</span>
-          <h2>{{ t("login.formTitle") }}</h2>
-          <p>{{ t("login.formDescription") }}</p>
+        <div class="app-login-route-switch" :aria-label="t('login.routeLabel')">
+          <button
+            type="button"
+            :class="{ 'is-active': loginMode === 'employee' }"
+            :aria-pressed="loginMode === 'employee'"
+            @click="selectMode('employee')"
+          >
+            <span>{{ t("login.employeeRoute") }}</span>
+            <small>{{ t("login.employeeRouteHint") }}</small>
+          </button>
+          <button
+            type="button"
+            :class="{ 'is-active': loginMode === 'customer' }"
+            :aria-pressed="loginMode === 'customer'"
+            @click="selectMode('customer')"
+          >
+            <span>{{ t("login.customerRoute") }}</span>
+            <small>{{ t("login.customerRouteHint") }}</small>
+          </button>
         </div>
 
-        <label class="app-login-field">
-          <span>{{ t("login.usernameLabel") }}</span>
+        <div class="app-login-card-mark" aria-hidden="true">
+          <svg v-if="loginMode === 'employee'" viewBox="0 0 24 24"><path d="M12 3 19 6v5c0 4.3-2.9 7.7-7 9.6C7.9 18.7 5 15.3 5 11V6zM9.2 12l1.8 1.8 4-4.2" /></svg>
+          <svg v-else viewBox="0 0 24 24"><path d="M4 7.5h16v9H4zM7 11h5m-5 3h8M17 10.5v3" /></svg>
+        </div>
+        <div class="app-login-title">
+          <span>{{ t(loginMode === "employee" ? "login.formEyebrow" : "login.customerEyebrow") }}</span>
+          <h2>{{ t(loginMode === "employee" ? "login.formTitle" : "login.customerTitle") }}</h2>
+          <p>{{ t(loginMode === "employee" ? "login.formDescription" : "login.customerDescription") }}</p>
+        </div>
+
+        <label v-if="loginMode === 'employee'" class="app-login-field">
+          <span>{{ t("login.employeeNumberLabel") }}</span>
           <div class="app-login-input-wrap">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7 8a7 7 0 0 0-14 0" /></svg>
             <input
               v-model.trim="form.username"
               autocomplete="username"
-              :placeholder="t('login.usernamePlaceholder')"
-              :aria-label="t('login.usernameLabel')"
+              :placeholder="t('login.employeeNumberPlaceholder')"
+              :aria-label="t('login.employeeNumberLabel')"
               :disabled="loading"
+              required
               autofocus
             />
           </div>
         </label>
 
-        <label class="app-login-field">
+        <label v-if="loginMode === 'employee'" class="app-login-field">
           <span>{{ t("login.passwordLabel") }}</span>
           <div class="app-login-input-wrap">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V8a5 5 0 0 1 10 0v2m-11 0h12v10H6zM12 14v2" /></svg>
@@ -149,6 +172,7 @@
               :aria-label="t('login.passwordLabel')"
               :type="showPassword ? 'text' : 'password'"
               :disabled="loading"
+              required
             />
             <button
               class="app-login-password-toggle"
@@ -164,19 +188,35 @@
           </div>
         </label>
 
+        <label v-else class="app-login-field">
+          <span>{{ t("login.customerCodeLabel") }}</span>
+          <div class="app-login-input-wrap app-login-input-wrap--code">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7.5h16v9H4zM7 11h5m-5 3h8M17 10.5v3" /></svg>
+            <input
+              v-model.trim="customerCode"
+              autocomplete="one-time-code"
+              :placeholder="t('login.customerCodePlaceholder')"
+              :aria-label="t('login.customerCodeLabel')"
+              :disabled="loading"
+              required
+              autofocus
+            />
+          </div>
+        </label>
+
         <div class="app-login-form-meta">
-          <span><i aria-hidden="true"></i>{{ t("login.sessionNotice") }}</span>
-          <small>{{ t("login.accountNotice") }}</small>
+          <span><i aria-hidden="true"></i>{{ t(loginMode === "employee" ? "login.sessionNotice" : "login.customerSessionNotice") }}</span>
+          <small>{{ t(loginMode === "employee" ? "login.accountNotice" : "login.customerAccountNotice") }}</small>
         </div>
 
-        <p v-if="message" class="app-login-message" role="alert">
+        <p v-if="message" class="app-login-message" :class="{ 'is-success': success }" role="alert">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5 18 17H2zM10 7v4m0 3v.1" /></svg>
           <span>{{ message }}</span>
         </p>
 
         <button class="app-login-submit" type="submit" :disabled="loading">
           <span v-if="loading" class="app-login-submit-loader" aria-hidden="true"></span>
-          <span>{{ loading ? t("login.signingIn") : t("login.signIn") }}</span>
+          <span>{{ submitText }}</span>
           <svg v-if="!loading" viewBox="0 0 22 22" aria-hidden="true"><path d="M4 11h13m-5-5 5 5-5 5" /></svg>
         </button>
 
@@ -195,28 +235,71 @@
 </template>
 
 <script setup>
-import { reactive, ref } from "vue";
+import { computed, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { loginAdmin } from "../services/adminApi";
+import { clearCustomerSession, loginCustomer } from "../services/customerSession";
 
 const emit = defineEmits(["logged-in"]);
 const { t } = useI18n();
 
 const loading = ref(false);
 const message = ref("");
+const success = ref(false);
 const showPassword = ref(false);
+const loginMode = ref("employee");
+const customerCode = ref("");
 const form = reactive({ username: "", password: "" });
+const configuredTrackingWorkbenchUrl = import.meta.env.VITE_TRACKING_WORKBENCH_URL || "/tracking/";
+const submitText = computed(() => {
+  if (loading.value) return t(loginMode.value === "employee" ? "login.signingIn" : "login.customerSigningIn");
+  return t(loginMode.value === "employee" ? "login.signIn" : "login.customerSignIn");
+});
+
+function selectMode(mode) {
+  if (loading.value) return;
+  loginMode.value = mode;
+  message.value = "";
+  success.value = false;
+}
+
+function customerTrackingTarget() {
+  const target = new URL(configuredTrackingWorkbenchUrl, window.location.origin);
+  if (target.origin !== window.location.origin) {
+    throw new Error(t("login.customerTrackingSameOrigin"));
+  }
+  target.hash = "tracking";
+  return target.href;
+}
 
 async function submit() {
   if (loading.value) return;
   loading.value = true;
   message.value = "";
+  success.value = false;
+  const trackingWindow = loginMode.value === "customer" ? window.open("about:blank", "_blank") : null;
   try {
+    if (loginMode.value === "customer") {
+      const target = customerTrackingTarget();
+      await loginCustomer(customerCode.value);
+      customerCode.value = "";
+      success.value = true;
+      message.value = t("login.customerSuccess");
+      if (trackingWindow) {
+        trackingWindow.opener = null;
+        trackingWindow.location.replace(target);
+      } else {
+        message.value = t("login.customerPopupBlocked");
+      }
+      return;
+    }
+    clearCustomerSession();
     const response = await loginAdmin(form.username, form.password);
     form.password = "";
     emit("logged-in", response.user);
   } catch (error) {
-    message.value = error.message || t("login.errorFallback");
+    trackingWindow?.close();
+    message.value = error.message || t(loginMode.value === "employee" ? "login.errorFallback" : "login.customerErrorFallback");
   } finally {
     loading.value = false;
   }

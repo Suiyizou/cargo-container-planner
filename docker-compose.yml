@@ -19,6 +19,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    networks:
+      - data
 
   backend:
     build:
@@ -31,6 +33,11 @@ services:
       SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-cargo_planner}
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-cargo_planner_pwd}
       APP_DEVICE_LIMIT_PER_USER: ${APP_DEVICE_LIMIT_PER_USER:-5}
+      APP_CUSTOMER_SESSION_HOURS: ${APP_CUSTOMER_SESSION_HOURS:-24}
+      APP_BOOTSTRAP_ADMIN_ENABLED: ${APP_BOOTSTRAP_ADMIN_ENABLED:-false}
+      APP_BOOTSTRAP_ADMIN_USERNAME: ${APP_BOOTSTRAP_ADMIN_USERNAME:-}
+      APP_BOOTSTRAP_ADMIN_PASSWORD: ${APP_BOOTSTRAP_ADMIN_PASSWORD:-}
+      APP_BOOTSTRAP_ADMIN_DISPLAY_NAME: ${APP_BOOTSTRAP_ADMIN_DISPLAY_NAME:-System Administrator}
       SPRING_AI_CHAT_MODEL: ${SPRING_AI_CHAT_MODEL:-none}
       SPRING_AI_OPENAI_API_KEY: ${SPRING_AI_OPENAI_API_KEY:-}
       SPRING_AI_OPENAI_BASE_URL: ${SPRING_AI_OPENAI_BASE_URL:-https://api.deepseek.com}
@@ -40,15 +47,33 @@ services:
       APP_WORKSPACE_FILE_RETENTION: ${APP_WORKSPACE_FILE_RETENTION:-14d}
       APP_WORKSPACE_FILE_CLEANUP_INTERVAL_MS: ${APP_WORKSPACE_FILE_CLEANUP_INTERVAL_MS:-3600000}
       APP_WORKSPACE_FILE_MAX_SIZE_BYTES: ${APP_WORKSPACE_FILE_MAX_SIZE_BYTES:-83886080}
+      APP_TRACKING_ADAPTER_BASE_URL: ${APP_TRACKING_ADAPTER_BASE_URL:-http://tracking:3000}
+      APP_TRACKING_CACHE_TTL: ${APP_TRACKING_CACHE_TTL:-15m}
+      APP_TRACKING_CONNECT_TIMEOUT: ${APP_TRACKING_CONNECT_TIMEOUT:-5s}
+      APP_TRACKING_READ_TIMEOUT: ${APP_TRACKING_READ_TIMEOUT:-90s}
+      APP_SHIPMENT_FILE_ROOT: /app/shipment-files
+      SPRING_SERVLET_MULTIPART_LOCATION: /app/shipment-files/.multipart
+      APP_SHIPMENT_FILE_MAX_SIZE_BYTES: ${APP_SHIPMENT_FILE_MAX_SIZE_BYTES:-83886080}
+      APP_SHIPMENT_FILE_MAX_FILES_PER_SHIPMENT: ${APP_SHIPMENT_FILE_MAX_FILES_PER_SHIPMENT:-200}
+      APP_SHIPMENT_FILE_MAX_BYTES_PER_SHIPMENT: ${APP_SHIPMENT_FILE_MAX_BYTES_PER_SHIPMENT:-2147483648}
+      APP_SHIPMENT_FILE_MAX_BYTES_PER_CUSTOMER: ${APP_SHIPMENT_FILE_MAX_BYTES_PER_CUSTOMER:-5368709120}
+      APP_SHIPMENT_FILE_MIN_FREE_SPACE_BYTES: ${APP_SHIPMENT_FILE_MIN_FREE_SPACE_BYTES:-1073741824}
+      APP_SHIPMENT_FILE_ALLOWED_EXTENSIONS: ${APP_SHIPMENT_FILE_ALLOWED_EXTENSIONS:-pdf,xlsx,xls,csv,doc,docx,jpg,jpeg,png,txt}
       TZ: Asia/Shanghai
     ports:
       - "${BACKEND_BIND_ADDRESS:-127.0.0.1}:${BACKEND_PORT:-8080}:8080"
     volumes:
       - workspace-files:/app/uploads
+      - ${SHIPMENT_FILE_HOST_PATH:-./data/shipment-files}:/app/shipment-files
     depends_on:
       mysql:
         condition: service_healthy
+      tracking:
+        condition: service_healthy
     restart: unless-stopped
+    networks:
+      - app
+      - data
 
   tracking:
     build:
@@ -61,6 +86,9 @@ services:
       PORT: 3000
       PLAYWRIGHT_HEADLESS: "true"
       PLAYWRIGHT_BROWSER_CHANNEL: chromium
+      PLAYWRIGHT_MAX_CONCURRENCY: ${PLAYWRIGHT_MAX_CONCURRENCY:-2}
+      PLAYWRIGHT_QUEUE_LIMIT: ${PLAYWRIGHT_QUEUE_LIMIT:-8}
+      PLAYWRIGHT_QUEUE_TIMEOUT_MS: ${PLAYWRIGHT_QUEUE_TIMEOUT_MS:-15000}
       CHANNEL_C_MONITOR_ENABLED: ${CHANNEL_C_MONITOR_ENABLED:-true}
       TZ: Asia/Shanghai
     expose:
@@ -74,6 +102,8 @@ services:
       retries: 6
       start_period: 15s
     restart: unless-stopped
+    networks:
+      - app
 
   frontend:
     build:
@@ -91,7 +121,14 @@ services:
       tracking:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - app
 
 volumes:
   mysql-data:
   workspace-files:
+
+networks:
+  app:
+  data:
+    internal: true

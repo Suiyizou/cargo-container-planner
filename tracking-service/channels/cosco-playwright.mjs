@@ -5,6 +5,9 @@ const COSCO_TRACKING_PAGE =
   "https://elines.coscoshipping.com/scct/public/ct/base?lang=en";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const OPTIONAL_RESPONSE_SETTLE_MS = 1_200;
+const DEFAULT_MAX_CONCURRENCY = 2;
+const DEFAULT_QUEUE_LIMIT = 8;
+const DEFAULT_QUEUE_TIMEOUT_MS = 15_000;
 
 const TRACKING_LABELS = Object.freeze({
   BILLOFLADING: "B/L No.",
@@ -13,6 +16,113 @@ const TRACKING_LABELS = Object.freeze({
 });
 
 let sharedBrowserPromise = null;
+
+function configuredInteger(value, fallback, { min, max }) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+export class PlaywrightCapacityError extends Error {
+  constructor(message, details = {}) {
+    super(message);
+    this.name = "PlaywrightCapacityError";
+    this.code = "PLAYWRIGHT_BUSY";
+    this.httpStatus = 429;
+    this.retryAfterMs = details.retryAfterMs ?? null;
+  }
+}
+
+export function createPlaywrightConcurrencyGate(options = {}) {
+  const maxConcurrency = configuredInteger(
+    options.maxConcurrency,
+    DEFAULT_MAX_CONCURRENCY,
+    { min: 1, max: 16 }
+  );
+  const queueLimit = configuredInteger(
+    options.queueLimit,
+    DEFAULT_QUEUE_LIMIT,
+    { min: 0, max: 100 }
+  );
+  const queueTimeoutMs = configuredInteger(
+    options.queueTimeoutMs,
+    DEFAULT_QUEUE_TIMEOUT_MS,
+    { min: 100, max: 120_000 }
+  );
+  let active = 0;
+  const queue = [];
+
+  function capacityError(reason) {
+    return new PlaywrightCapacityError(
+      `Playwright channel is busy (${reason}); retry later`,
+      { retryAfterMs: queueTimeoutMs }
+    );
+  }
+
+  function dispatch() {
+    while (active < maxConcurrency && queue.length > 0) {
+      const entry = queue.shift();
+      if (entry.settled) continue;
+      entry.settled = true;
+      clearTimeout(entry.timer);
+      active += 1;
+      entry.resolve(createRelease());
+    }
+  }
+
+  function createRelease() {
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      active = Math.max(0, active - 1);
+      dispatch();
+    };
+  }
+
+  function acquire() {
+    if (active < maxConcurrency) {
+      active += 1;
+      return Promise.resolve(createRelease());
+    }
+    if (queue.length >= queueLimit) {
+      return Promise.reject(capacityError("queue full"));
+    }
+
+    return new Promise((resolve, reject) => {
+      const entry = { resolve, reject, settled: false, timer: null };
+      entry.timer = setTimeout(() => {
+        if (entry.settled) return;
+        entry.settled = true;
+        const index = queue.indexOf(entry);
+        if (index >= 0) queue.splice(index, 1);
+        reject(capacityError("queue timeout"));
+      }, queueTimeoutMs);
+      queue.push(entry);
+    });
+  }
+
+  return Object.freeze({
+    acquire,
+    async run(operation) {
+      const release = await acquire();
+      try {
+        return await operation();
+      } finally {
+        release();
+      }
+    },
+    stats() {
+      return { active, queued: queue.length, maxConcurrency, queueLimit, queueTimeoutMs };
+    }
+  });
+}
+
+const sharedPlaywrightGate = createPlaywrightConcurrencyGate({
+  maxConcurrency: process.env.PLAYWRIGHT_MAX_CONCURRENCY,
+  queueLimit: process.env.PLAYWRIGHT_QUEUE_LIMIT,
+  queueTimeoutMs: process.env.PLAYWRIGHT_QUEUE_TIMEOUT_MS
+});
 
 async function launchSharedBrowser() {
   const channel = process.env.PLAYWRIGHT_BROWSER_CHANNEL ?? "chrome";
@@ -101,15 +211,16 @@ export async function closeCoscoPlaywrightBrowser() {
   }
 }
 
-export async function fetchCoscoTrackingViaPlaywright(request, options = {}) {
+async function fetchCoscoTrackingInBrowserContext(request, options = {}) {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const browser = options.browser ?? (await getSharedBrowser());
-  const context = await browser.newContext({
-    locale: "en-US",
-    timezoneId: "Asia/Shanghai"
-  });
+  let context = null;
 
   try {
+    context = await browser.newContext({
+      locale: "en-US",
+      timezoneId: "Asia/Shanghai"
+    });
     const page = await context.newPage();
     const optionalPayloads = new Map();
     const optionalCaptures = new Set();
@@ -181,6 +292,11 @@ export async function fetchCoscoTrackingViaPlaywright(request, options = {}) {
     }
     throw error;
   } finally {
-    await context.close();
+    if (context) await context.close();
   }
+}
+
+export async function fetchCoscoTrackingViaPlaywright(request, options = {}) {
+  const concurrencyGate = options.concurrencyGate ?? sharedPlaywrightGate;
+  return concurrencyGate.run(() => fetchCoscoTrackingInBrowserContext(request, options));
 }

@@ -13,6 +13,7 @@ export const router = createRouter({
   routes: [
     { path: "/", name: "landing", component: PageStub },
     { path: "/workbenches", name: "workbenches", component: PageStub },
+    { path: "/customers", name: "customers", component: PageStub },
     { path: "/home", name: "home", component: PageStub },
     { path: "/planner", redirect: "/planner/config" },
     { path: "/planner/config", name: "planner-config", component: PageStub },

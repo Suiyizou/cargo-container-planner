@@ -4290,6 +4290,13 @@ select {
   margin-top: 16px;
 }
 
+.profile-party-pill {
+  margin-left: 8px;
+  color: #3c617f;
+  border-color: #c9dce9;
+  background: #f5f9fc;
+}
+
 .excel-import-mode-switch {
   display: flex;
   gap: 12px;
@@ -5108,6 +5115,51 @@ select {
   backdrop-filter: blur(18px);
 }
 
+.app-login-route-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin: -14px -14px 3px;
+  padding: 5px;
+  border: 1px solid #d9e5f0;
+  border-radius: 14px;
+  background: #f3f7fb;
+}
+
+.app-login-route-switch button {
+  display: grid;
+  gap: 3px;
+  min-height: 52px;
+  padding: 9px 11px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: #6f8296;
+  background: transparent;
+  text-align: left;
+}
+
+.app-login-route-switch button span {
+  color: #36516c;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.app-login-route-switch button small {
+  font-size: 9px;
+  font-weight: 620;
+}
+
+.app-login-route-switch button.is-active {
+  border-color: #bed9f1;
+  color: #2872b6;
+  background: #fff;
+  box-shadow: 0 7px 18px rgba(27, 83, 137, 0.09);
+}
+
+.app-login-route-switch button.is-active span {
+  color: #126dbd;
+}
+
 .app-login-card-mark {
   display: grid;
   place-items: center;
@@ -5207,6 +5259,13 @@ select {
 .app-login-input-wrap input::placeholder {
   color: #a2afbe;
   font-weight: 450;
+}
+
+.app-login-input-wrap--code input:not(.el-input__inner) {
+  padding-right: 18px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 720;
+  letter-spacing: 0.05em;
 }
 
 .app-login-input-wrap:focus-within > svg {
@@ -5310,6 +5369,12 @@ select {
   stroke-width: 1.5;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.app-login-message.is-success {
+  border-color: #b8e5d3;
+  color: #147154;
+  background: #effaf5;
 }
 
 .app-login-submit:not(.el-button) {
@@ -8121,6 +8186,36 @@ select,
   width: min(760px, calc(100vw - 48px));
 }
 
+.temporary-password-modal {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.temporary-password-content {
+  display: grid;
+  gap: 16px;
+  padding: 4px 22px 22px;
+  color: #506a84;
+  line-height: 1.7;
+}
+
+.temporary-password-content code {
+  display: block;
+  overflow-wrap: anywhere;
+  padding: 18px 20px;
+  border: 1px solid #bcd7ee;
+  border-radius: 14px;
+  background: #eef7ff;
+  color: #092b49;
+  font: 700 18px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+  letter-spacing: 0.04em;
+  user-select: all;
+}
+
+.temporary-password-content strong {
+  color: #a46610;
+  font-size: 13px;
+}
+
 .employee-dialog-form {
   padding: 18px 22px 22px;
 }
@@ -8221,6 +8316,59 @@ select,
   min-width: 1040px;
 }
 
+.admin-table.admin-files-table.shipment-files {
+  min-width: 1320px;
+}
+
+.admin-file-scope-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-file-scope-tabs button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 12px;
+  align-items: center;
+  min-height: 92px;
+  padding: 15px 17px;
+  border: 1px solid #d4dfeb;
+  border-radius: 8px;
+  background: #fff;
+  color: #40546b;
+  text-align: left;
+  box-shadow: 0 8px 24px rgba(20, 34, 52, 0.05);
+}
+
+.admin-file-scope-tabs button:hover,
+.admin-file-scope-tabs button.active {
+  border-color: #72aee8;
+  background: linear-gradient(135deg, #f7fbff 0%, #eef7ff 100%);
+  box-shadow: 0 12px 28px rgba(31, 111, 181, 0.1);
+}
+
+.admin-file-scope-tabs button.active {
+  box-shadow: inset 3px 0 #1478d4, 0 12px 28px rgba(31, 111, 181, 0.1);
+}
+
+.admin-file-scope-tabs span {
+  color: #174777;
+  font-weight: 800;
+}
+
+.admin-file-scope-tabs b {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  color: #1478d4;
+  font-size: 24px;
+}
+
+.admin-file-scope-tabs small {
+  color: #657a93;
+  line-height: 1.45;
+}
+
 .admin-files-expired-filter {
   display: inline-flex;
   gap: 7px;
@@ -8277,6 +8425,36 @@ select,
   border-color: #cbd5e1;
   background: #f8fafc;
   color: #64748b;
+}
+
+.admin-status.warn {
+  border-color: #f3c66b;
+  background: #fff8e6;
+  color: #9a5b00;
+}
+
+.admin-visibility-pill {
+  display: inline-flex;
+  padding: 4px 8px;
+  border: 1px solid #8bbce9;
+  border-radius: 999px;
+  background: #eff7ff;
+  color: #1765a7;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.admin-visibility-pill.internal {
+  border-color: #b8c2d0;
+  background: #f4f6f8;
+  color: #46566b;
+}
+
+.admin-visibility-pill.public {
+  border-color: #8dd3c7;
+  background: #ecfdf5;
+  color: #047857;
 }
 
 .admin-activity-list {
@@ -8413,6 +8591,7 @@ select,
   .admin-metrics,
   .admin-metrics.compact,
   .admin-dashboard-grid,
+  .admin-file-scope-tabs,
   .admin-form-grid,
   .admin-operation-grid {
     grid-template-columns: 1fr;

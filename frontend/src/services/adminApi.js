@@ -98,11 +98,35 @@ export async function fetchAdminWorkspaceFiles(options = {}) {
 }
 
 export async function downloadAdminWorkspaceFile(id, fileName = "workspace-file.xlsx") {
-  const response = await fetchWithApiFallback(
+  return downloadAdminFile(
     `/admin/workspace-files/${encodeURIComponent(id)}/download`,
-    {},
-    configuredBase
+    fileName
   );
+}
+
+export async function fetchAdminShipmentFiles(options = {}) {
+  const params = new URLSearchParams();
+  params.set("page", String(Math.max(0, Number(options.page || 0))));
+  params.set("size", String(Math.max(1, Number(options.size || 200))));
+  if (options.shipmentId) params.set("shipmentId", options.shipmentId);
+  if (options.uploaderUserId) params.set("uploaderUserId", options.uploaderUserId);
+  if (options.includeDeleted != null) params.set("includeDeleted", String(Boolean(options.includeDeleted)));
+  return request(`/admin/shipment-files?${params.toString()}`);
+}
+
+export async function downloadAdminShipmentFile(id, fileName = "shipment-file") {
+  return downloadAdminFile(
+    `/admin/shipment-files/${encodeURIComponent(id)}/download`,
+    fileName
+  );
+}
+
+export async function deleteAdminShipmentFile(id) {
+  return request(`/admin/shipment-files/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+async function downloadAdminFile(path, fileName) {
+  const response = await fetchWithApiFallback(path, {}, configuredBase);
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");

@@ -74,6 +74,18 @@ $env:PLAYWRIGHT_HEADLESS="true"
 npm start
 ```
 
+Playwright work is globally capacity-limited per Node process so different shipment
+queries cannot create unbounded browser contexts. The network channel is not gated.
+The defaults allow two active browser contexts and eight queued requests; a full or
+expired queue returns HTTP `429` with `PLAYWRIGHT_BUSY` details.
+
+```powershell
+$env:PLAYWRIGHT_MAX_CONCURRENCY="2"
+$env:PLAYWRIGHT_QUEUE_LIMIT="8"
+$env:PLAYWRIGHT_QUEUE_TIMEOUT_MS="15000"
+npm start
+```
+
 也可以独立验证：
 
 ```powershell

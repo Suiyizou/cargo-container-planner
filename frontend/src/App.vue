@@ -25,6 +25,12 @@
     :current-user="currentUser"
     @logout="handleLogout"
   />
+  <BusinessCustomerPage
+    v-else-if="activePage === 'customers' && ['BUSINESS', 'ADMIN'].includes(currentUser?.role)"
+    key="customers"
+    :current-user="currentUser"
+    @logout="handleLogout"
+  />
   <div v-else class="app-shell" :class="{ 'is-page-leaving': pageLeaving }">
     <header class="topbar">
       <div class="brand">
@@ -751,6 +757,7 @@
         <div class="profile-hero">
           <div>
             <span class="profile-role-pill">{{ profileRoleText }}</span>
+            <span class="profile-role-pill profile-party-pill">{{ profilePartyRoleText }}</span>
             <h3>{{ ui("profile.welcomeUser", { name: userDisplayName }) }}</h3>
             <p>{{ ui("profile.description") }}</p>
           </div>
@@ -882,6 +889,7 @@ const HomePage = defineAsyncComponent(() => import("./components/HomePage.vue"))
 const LoginPage = defineAsyncComponent(() => import("./components/LoginPage.vue"));
 const PublicLandingPage = defineAsyncComponent(() => import("./components/PublicLandingPage.vue"));
 const WorkbenchPortal = defineAsyncComponent(() => import("./components/WorkbenchPortal.vue"));
+const BusinessCustomerPage = defineAsyncComponent(() => import("./components/BusinessCustomerPage.vue"));
 const CargoModal = defineAsyncComponent(() => import("./components/CargoModal.vue"));
 const ContainerModal = defineAsyncComponent(() => import("./components/ContainerModal.vue"));
 const ContainerReferencePage = defineAsyncComponent(() => import("./components/ContainerReferencePage.vue"));
@@ -969,7 +977,16 @@ const userDisplayName = computed(() => {
   return currentUser.value?.displayName || currentUser.value?.username || "操作员";
 });
 const profileInitial = computed(() => userDisplayName.value.slice(0, 1).toUpperCase());
-const profileRoleText = computed(() => ui(currentUser.value?.role === "ADMIN" ? "profile.role.admin" : "profile.role.employee"));
+const profileRoleText = computed(() => ui({
+  ADMIN: "profile.role.admin",
+  BUSINESS: "profile.role.business",
+  EMPLOYEE: "profile.role.employee"
+}[currentUser.value?.role] || "profile.role.employee"));
+const profilePartyRoleText = computed(() => t({
+  AGENT: "customers.roleAgent",
+  SHIPPER: "customers.roleShipper",
+  CONSIGNEE: "customers.roleConsignee"
+}[currentUser.value?.partyRole || (["BUSINESS", "ADMIN"].includes(currentUser.value?.role) ? "AGENT" : "SHIPPER")] || "customers.roleShipper"));
 const sessionExpiryText = computed(() => {
   const value = storedExpiresAt();
   if (!value) return "6 小时";
@@ -1229,6 +1246,9 @@ watch([workspaceReady, activePage, plannerMode, cargoTypeCount], () => {
 });
 watch([activePage, currentUser, authChecked], () => {
   if (authChecked.value && activePage.value === "admin" && currentUser.value?.role !== "ADMIN") {
+    router.replace("/workbenches");
+  }
+  if (authChecked.value && activePage.value === "customers" && !["BUSINESS", "ADMIN"].includes(currentUser.value?.role)) {
     router.replace("/workbenches");
   }
 });
