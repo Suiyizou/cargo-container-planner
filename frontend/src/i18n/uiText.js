@@ -199,8 +199,8 @@ const uiText = {
   },
   "algorithm.step.expand": { zh: "1. 货物展开", en: "1. Cargo Expansion" },
   "algorithm.step.expandText": {
-    zh: "系统先把每一类货物按数量展开为单件货物。全局货物间隙主要作为长宽方向的水平间隙；高度方向只叠加货物类型带来的必要余量，避免每层都虚增高度。",
-    en: "The system first expands each cargo type by quantity into single pieces. The global cargo gap is mainly used as horizontal length/width spacing; height only adds the cargo-type allowance, avoiding inflated height on every layer."
+    zh: "系统先把每一类货物按数量展开为单件货物。先确定货物朝向，再把全局货物间隙加到最终 X/Y 水平方向；Z 使用实际外廓高度，不用间隙虚增承重面。",
+    en: "The system first expands each cargo type by quantity into single pieces. It chooses the orientation first, then applies the global cargo gap to the final horizontal X/Y axes. Z keeps the physical outer height so clearance never becomes a false support surface."
   },
   "algorithm.step.sort": { zh: "2. 多策略排序", en: "2. Multi-strategy Ordering" },
   "algorithm.step.sortText": {

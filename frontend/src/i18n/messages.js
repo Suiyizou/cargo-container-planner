@@ -307,7 +307,13 @@ export const messages = {
       axisLarge: "大",
       loadBearing: "可承重",
       nonStackable: "不可重压",
-      keepUpright: "保持朝上"
+      keepUpright: "保持朝上",
+      clearanceEnvelope: "间隙占位包络",
+      physicalOuterSize: "实际外廓（当前朝向）",
+      reservedEnvelopeSize: "占位包络（含间距）",
+      horizontalGapDetail: "水平净距 {gap} cm（每侧 {side} cm）",
+      physicalCoordinates: "实物坐标",
+      reservedCoordinates: "占位坐标"
     },
     duration: {
       secondsShort: "{value} 秒",
@@ -816,7 +822,13 @@ export const messages = {
       axisLarge: "Large",
       loadBearing: "Load-bearing",
       nonStackable: "Non-stackable",
-      keepUpright: "Keep Upright"
+      keepUpright: "Keep Upright",
+      clearanceEnvelope: "Clearance Envelope",
+      physicalOuterSize: "Physical outer size (oriented)",
+      reservedEnvelopeSize: "Reserved envelope (with gap)",
+      horizontalGapDetail: "Horizontal net gap {gap} cm ({side} cm per side)",
+      physicalCoordinates: "Physical coordinates",
+      reservedCoordinates: "Envelope coordinates"
     },
     duration: {
       secondsShort: "{value}s",

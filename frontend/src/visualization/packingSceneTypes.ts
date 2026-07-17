@@ -20,6 +20,7 @@ export interface ContainerLike {
 export interface PlacementLike {
   id?: string;
   unitKey?: string;
+  parentUnitKey?: string;
   cargoId?: string;
   sku?: string;
   model?: string;
@@ -36,6 +37,17 @@ export interface PlacementLike {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
+  occupiedLengthCm?: number;
+  occupiedWidthCm?: number;
+  occupiedHeightCm?: number;
+  physicalLengthCm?: number;
+  physicalWidthCm?: number;
+  physicalHeightCm?: number;
+  physicalXCm?: number;
+  physicalYCm?: number;
+  physicalZCm?: number;
+  horizontalGapCm?: number;
+  clearancePerSideCm?: number;
   weightKg?: number;
   volumeM3?: number;
   geometryVolumeM3?: number;
@@ -48,6 +60,8 @@ export interface PlacementLike {
   xAxisBaseCm?: number;
   yAxisBaseCm?: number;
   zAxisBaseCm?: number;
+  orientationKey?: string;
+  groupRotated?: boolean;
 }
 
 export interface SceneCargo extends PlacementLike {
@@ -57,6 +71,15 @@ export interface SceneCargo extends PlacementLike {
   displayNo: string;
   color: string;
   quantity: number;
+  physicalLengthCm: number;
+  physicalWidthCm: number;
+  physicalHeightCm: number;
+  physicalXCm: number;
+  physicalYCm: number;
+  physicalZCm: number;
+  horizontalGapCm: number;
+  clearancePerSideCm: number;
+  hasClearance: boolean;
   center: { xCm: number; yCm: number; zCm: number };
   volumeM3: number;
 }
@@ -117,6 +140,7 @@ export interface SceneRenderOptions {
   showCenter: boolean;
   showShell: boolean;
   translucentCargo: boolean;
+  showClearanceEnvelope: boolean;
   showHeatmap: boolean;
   showRemaining: boolean;
   showMassBalance: boolean;

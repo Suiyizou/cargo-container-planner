@@ -26,6 +26,7 @@
             <el-checkbox v-model="showCenter">{{ tr("几何中心") }}</el-checkbox>
             <el-checkbox v-model="translucentCargo">{{ tr("半透明货物") }}</el-checkbox>
             <el-checkbox v-model="showHeatmap">{{ tr("重量热力") }}</el-checkbox>
+            <el-checkbox v-model="showClearanceEnvelope">{{ t("sceneOptions.clearanceEnvelope") }}</el-checkbox>
             <el-checkbox v-model="showAxes">{{ t("sceneOptions.showAxes") }}</el-checkbox>
             <div class="visual-option-control">
               <span>{{ t("sceneOptions.axisScale") }}</span>
@@ -71,7 +72,9 @@
         </div>
         <div v-if="tooltip.visible" class="scene-tooltip visual-tooltip" :style="{ left: `${tooltip.x}px`, top: `${tooltip.y}px` }">
           <strong>#{{ tooltip.item.displayNo }} {{ tooltip.item.name }}</strong>
-          <span>{{ tr("尺寸") }} {{ tooltip.item.lengthCm }} × {{ tooltip.item.widthCm }} × {{ tooltip.item.heightCm }} cm</span>
+          <span>{{ t("sceneOptions.physicalOuterSize") }} {{ formatDimension(tooltip.item.physicalLengthCm) }} × {{ formatDimension(tooltip.item.physicalWidthCm) }} × {{ formatDimension(tooltip.item.physicalHeightCm) }} cm</span>
+          <span v-if="tooltip.item.hasClearance">{{ t("sceneOptions.reservedEnvelopeSize") }} {{ formatDimension(tooltip.item.lengthCm) }} × {{ formatDimension(tooltip.item.widthCm) }} × {{ formatDimension(tooltip.item.heightCm) }} cm</span>
+          <span v-if="tooltip.item.horizontalGapCm > 0">{{ t("sceneOptions.horizontalGapDetail", { gap: formatDimension(tooltip.item.horizontalGapCm), side: formatDimension(tooltip.item.clearancePerSideCm) }) }}</span>
           <span>{{ tr("数量") }} {{ tooltip.item.quantity }} {{ tr("件") }} · {{ tr("重量") }} {{ formatWeight(tooltip.item.weightKg) }}</span>
           <span class="tooltip-constraint-tags">
             <el-tag
@@ -86,7 +89,8 @@
             </el-tag>
           </span>
           <span>{{ tr(tooltip.item.orientationLabel || tooltip.item.bottomFaceDetail || "按算法输出坐标摆放") }}</span>
-          <span>{{ tr("坐标") }} X{{ tooltip.item.xCm }} / Y{{ tooltip.item.yCm }} / Z{{ tooltip.item.zCm }} cm</span>
+          <span>{{ t("sceneOptions.physicalCoordinates") }} X{{ formatDimension(tooltip.item.physicalXCm) }} / Y{{ formatDimension(tooltip.item.physicalYCm) }} / Z{{ formatDimension(tooltip.item.physicalZCm) }} cm</span>
+          <span v-if="tooltip.item.hasClearance">{{ t("sceneOptions.reservedCoordinates") }} X{{ formatDimension(tooltip.item.xCm) }} / Y{{ formatDimension(tooltip.item.yCm) }} / Z{{ formatDimension(tooltip.item.zCm) }} cm</span>
         </div>
       </div>
 
@@ -253,7 +257,7 @@ import {
   Refresh,
   Setting
 } from "@element-plus/icons-vue";
-import { buildPackingSceneData, formatSigned, formatWeight } from "../visualization/packingSceneData";
+import { buildPackingSceneData, formatDimension, formatSigned, formatWeight } from "../visualization/packingSceneData";
 import { resolveBalanceState } from "../visualization/packingSceneBalance";
 import { PackingSceneRenderer } from "../visualization/packingSceneRenderer";
 import type { SceneCargo, SceneViewMode, SceneViewPreset, SliceAxis } from "../visualization/packingSceneTypes";
@@ -301,6 +305,7 @@ const showAxes = ref(true);
 const showGrid = ref(true);
 const showCenter = ref(true);
 const showShell = ref(true);
+const showClearanceEnvelope = ref(true);
 const translucentCargo = ref(false);
 const showHeatmap = ref(false);
 const axisScalePreset = ref<"small" | "normal" | "large">("normal");
@@ -372,6 +377,7 @@ const renderOptions = computed(() => ({
   showGrid: showGrid.value,
   showCenter: showCenter.value,
   showShell: showShell.value,
+  showClearanceEnvelope: showClearanceEnvelope.value,
   translucentCargo: translucentCargo.value,
   showHeatmap: showHeatmap.value && !sceneData.value.stats.performanceMode,
   showRemaining: props.showRemaining,

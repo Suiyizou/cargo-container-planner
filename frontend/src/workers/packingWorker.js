@@ -2,9 +2,9 @@ import { normalizeContainerHeightFields } from "../services/localData.js";
 
 const TYPE_RULES = {
   normal: { rotatable: true, nonStack: false, extraGapCm: 0 },
-  upright: { rotatable: false, nonStack: false, extraGapCm: 1 },
-  nonstack: { rotatable: true, nonStack: true, extraGapCm: 2 },
-  pallet: { rotatable: true, nonStack: false, extraGapCm: 3 }
+  upright: { rotatable: false, nonStack: false, extraGapCm: 0 },
+  nonstack: { rotatable: true, nonStack: true, extraGapCm: 0 },
+  pallet: { rotatable: true, nonStack: false, extraGapCm: 0 }
 };
 
 const COLORS = ["#2a9d8f", "#3b82f6", "#8b5cf6", "#f97316", "#e11d48", "#65a30d", "#0891b2", "#c026d3", "#ca8a04", "#475569"];
@@ -59,9 +59,11 @@ const RECOMMENDATION_BOX_WEIGHT = 110;
 const AXIS_LENGTH = "\u957f";
 const AXIS_WIDTH = "\u5bbd";
 const AXIS_HEIGHT = "\u9ad8";
+const LAYER_ROW_FILL_STRATEGY_ID = "layer-row-fill";
 
 const SEARCH_STRATEGIES = [
   { id: "laff-footprint", name: "LAFF 大底面积优先", unitOrder: "footprint", pointOrder: "low-wide", blueVertical: false },
+  { id: LAYER_ROW_FILL_STRATEGY_ID, name: "LAFF Single-Layer Row Fill", unitOrder: "footprint", pointOrder: "low-wide", blueVertical: false },
   { id: "laff-height", name: "LAFF 高度优先", unitOrder: "height", pointOrder: "low-wide", blueVertical: false },
   { id: "support-first", name: "普通承重货物优先", unitOrder: "support", pointOrder: "support", blueVertical: false },
   { id: "nonstack-last", name: "不可重压货物最后", unitOrder: "nonstack-last", pointOrder: "low-wide", blueVertical: false },
@@ -1007,7 +1009,7 @@ function cargoPackingRule(cargo = {}) {
     nonStack,
     keepUpright,
     rotatable: keepUpright ? true : baseRule.rotatable,
-    extraGapCm: Math.max(baseRule.extraGapCm, nonStack ? 2 : 0, keepUpright ? 1 : 0)
+    extraGapCm: baseRule.extraGapCm
   };
 }
 
@@ -1048,7 +1050,7 @@ function buildGroupedCargoUnits(cargo, cargoIndex, cargoId, rule, gap, globalGap
 function bestGroupLayout(cargo, rule, gap, container, maxCount) {
   const itemLength = Number(cargo.lengthCm) + gap;
   const itemWidth = Number(cargo.widthCm) + gap;
-  const itemHeight = Number(cargo.heightCm) + rule.extraGapCm;
+  const itemHeight = Number(cargo.heightCm);
   if (itemHeight > containerHeightLimit(container) + EPS) return null;
 
   let best = null;
@@ -1082,6 +1084,10 @@ function makeCargoUnit(cargo, cargoIndex, cargoId, itemIndex, groupQuantity, rul
   const baseLengthCm = Number(cargo.lengthCm) * cols;
   const baseWidthCm = Number(cargo.widthCm) * rows;
   const baseHeightCm = Number(cargo.heightCm);
+  const physicalLengthCm = baseLengthCm + gap * Math.max(0, cols - 1);
+  const physicalWidthCm = baseWidthCm + gap * Math.max(0, rows - 1);
+  const occupiedLengthCm = physicalLengthCm + gap;
+  const occupiedWidthCm = physicalWidthCm + gap;
   const unit = {
     unitKey: groupQuantity > 1 ? `${cargoId}-g${itemIndex}-x${groupQuantity}` : `${cargoId}-${itemIndex}`,
     cargoId,
@@ -1095,9 +1101,18 @@ function makeCargoUnit(cargo, cargoIndex, cargoId, itemIndex, groupQuantity, rul
     baseLengthCm,
     baseWidthCm,
     baseHeightCm,
-    lengthCm: (Number(cargo.lengthCm) + gap) * cols,
-    widthCm: (Number(cargo.widthCm) + gap) * rows,
-    heightCm: Number(cargo.heightCm) + rule.extraGapCm,
+    lengthCm: occupiedLengthCm,
+    widthCm: occupiedWidthCm,
+    heightCm: Number(cargo.heightCm),
+    physicalLengthCm,
+    physicalWidthCm,
+    physicalHeightCm: baseHeightCm,
+    canonicalPhysicalLengthCm: physicalLengthCm,
+    canonicalPhysicalWidthCm: physicalWidthCm,
+    canonicalPhysicalHeightCm: baseHeightCm,
+    canonicalOccupiedLengthCm: occupiedLengthCm,
+    canonicalOccupiedWidthCm: occupiedWidthCm,
+    canonicalOccupiedHeightCm: baseHeightCm,
     x: 0,
     y: 0,
     z: 0,
@@ -1107,14 +1122,15 @@ function makeCargoUnit(cargo, cargoIndex, cargoId, itemIndex, groupQuantity, rul
     keepUpright: rule.keepUpright,
     extraGapCm: rule.extraGapCm,
     globalGapCm,
-    verticalGapCm: rule.extraGapCm,
+    verticalGapCm: 0,
     gapCm: gap,
+    horizontalGapCm: gap,
     groupQuantity,
     groupCols: cols,
     groupRows: rows,
-    packedLengthCm: (Number(cargo.lengthCm) + gap) * cols,
-    packedWidthCm: (Number(cargo.widthCm) + gap) * rows,
-    packedHeightCm: Number(cargo.heightCm) + rule.extraGapCm,
+    packedLengthCm: occupiedLengthCm,
+    packedWidthCm: occupiedWidthCm,
+    packedHeightCm: Number(cargo.heightCm),
     volumeM3: Number(cargo.lengthCm) * Number(cargo.widthCm) * Number(cargo.heightCm) * groupQuantity / 1_000_000
   };
   unit.orientations = generateOrientations(unit);
@@ -1122,24 +1138,86 @@ function makeCargoUnit(cargo, cargoIndex, cargoId, itemIndex, groupQuantity, rul
 }
 
 function generateOrientations(unit, options = {}) {
+  const gap = Number(unit.gapCm || unit.horizontalGapCm || 0);
+  const grouped = unitQuantity(unit) > 1;
+  const cols = Math.max(1, Math.floor(Number(unit.groupCols || 1)));
+  const rows = Math.max(1, Math.floor(Number(unit.groupRows || 1)));
+  const singleLength = singleRawLengthCm(unit);
+  const singleWidth = singleRawWidthCm(unit);
+  const singleHeight = singleRawHeightCm(unit);
+  const rawLength = grouped
+    ? Number(unit.canonicalPhysicalLengthCm ?? (singleLength * cols + gap * Math.max(0, cols - 1)))
+    : singleLength;
+  const rawWidth = grouped
+    ? Number(unit.canonicalPhysicalWidthCm ?? (singleWidth * rows + gap * Math.max(0, rows - 1)))
+    : singleWidth;
+  const rawHeight = grouped
+    ? Number(unit.canonicalPhysicalHeightCm ?? singleHeight)
+    : singleHeight;
+  const canonicalOccupiedLengthCm = grouped
+    ? Number(unit.canonicalOccupiedLengthCm ?? unit.packedLengthCm ?? (rawLength + gap))
+    : rawLength + gap;
+  const canonicalOccupiedWidthCm = grouped
+    ? Number(unit.canonicalOccupiedWidthCm ?? unit.packedWidthCm ?? (rawWidth + gap))
+    : rawWidth + gap;
+  const make = (
+    physicalLengthCm,
+    physicalWidthCm,
+    physicalHeightCm,
+    lengthAxis,
+    widthAxis,
+    heightAxis,
+    occupiedLengthCm = physicalLengthCm + gap,
+    occupiedWidthCm = physicalWidthCm + gap
+  ) => {
+    const orientationKey = `${axisOrientationCode(lengthAxis)}${axisOrientationCode(widthAxis)}${axisOrientationCode(heightAxis)}`;
+    return {
+      lengthCm: occupiedLengthCm,
+      widthCm: occupiedWidthCm,
+      heightCm: physicalHeightCm,
+      physicalLengthCm,
+      physicalWidthCm,
+      physicalHeightCm,
+      lengthAxis,
+      widthAxis,
+      heightAxis,
+      orientationKey,
+      groupRotated: grouped && orientationKey === "WLH"
+    };
+  };
+
   const base = [
-    { lengthCm: unit.lengthCm, widthCm: unit.widthCm, heightCm: unit.heightCm, lengthAxis: "长", widthAxis: "宽", heightAxis: "高" }
+    make(
+      rawLength,
+      rawWidth,
+      rawHeight,
+      AXIS_LENGTH,
+      AXIS_WIDTH,
+      AXIS_HEIGHT,
+      canonicalOccupiedLengthCm,
+      canonicalOccupiedWidthCm
+    )
   ];
-  if (unit.keepUpright) {
+  if (unit.keepUpright || (grouped && unit.rotatable)) {
     base.push(
-      { lengthCm: unit.widthCm, widthCm: unit.lengthCm, heightCm: unit.heightCm, lengthAxis: "宽", widthAxis: "长", heightAxis: "高" }
-    );
-  } else if (unit.groupQuantity > 1 && unit.rotatable) {
-    base.push(
-      { lengthCm: unit.widthCm, widthCm: unit.lengthCm, heightCm: unit.heightCm, lengthAxis: "宽", widthAxis: "长", heightAxis: "高" }
+      make(
+        rawWidth,
+        rawLength,
+        rawHeight,
+        AXIS_WIDTH,
+        AXIS_LENGTH,
+        AXIS_HEIGHT,
+        canonicalOccupiedWidthCm,
+        canonicalOccupiedLengthCm
+      )
     );
   } else if (unit.rotatable) {
     base.push(
-      { lengthCm: unit.widthCm, widthCm: unit.lengthCm, heightCm: unit.heightCm, lengthAxis: "宽", widthAxis: "长", heightAxis: "高" },
-      { lengthCm: unit.lengthCm, widthCm: unit.heightCm, heightCm: unit.widthCm, lengthAxis: "长", widthAxis: "高", heightAxis: "宽" },
-      { lengthCm: unit.heightCm, widthCm: unit.lengthCm, heightCm: unit.widthCm, lengthAxis: "高", widthAxis: "长", heightAxis: "宽" },
-      { lengthCm: unit.widthCm, widthCm: unit.heightCm, heightCm: unit.lengthCm, lengthAxis: "宽", widthAxis: "高", heightAxis: "长" },
-      { lengthCm: unit.heightCm, widthCm: unit.widthCm, heightCm: unit.lengthCm, lengthAxis: "高", widthAxis: "宽", heightAxis: "长" }
+      make(rawWidth, rawLength, rawHeight, AXIS_WIDTH, AXIS_LENGTH, AXIS_HEIGHT),
+      make(rawLength, rawHeight, rawWidth, AXIS_LENGTH, AXIS_HEIGHT, AXIS_WIDTH),
+      make(rawHeight, rawLength, rawWidth, AXIS_HEIGHT, AXIS_LENGTH, AXIS_WIDTH),
+      make(rawWidth, rawHeight, rawLength, AXIS_WIDTH, AXIS_HEIGHT, AXIS_LENGTH),
+      make(rawHeight, rawWidth, rawLength, AXIS_HEIGHT, AXIS_WIDTH, AXIS_LENGTH)
     );
   }
 
@@ -1160,6 +1238,13 @@ function generateOrientations(unit, options = {}) {
     if (Math.abs(areaDiff) > EPS) return areaDiff;
     return a.heightCm - b.heightCm;
   });
+}
+
+function axisOrientationCode(axis) {
+  if (axis === AXIS_LENGTH) return "L";
+  if (axis === AXIS_WIDTH) return "W";
+  if (axis === AXIS_HEIGHT) return "H";
+  return "?";
 }
 
 function packContainer(container, units) {
@@ -1193,7 +1278,10 @@ function packContainer(container, units) {
       level: "summary",
       text: `${container.name} · base strategy "${strategy.id}" placed ${sumUnitQuantity(attempt.placed)} pcs, remaining ${sumUnitQuantity(attempt.unplaced)} pcs, ${attempt.strategySummary?.layerCount || 0} layers, balance ${balanceDecisionText(attempt.balanceValidation)}.`
     });
-    if (!attempt.unplaced.length && attempt.balanceValidation?.severity !== "red") break;
+    const rowFillAttempted = SEARCH_STRATEGIES
+      .slice(0, strategyIndex + 1)
+      .some((candidate) => usesLayerRowFill(candidate));
+    if (!attempt.unplaced.length && attempt.balanceValidation?.severity !== "red" && rowFillAttempted) break;
   }
 
   const baseBest = selectBestAttempt(container, baseAttempts);
@@ -1461,7 +1549,7 @@ function packLayerLaffCore(container, units, strategy, fixedPlaced = []) {
     let changed = true;
     while (changed) {
       changed = false;
-      const layerCandidates = orderLayerCandidates(active, layerBottom, layerTop, strategy);
+      const layerCandidates = orderLayerCandidates(active, layerBottom, layerTop, strategy, placedSeed);
       for (const unit of layerCandidates) {
         const index = active.findIndex((item) => item.unitKey === unit.unitKey);
         if (index < 0) continue;
@@ -1891,9 +1979,11 @@ function makeDerivedGroupUnit(source, count, container, serial) {
   const rawLength = singleRawLengthCm(source);
   const rawWidth = singleRawWidthCm(source);
   const rawHeight = singleRawHeightCm(source);
-  const heightCm = rawHeight + Number(source.verticalGapCm || source.extraGapCm || 0);
+  const heightCm = rawHeight;
   const lengthCm = (rawLength + gap) * layout.cols;
   const widthCm = (rawWidth + gap) * layout.rows;
+  const physicalLengthCm = rawLength * layout.cols + gap * Math.max(0, layout.cols - 1);
+  const physicalWidthCm = rawWidth * layout.rows + gap * Math.max(0, layout.rows - 1);
   const unit = {
     ...stripPlacement(source),
     unitKey: `${source.unitKey}-d${quantity}-${serial}`,
@@ -1905,6 +1995,15 @@ function makeDerivedGroupUnit(source, count, container, serial) {
     lengthCm,
     widthCm,
     heightCm,
+    physicalLengthCm,
+    physicalWidthCm,
+    physicalHeightCm: rawHeight,
+    canonicalPhysicalLengthCm: physicalLengthCm,
+    canonicalPhysicalWidthCm: physicalWidthCm,
+    canonicalPhysicalHeightCm: rawHeight,
+    canonicalOccupiedLengthCm: lengthCm,
+    canonicalOccupiedWidthCm: widthCm,
+    canonicalOccupiedHeightCm: rawHeight,
     packedLengthCm: lengthCm,
     packedWidthCm: widthCm,
     packedHeightCm: heightCm,
@@ -1923,7 +2022,7 @@ function bestDerivedGroupLayout(source, count, container) {
   const gap = Number(source.gapCm || 0);
   const itemLength = singleRawLengthCm(source) + gap;
   const itemWidth = singleRawWidthCm(source) + gap;
-  const itemHeight = singleRawHeightCm(source) + Number(source.verticalGapCm || source.extraGapCm || 0);
+  const itemHeight = singleRawHeightCm(source);
   if (itemHeight > containerHeightLimit(container) + EPS) return null;
   if (quantity <= 1) {
     return flatBlockFits(container, itemLength, itemWidth, itemHeight, source.rotatable)
@@ -2981,10 +3080,9 @@ function mixedEdgeOrientationLayers(container, placed) {
     const rawWidth = singleRawWidthCm(unit);
     const rawHeight = singleRawHeightCm(unit);
     const gap = Number(unit.gapCm || 0);
-    const verticalGap = Number(unit.verticalGapCm || unit.extraGapCm || 0);
     const normalLength = rawLength + gap;
     const normalWidth = rawWidth + gap;
-    const height = rawHeight + verticalGap;
+    const height = rawHeight;
     const rotatedLength = normalWidth;
     const rotatedWidth = normalLength;
     if (Math.abs(normalLength - normalWidth) < EPS) continue;
@@ -2997,7 +3095,6 @@ function mixedEdgeOrientationLayers(container, placed) {
       round3(rawWidth),
       round3(rawHeight),
       round3(gap),
-      round3(verticalGap),
       round3(unit.z)
     ].join("/");
     if (!groups.has(key)) {
@@ -3514,21 +3611,20 @@ function clamp(value, min, max) {
 
 function pickLayerSeedIndex(units, container, placed, strategy, options = {}) {
   let bestStackable = -1;
-  let bestStackableScore = Infinity;
+  let bestStackableScore = null;
   let bestNonStack = -1;
-  let bestNonStackScore = Infinity;
+  let bestNonStackScore = null;
   for (let i = 0; i < units.length; i += 1) {
     const unit = units[i];
     const placement = packExtremePoint(container, placed, unit, strategy, options);
     if (!placement) continue;
-    const area = placement.lengthCm * placement.widthCm;
-    const score = placement.z * 1_000_000 - area * 100 - placement.heightCm;
+    const score = layerSeedScore(units, unit, placement, container, strategy);
     if (unit.nonStack) {
-      if (score < bestNonStackScore) {
+      if (!bestNonStackScore || compareLayerSeedScore(score, bestNonStackScore, strategy) < 0) {
         bestNonStack = i;
         bestNonStackScore = score;
       }
-    } else if (score < bestStackableScore) {
+    } else if (!bestStackableScore || compareLayerSeedScore(score, bestStackableScore, strategy) < 0) {
       bestStackable = i;
       bestStackableScore = score;
     }
@@ -3536,9 +3632,48 @@ function pickLayerSeedIndex(units, container, placed, strategy, options = {}) {
   return bestStackable >= 0 ? bestStackable : bestNonStack;
 }
 
-function orderLayerCandidates(units, layerBottom, layerTop, strategy) {
+function layerSeedScore(units, unit, placement, container, strategy) {
+  const area = placement.lengthCm * placement.widthCm;
+  const score = {
+    z: Number(placement.z || 0),
+    area,
+    heightCm: Number(placement.heightCm || 0),
+    rowArea: area,
+    rowCount: unitQuantity(unit),
+    xFill: Number(placement.lengthCm || 0) / Math.max(1, Number(container.lengthCm || 0)),
+    yFill: Number(placement.widthCm || 0) / Math.max(1, Number(container.widthCm || 0))
+  };
+  if (!usesLayerRowFill(strategy)) return score;
+
+  const availableBlocks = units.filter((candidate) => sameLayerRowUnit(candidate, unit)).length;
+  const rowCapacity = Math.max(1, Math.floor((Number(container.lengthCm || 0) + EPS) / Math.max(EPS, Number(placement.lengthCm || 0))));
+  const rowBlocks = Math.min(availableBlocks, rowCapacity);
+  score.rowArea = rowBlocks * area;
+  score.rowCount = rowBlocks * unitQuantity(unit);
+  score.xFill = rowBlocks * Number(placement.lengthCm || 0) / Math.max(1, Number(container.lengthCm || 0));
+  return score;
+}
+
+function compareLayerSeedScore(a, b, strategy) {
+  if (Math.abs(a.z - b.z) > EPS) return a.z - b.z;
+  if (usesLayerRowFill(strategy)) {
+    if (Math.abs(a.rowArea - b.rowArea) > EPS) return b.rowArea - a.rowArea;
+    if (a.rowCount !== b.rowCount) return b.rowCount - a.rowCount;
+    if (Math.abs(a.xFill - b.xFill) > EPS) return b.xFill - a.xFill;
+    if (Math.abs(a.yFill - b.yFill) > EPS) return b.yFill - a.yFill;
+  }
+  if (Math.abs(a.area - b.area) > EPS) return b.area - a.area;
+  return b.heightCm - a.heightCm;
+}
+
+function orderLayerCandidates(units, layerBottom, layerTop, strategy, layerSeed = null) {
   return [...units].sort((a, b) => {
     if (a.nonStack !== b.nonStack) return a.nonStack ? 1 : -1;
+    if (usesLayerRowFill(strategy) && layerSeed) {
+      const aMatchesSeed = sameLayerRowUnit(a, layerSeed);
+      const bMatchesSeed = sameLayerRowUnit(b, layerSeed);
+      if (aMatchesSeed !== bMatchesSeed) return aMatchesSeed ? -1 : 1;
+    }
     if (layerTop == null || !Number.isFinite(Number(layerTop))) {
       return orderUnits([a, b], strategy.unitOrder)[0].unitKey === a.unitKey ? -1 : 1;
     }
@@ -3547,6 +3682,20 @@ function orderLayerCandidates(units, layerBottom, layerTop, strategy) {
     if (aCanShare !== bCanShare) return aCanShare ? -1 : 1;
     return orderUnits([a, b], strategy.unitOrder)[0].unitKey === a.unitKey ? -1 : 1;
   });
+}
+
+function usesLayerRowFill(strategy) {
+  return strategy?.id === LAYER_ROW_FILL_STRATEGY_ID;
+}
+
+function sameLayerRowUnit(a, b) {
+  return sameRepackCargo(a, b)
+    && unitQuantity(a) === unitQuantity(b)
+    && Number(a.groupCols || 1) === Number(b.groupCols || 1)
+    && Number(a.groupRows || 1) === Number(b.groupRows || 1)
+    && Math.abs(Number(a.packedLengthCm || a.lengthCm || 0) - Number(b.packedLengthCm || b.lengthCm || 0)) < EPS
+    && Math.abs(Number(a.packedWidthCm || a.widthCm || 0) - Number(b.packedWidthCm || b.widthCm || 0)) < EPS
+    && Math.abs(Number(a.packedHeightCm || a.heightCm || 0) - Number(b.packedHeightCm || b.heightCm || 0)) < EPS;
 }
 
 function extremePoints(container, placed, dims, options = {}) {
@@ -3671,29 +3820,44 @@ function addDenseEdgeIntersections(container, placed, dims, zs, add) {
 }
 
 function hasSupport(placement, placed, supportRatio = DEFAULT_SUPPORT_RATIO) {
-  if (placement.z <= EPS) return true;
+  const physicalPlacement = physicalPlacementBox(placement);
+  if (physicalPlacement.z <= EPS) return true;
   const requiredRatio = clampNumber(supportRatio, 0.1, 1, DEFAULT_SUPPORT_RATIO);
-  const target = { x: placement.x, y: placement.y, lengthCm: placement.lengthCm, widthCm: placement.widthCm };
-  const supports = placed
-    .filter((box) => !box.nonStack && Math.abs(box.z + box.heightCm - placement.z) < EPS)
-    .map((box) => overlapRect(target, { x: box.x, y: box.y, lengthCm: box.lengthCm, widthCm: box.widthCm }))
-    .filter(Boolean);
-  if (!supports.length) return false;
-  const footprint = placement.lengthCm * placement.widthCm;
-  if (unionArea(supports) + EPS < footprint * requiredRatio) return false;
-  return hasDistributedSupport(target, supports, requiredRatio);
+  const targets = physicalFootprintRects(placement);
+  const supportRects = placed
+    .filter((box) => {
+      if (box.nonStack) return false;
+      const physicalBox = physicalPlacementBox(box);
+      return Math.abs(physicalBox.z + physicalBox.heightCm - physicalPlacement.z) < EPS;
+    })
+    .flatMap((box) => physicalFootprintRects(box));
+  if (!supportRects.length) return false;
+  return targets.every((target) => {
+    const overlaps = supportRects.map((support) => overlapRect(target, support)).filter(Boolean);
+    const footprint = target.lengthCm * target.widthCm;
+    if (unionArea(overlaps) + EPS < footprint * requiredRatio) return false;
+    return hasDistributedSupport(target, overlaps, requiredRatio);
+  });
 }
 
 function supportCoverageRatio(placement, placed) {
-  if (placement.z <= EPS) return 1;
-  const target = { x: placement.x, y: placement.y, lengthCm: placement.lengthCm, widthCm: placement.widthCm };
-  const supports = placed
-    .filter((box) => !box.nonStack && Math.abs(box.z + box.heightCm - placement.z) < EPS)
-    .map((box) => overlapRect(target, { x: box.x, y: box.y, lengthCm: box.lengthCm, widthCm: box.widthCm }))
-    .filter(Boolean);
-  const footprint = placement.lengthCm * placement.widthCm;
-  if (!supports.length || footprint <= EPS) return 0;
-  return clampNumber(unionArea(supports) / footprint, 0, 1, 0);
+  const physicalPlacement = physicalPlacementBox(placement);
+  if (physicalPlacement.z <= EPS) return 1;
+  const targets = physicalFootprintRects(placement);
+  const supportRects = placed
+    .filter((box) => {
+      if (box.nonStack) return false;
+      const physicalBox = physicalPlacementBox(box);
+      return Math.abs(physicalBox.z + physicalBox.heightCm - physicalPlacement.z) < EPS;
+    })
+    .flatMap((box) => physicalFootprintRects(box));
+  const footprint = targets.reduce((sum, target) => sum + target.lengthCm * target.widthCm, 0);
+  if (!supportRects.length || footprint <= EPS) return 0;
+  const supportedArea = targets.reduce((sum, target) => {
+    const overlaps = supportRects.map((support) => overlapRect(target, support)).filter(Boolean);
+    return sum + unionArea(overlaps);
+  }, 0);
+  return clampNumber(supportedArea / footprint, 0, 1, 0);
 }
 
 function hasDistributedSupport(target, supports, requiredRatio) {
@@ -3901,15 +4065,7 @@ function withBalanceValidation(container, attempt, rejectedByBalance = 0) {
 
 function projectedBalancePenalty(container, placed, unit, placement) {
   if (isProjectedBalanceExempt(container, placed, unit)) return 0;
-  const candidate = {
-    ...unit,
-    x: placement.x,
-    y: placement.y,
-    z: placement.z,
-    lengthCm: placement.lengthCm,
-    widthCm: placement.widthCm,
-    heightCm: placement.heightCm
-  };
+  const candidate = applyPlacement(unit, placement);
   const validation = validateWeightBalance(container, [...placed, candidate]);
   const rules = balanceRuleSettings(container);
   const isEarlySpread = placed.length < Math.min(3, BALANCE_ZONE_ORDER.length - 1);
@@ -4326,21 +4482,27 @@ function applyPlacement(unit, placement) {
     lengthCm: placement.lengthCm,
     widthCm: placement.widthCm,
     heightCm: placement.heightCm,
+    physicalLengthCm: placement.physicalLengthCm,
+    physicalWidthCm: placement.physicalWidthCm,
+    physicalHeightCm: placement.physicalHeightCm,
     lengthAxis: placement.lengthAxis,
     widthAxis: placement.widthAxis,
-    heightAxis: placement.heightAxis
+    heightAxis: placement.heightAxis,
+    orientationKey: placement.orientationKey,
+    groupRotated: Boolean(placement.groupRotated)
   };
 }
 
 function stripPlacement(unit) {
   const copy = { ...unit, x: 0, y: 0, z: 0 };
-  copy.lengthCm = Number(copy.packedLengthCm || (Number(copy.baseLengthCm) + Number(copy.gapCm || 0)));
-  copy.widthCm = Number(copy.packedWidthCm || (Number(copy.baseWidthCm) + Number(copy.gapCm || 0)));
-  copy.heightCm = Number(copy.packedHeightCm || (Number(copy.baseHeightCm) + Number(copy.verticalGapCm || 0)));
-  copy.lengthAxis = "长";
-  copy.widthAxis = "宽";
-  copy.heightAxis = "高";
-  copy.orientations = generateOrientations(copy);
+  const orientations = generateOrientations(copy);
+  const base = orientations.find((item) =>
+    item.lengthAxis === AXIS_LENGTH
+    && item.widthAxis === AXIS_WIDTH
+    && item.heightAxis === AXIS_HEIGHT
+  ) || orientations[0];
+  if (base) Object.assign(copy, base);
+  copy.orientations = orientations;
   return copy;
 }
 
@@ -4370,6 +4532,63 @@ function intersects(a, b) {
   return a.x < b.x + b.lengthCm - EPS && a.x + a.lengthCm > b.x + EPS
     && a.y < b.y + b.widthCm - EPS && a.y + a.widthCm > b.y + EPS
     && a.z < b.z + b.heightCm - EPS && a.z + a.heightCm > b.z + EPS;
+}
+
+function physicalPlacementBox(unit = {}) {
+  const occupiedLengthCm = Math.max(0, Number(unit.lengthCm || 0));
+  const occupiedWidthCm = Math.max(0, Number(unit.widthCm || 0));
+  const occupiedHeightCm = Math.max(0, Number(unit.heightCm || 0));
+  const lengthCm = Math.min(
+    occupiedLengthCm || Number.MAX_SAFE_INTEGER,
+    Math.max(0, Number(unit.physicalLengthCm || axisBaseCm(unit, unit.lengthAxis) || occupiedLengthCm))
+  );
+  const widthCm = Math.min(
+    occupiedWidthCm || Number.MAX_SAFE_INTEGER,
+    Math.max(0, Number(unit.physicalWidthCm || axisBaseCm(unit, unit.widthAxis) || occupiedWidthCm))
+  );
+  const heightCm = Math.min(
+    occupiedHeightCm || Number.MAX_SAFE_INTEGER,
+    Math.max(0, Number(unit.physicalHeightCm || axisBaseCm(unit, unit.heightAxis) || occupiedHeightCm))
+  );
+  return {
+    x: Number(unit.x || 0) + Math.max(0, occupiedLengthCm - lengthCm) / 2,
+    y: Number(unit.y || 0) + Math.max(0, occupiedWidthCm - widthCm) / 2,
+    z: Number(unit.z || 0),
+    lengthCm,
+    widthCm,
+    heightCm
+  };
+}
+
+function physicalFootprintRects(unit = {}) {
+  const quantity = unitQuantity(unit);
+  if (quantity <= 1) {
+    const physical = physicalPlacementBox(unit);
+    return [{ x: physical.x, y: physical.y, lengthCm: physical.lengthCm, widthCm: physical.widthCm }];
+  }
+
+  const cols = Math.max(1, Math.floor(Number(unit.groupCols || quantity)));
+  const rows = Math.max(1, Math.floor(Number(unit.groupRows || Math.ceil(quantity / cols))));
+  const rawLength = singleRawLengthCm(unit);
+  const rawWidth = singleRawWidthCm(unit);
+  const gap = Number(unit.gapCm || 0);
+  const stepLength = rawLength + gap;
+  const stepWidth = rawWidth + gap;
+  const rotated = Boolean(unit.groupRotated);
+  const rects = [];
+  for (let i = 0; i < quantity; i += 1) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const cellX = Number(unit.x || 0) + (rotated ? row * stepWidth : col * stepLength);
+    const cellY = Number(unit.y || 0) + (rotated ? col * stepLength : row * stepWidth);
+    rects.push({
+      x: cellX + gap / 2,
+      y: cellY + gap / 2,
+      lengthCm: rotated ? rawWidth : rawLength,
+      widthCm: rotated ? rawLength : rawWidth
+    });
+  }
+  return rects;
 }
 
 function overlapRect(a, b) {
@@ -4479,7 +4698,7 @@ function singleRawWidthCm(unit) {
 function singleRawHeightCm(unit) {
   const value = Number(unit?.baseHeightCm || 0);
   if (Number.isFinite(value) && value > 0) return value;
-  return Math.max(0, Number(unit?.packedHeightCm || unit?.heightCm || 0) - Number(unit?.verticalGapCm || unit?.extraGapCm || 0));
+  return Math.max(0, Number(unit?.packedHeightCm || unit?.heightCm || 0));
 }
 
 function singleWeightKg(unit) {
@@ -4877,8 +5096,8 @@ function buildTrace(container, units, total, multi, metrics) {
     },
     formulas: [
       "单件原始体积(m3) = 长 x 宽 x 高 / 1,000,000",
-      "计入间隙长/宽(cm) = 原始长/宽 + 全局货物间隙 + 类型额外间隙",
-      "计入高度(cm) = 原始高度 + 类型额外高度余量",
+      "\u5360\u4f4d\u957f/\u5bbd(cm) = \u65cb\u8f6c\u540e\u7684\u5b9e\u9645 X/Y + \u5168\u5c40\u8d27\u7269\u95f4\u9699",
+      "\u5360\u4f4d\u9ad8\u5ea6(cm) = \u65cb\u8f6c\u540e\u7684\u5b9e\u9645 Z\uff1b\u6c34\u5e73\u95f4\u9699\u4e0d\u8ba1\u5165\u9ad8\u5ea6",
       `Stackable support rule = lower stackable overlap area / current footprint >= ${round(supportRules.supportRatio * 100)}%, plus center/corner sample points and quadrant distribution`,
       `Non-stack support rule = lower stackable overlap area / current footprint >= ${round(effectiveNonStackSupport * 100)}%, plus center/corner sample points and quadrant distribution`,
       "不可重压货物可以放在可承重货物上方，但不能作为上层货物的支撑面"
@@ -4945,14 +5164,10 @@ function expandGroupedPlacement(unit) {
   const rawWidth = singleRawWidthCm(unit);
   const rawHeight = singleRawHeightCm(unit);
   const gap = Number(unit.gapCm || 0);
-  const verticalGap = Number(unit.verticalGapCm || unit.extraGapCm || 0);
   const stepLength = rawLength + gap;
   const stepWidth = rawWidth + gap;
-  const pieceHeight = rawHeight + verticalGap;
-  const normalBlockLength = stepLength * cols;
-  const normalBlockWidth = stepWidth * rows;
-  const rotated = Math.abs(Number(unit.lengthCm || 0) - normalBlockWidth) < EPS
-    && Math.abs(Number(unit.widthCm || 0) - normalBlockLength) < EPS;
+  const pieceHeight = rawHeight;
+  const rotated = Boolean(unit.groupRotated);
   const pieces = [];
 
   for (let i = 0; i < quantity; i += 1) {
@@ -4976,6 +5191,15 @@ function expandGroupedPlacement(unit) {
       lengthCm,
       widthCm,
       heightCm: pieceHeight,
+      physicalLengthCm: rotated ? rawWidth : rawLength,
+      physicalWidthCm: rotated ? rawLength : rawWidth,
+      physicalHeightCm: rawHeight,
+      canonicalPhysicalLengthCm: rawLength,
+      canonicalPhysicalWidthCm: rawWidth,
+      canonicalPhysicalHeightCm: rawHeight,
+      canonicalOccupiedLengthCm: stepLength,
+      canonicalOccupiedWidthCm: stepWidth,
+      canonicalOccupiedHeightCm: rawHeight,
       packedLengthCm: lengthCm,
       packedWidthCm: widthCm,
       packedHeightCm: pieceHeight,
@@ -4986,7 +5210,9 @@ function expandGroupedPlacement(unit) {
       groupRows: 1,
       lengthAxis: rotated ? AXIS_WIDTH : AXIS_LENGTH,
       widthAxis: rotated ? AXIS_LENGTH : AXIS_WIDTH,
-      heightAxis: AXIS_HEIGHT
+      heightAxis: AXIS_HEIGHT,
+      orientationKey: rotated ? "WLH" : "LWH",
+      groupRotated: rotated
     };
     piece.orientations = generateOrientations(piece);
     pieces.push(piece);
@@ -4998,8 +5224,10 @@ function expandGroupedPlacement(unit) {
 function toPlacementDto(unit) {
   const axisInfo = placementAxisInfo(unit);
   const { xAxis, yAxis, zAxis, xAxisBaseCm, yAxisBaseCm, zAxisBaseCm } = axisInfo;
+  const physical = physicalPlacementBox(unit);
   return {
     unitKey: unit.unitKey,
+    parentUnitKey: unit.parentUnitKey || "",
     cargoId: unit.cargoId,
     name: unit.name,
     baseName: unit.baseName || unit.name,
@@ -5012,6 +5240,12 @@ function toPlacementDto(unit) {
     lengthCm: round(unit.lengthCm),
     widthCm: round(unit.widthCm),
     heightCm: round(unit.heightCm),
+    occupiedLengthCm: round(unit.lengthCm),
+    occupiedWidthCm: round(unit.widthCm),
+    occupiedHeightCm: round(unit.heightCm),
+    physicalLengthCm: round(physical.lengthCm),
+    physicalWidthCm: round(physical.widthCm),
+    physicalHeightCm: round(physical.heightCm),
     xAxis,
     yAxis,
     zAxis,
@@ -5025,53 +5259,38 @@ function toPlacementDto(unit) {
     xCm: round(unit.x),
     yCm: round(unit.y),
     zCm: round(unit.z),
+    physicalXCm: round(physical.x),
+    physicalYCm: round(physical.y),
+    physicalZCm: round(physical.z),
+    globalGapCm: round(unit.globalGapCm),
+    typeExtraGapCm: round(unit.extraGapCm),
+    horizontalGapCm: round(unit.gapCm),
+    clearancePerSideCm: round(Number(unit.gapCm || 0) / 2),
     weightKg: round(unit.weightKg),
     volumeM3: round(cargoVolumeM3(unit)),
     geometryVolumeM3: round(occupiedVolumeM3(unit)),
     groupQuantity: unitQuantity(unit),
     groupCols: Number(unit.groupCols || 1),
     groupRows: Number(unit.groupRows || 1),
+    orientationKey: unit.orientationKey || `${axisOrientationCode(xAxis)}${axisOrientationCode(yAxis)}${axisOrientationCode(zAxis)}`,
+    groupRotated: Boolean(unit.groupRotated),
     nonStack: unit.nonStack,
     keepUpright: Boolean(unit.keepUpright)
   };
 }
 
 function placementAxisInfo(unit) {
-  const used = new Set();
-  const x = axisInfoForDimension(unit, Number(unit.lengthCm || 0), unit.lengthAxis, used);
-  const y = axisInfoForDimension(unit, Number(unit.widthCm || 0), unit.widthAxis, used);
-  const z = axisInfoForDimension(unit, Number(unit.heightCm || 0), unit.heightAxis, used);
+  const xAxis = unit.lengthAxis || AXIS_LENGTH;
+  const yAxis = unit.widthAxis || AXIS_WIDTH;
+  const zAxis = unit.heightAxis || AXIS_HEIGHT;
   return {
-    xAxis: x.axis,
-    yAxis: y.axis,
-    zAxis: z.axis,
-    xAxisBaseCm: x.baseCm,
-    yAxisBaseCm: y.baseCm,
-    zAxisBaseCm: z.baseCm
+    xAxis,
+    yAxis,
+    zAxis,
+    xAxisBaseCm: Number(unit.physicalLengthCm || axisBaseCm(unit, xAxis)),
+    yAxisBaseCm: Number(unit.physicalWidthCm || axisBaseCm(unit, yAxis)),
+    zAxisBaseCm: Number(unit.physicalHeightCm || axisBaseCm(unit, zAxis))
   };
-}
-
-function axisInfoForDimension(unit, dimensionCm, fallbackAxis, used) {
-  const gap = Number(unit.gapCm || 0);
-  const verticalGap = Number(unit.verticalGapCm || unit.extraGapCm || 0);
-  const candidates = [
-    { axis: AXIS_LENGTH, baseCm: Number(unit.baseLengthCm || 0), packedCm: Number(unit.baseLengthCm || 0) + gap },
-    { axis: AXIS_WIDTH, baseCm: Number(unit.baseWidthCm || 0), packedCm: Number(unit.baseWidthCm || 0) + gap },
-    { axis: AXIS_HEIGHT, baseCm: Number(unit.baseHeightCm || 0), packedCm: Number(unit.baseHeightCm || 0) + verticalGap }
-  ].filter((candidate) => candidate.baseCm > 0 && !used.has(candidate.axis));
-
-  const byPacked = candidates.find((candidate) => Math.abs(candidate.packedCm - dimensionCm) < 0.05);
-  const byBase = candidates.find((candidate) => Math.abs(candidate.baseCm - dimensionCm) < 0.05);
-  const best = byPacked || byBase || candidates
-    .slice()
-    .sort((a, b) => Math.abs(a.packedCm - dimensionCm) - Math.abs(b.packedCm - dimensionCm))[0];
-  if (best) {
-    used.add(best.axis);
-    return best;
-  }
-
-  const axis = fallbackAxis || AXIS_LENGTH;
-  return { axis, baseCm: axisBaseCm(unit, axis) };
 }
 
 function axisBaseCm(unit, axis) {
@@ -5204,6 +5423,62 @@ function balanceDecisionText(validation) {
   if (validation.severity === "yellow") return "黄色预警";
   if (validation.severity === "red") return "红色拦截";
   return validation.severity || "未知";
+}
+
+export function __testGroupedOrientationRoundTrip(config = {}) {
+  const lengthCm = Number(config.lengthCm || 70);
+  const widthCm = Number(config.widthCm || 40);
+  const heightCm = Number(config.heightCm || 10);
+  const cols = Math.max(1, Math.floor(Number(config.cols || 2)));
+  const rows = Math.max(1, Math.floor(Number(config.rows || 2)));
+  const gapCm = Math.max(0, Number(config.gapCm || 0));
+  const rounds = Math.max(1, Math.floor(Number(config.rounds || 2)));
+  const useRotated = config.rotated !== false;
+  const quantity = cols * rows;
+  let current = makeCargoUnit(
+    { name: "group-test", lengthCm, widthCm, heightCm, quantity, weightKg: 1, type: "normal" },
+    0,
+    "group-test",
+    0,
+    quantity,
+    { rotatable: true, nonStack: false, keepUpright: false, extraGapCm: 0 },
+    gapCm,
+    gapCm,
+    { count: quantity, cols, rows }
+  );
+  const states = [];
+  const snapshot = (orientation) => orientation ? {
+    lengthCm: orientation.lengthCm,
+    widthCm: orientation.widthCm,
+    heightCm: orientation.heightCm,
+    physicalLengthCm: orientation.physicalLengthCm,
+    physicalWidthCm: orientation.physicalWidthCm,
+    physicalHeightCm: orientation.physicalHeightCm,
+    orientationKey: orientation.orientationKey,
+    groupRotated: Boolean(orientation.groupRotated)
+  } : null;
+
+  for (let roundIndex = 0; roundIndex < rounds; roundIndex += 1) {
+    const normalized = stripPlacement(current);
+    const orientations = generateOrientations(normalized);
+    const base = orientations.find((orientation) => !orientation.groupRotated) || null;
+    const rotated = orientations.find((orientation) => orientation.groupRotated) || null;
+    const selected = useRotated ? rotated : base;
+    if (!selected) throw new Error("Requested grouped orientation is unavailable");
+    current = applyPlacement(normalized, { ...selected, x: 0, y: 0, z: 0 });
+    states.push({
+      round: roundIndex + 1,
+      canonicalPhysicalLengthCm: current.canonicalPhysicalLengthCm,
+      canonicalPhysicalWidthCm: current.canonicalPhysicalWidthCm,
+      canonicalOccupiedLengthCm: current.canonicalOccupiedLengthCm,
+      canonicalOccupiedWidthCm: current.canonicalOccupiedWidthCm,
+      base: snapshot(base),
+      rotated: snapshot(rotated),
+      selected: snapshot(current),
+      footprints: physicalFootprintRects(current).map((rect) => ({ ...rect }))
+    });
+  }
+  return states;
 }
 
 function unitQuantity(unit) {

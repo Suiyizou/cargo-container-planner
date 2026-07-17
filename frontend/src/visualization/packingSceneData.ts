@@ -61,6 +61,17 @@ function normalizeCargo(placement: PlacementLike, index: number, colorMap: Map<s
   const xCm = Number(placement.xCm || 0);
   const yCm = Number(placement.yCm || 0);
   const zCm = Number(placement.zCm || 0);
+  const physicalLengthCm = Math.min(lengthCm, Number(placement.physicalLengthCm ?? placement.xAxisBaseCm ?? lengthCm));
+  const physicalWidthCm = Math.min(widthCm, Number(placement.physicalWidthCm ?? placement.yAxisBaseCm ?? widthCm));
+  const physicalHeightCm = Math.min(heightCm, Number(placement.physicalHeightCm ?? placement.zAxisBaseCm ?? heightCm));
+  const physicalXCm = Number(placement.physicalXCm ?? (xCm + Math.max(0, lengthCm - physicalLengthCm) / 2));
+  const physicalYCm = Number(placement.physicalYCm ?? (yCm + Math.max(0, widthCm - physicalWidthCm) / 2));
+  const physicalZCm = Number(placement.physicalZCm ?? zCm);
+  const horizontalGapCm = Number(placement.horizontalGapCm ?? Math.max(0, lengthCm - physicalLengthCm));
+  const clearancePerSideCm = Number(placement.clearancePerSideCm ?? horizontalGapCm / 2);
+  const hasClearance = Math.abs(lengthCm - physicalLengthCm) > 0.01
+    || Math.abs(widthCm - physicalWidthCm) > 0.01
+    || Math.abs(heightCm - physicalHeightCm) > 0.01;
   const quantity = Math.max(1, Number(placement.groupQuantity || 1));
   const legacyType = String(placement.type || "").trim().toLowerCase();
   const nonStack = Boolean(placement.nonStack ?? placement.nonStackable ?? (legacyType === "nonstack"));
@@ -83,17 +94,26 @@ function normalizeCargo(placement: PlacementLike, index: number, colorMap: Map<s
     lengthCm,
     widthCm,
     heightCm,
+    physicalLengthCm,
+    physicalWidthCm,
+    physicalHeightCm,
+    physicalXCm,
+    physicalYCm,
+    physicalZCm,
+    horizontalGapCm,
+    clearancePerSideCm,
+    hasClearance,
     weightKg: Number(placement.weightKg || 0),
     nonStack,
     keepUpright,
     center: {
-      xCm: xCm + lengthCm / 2,
-      yCm: yCm + widthCm / 2,
-      zCm: zCm + heightCm / 2
+      xCm: physicalXCm + physicalLengthCm / 2,
+      yCm: physicalYCm + physicalWidthCm / 2,
+      zCm: physicalZCm + physicalHeightCm / 2
     },
     volumeM3: Number.isFinite(Number(placement.volumeM3))
       ? Number(placement.volumeM3)
-      : lengthCm * widthCm * heightCm / 1_000_000
+      : physicalLengthCm * physicalWidthCm * physicalHeightCm / 1_000_000
   };
 }
 

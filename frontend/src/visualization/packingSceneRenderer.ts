@@ -17,6 +17,7 @@ const DEFAULT_OPTIONS: SceneRenderOptions = {
   showGrid: true,
   showCenter: true,
   showShell: true,
+  showClearanceEnvelope: true,
   translucentCargo: false,
   showHeatmap: false,
   showRemaining: false,
@@ -321,7 +322,32 @@ export class PackingSceneRenderer {
           transparent: true,
           opacity: this.options.translucentCargo ? 0.48 : 0.94
         });
-        const geometry = new THREE.BoxGeometry(cargo.lengthCm, cargo.heightCm, cargo.widthCm);
+        const envelopeOffset = new THREE.Vector3(
+          cargo.xCm + cargo.lengthCm / 2 - (cargo.physicalXCm + cargo.physicalLengthCm / 2),
+          cargo.zCm + cargo.heightCm / 2 - (cargo.physicalZCm + cargo.physicalHeightCm / 2),
+          cargo.yCm + cargo.widthCm / 2 - (cargo.physicalYCm + cargo.physicalWidthCm / 2)
+        );
+        if (this.options.showClearanceEnvelope && cargo.hasClearance && !this.data!.stats.performanceMode) {
+          const envelopeGeometry = new THREE.BoxGeometry(cargo.lengthCm, cargo.heightCm, cargo.widthCm);
+          const envelopeMaterial = new THREE.MeshBasicMaterial({
+            color,
+            transparent: true,
+            opacity: 0.055,
+            depthWrite: false
+          });
+          const envelope = new THREE.Mesh(envelopeGeometry, envelopeMaterial);
+          envelope.position.copy(envelopeOffset);
+          envelope.userData.item = cargo;
+          group.add(envelope);
+          this.hoverMeshes.push(envelope);
+          const envelopeEdges = new THREE.LineSegments(
+            new THREE.EdgesGeometry(envelopeGeometry),
+            new THREE.LineBasicMaterial({ color: "#2563eb", transparent: true, opacity: 0.38 })
+          );
+          envelopeEdges.position.copy(envelopeOffset);
+          group.add(envelopeEdges);
+        }
+        const geometry = new THREE.BoxGeometry(cargo.physicalLengthCm, cargo.physicalHeightCm, cargo.physicalWidthCm);
         const mesh = new THREE.Mesh(geometry, material);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
@@ -336,21 +362,21 @@ export class PackingSceneRenderer {
         group.add(edge);
 
         const topLine = new THREE.Mesh(
-          new THREE.PlaneGeometry(Math.max(1, cargo.lengthCm * 0.92), Math.max(1, cargo.widthCm * 0.92)),
+          new THREE.PlaneGeometry(Math.max(1, cargo.physicalLengthCm * 0.92), Math.max(1, cargo.physicalWidthCm * 0.92)),
           new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.16, depthWrite: false })
         );
         topLine.rotation.x = -Math.PI / 2;
-        topLine.position.y = cargo.heightCm / 2 + 0.08;
+        topLine.position.y = cargo.physicalHeightCm / 2 + 0.08;
         group.add(topLine);
 
         if (labelsEnabled) {
-          group.add(createTextSprite(`#${cargo.displayNo}`, new THREE.Vector3(0, cargo.heightCm / 2 + 6, 0), "#0f172a", 30));
+          group.add(createTextSprite(`#${cargo.displayNo}`, new THREE.Vector3(0, cargo.physicalHeightCm / 2 + 6, 0), "#0f172a", 30));
         }
 
         group.position.set(
-          cargo.xCm + cargo.lengthCm / 2 - container.lengthCm / 2,
-          cargo.zCm + cargo.heightCm / 2,
-          cargo.yCm + cargo.widthCm / 2 - container.widthCm / 2
+          cargo.physicalXCm + cargo.physicalLengthCm / 2 - container.lengthCm / 2,
+          cargo.physicalZCm + cargo.physicalHeightCm / 2,
+          cargo.physicalYCm + cargo.physicalWidthCm / 2 - container.widthCm / 2
         );
         this.root.add(group);
       });

@@ -66,6 +66,8 @@ const exactEn = {
   "单件原始体积(m³) = 长 × 宽 × 高 ÷ 1,000,000": "Single-piece raw volume (m³) = L × W × H / 1,000,000",
   "计入间隙长/宽(cm) = 原始长/宽 + 全局货物间隙 + 类型额外间隙": "Length/width with gap (cm) = raw length/width + global cargo gap + type extra gap",
   "计入高度(cm) = 原始高度 + 类型额外高度余量；全局水平间隙不再层层累加到高度": "Height with allowance (cm) = raw height + type extra height allowance; global horizontal gap is not added to every layer height",
+  "占位长/宽(cm) = 旋转后的实际 X/Y + 全局货物间隙": "Reserved X/Y (cm) = oriented physical X/Y + global cargo gap",
+  "占位高度(cm) = 旋转后的实际 Z；水平间隙不计入高度": "Reserved Z (cm) = oriented physical Z; horizontal gap is not added to height",
   "单件占用体积(m³) = 计入长 × 计入宽 × 计入高 ÷ 1,000,000": "Single-piece occupied volume (m³) = adjusted L × adjusted W × adjusted H / 1,000,000",
   "箱体体积(m³) = 箱长 × 箱宽 × 箱高 ÷ 1,000,000": "Container volume (m³) = container L × W × H / 1,000,000",
   "计划可用体积(m³) = 箱体体积 × 计划可用率": "Planned usable volume (m³) = container volume × planned utilization",
