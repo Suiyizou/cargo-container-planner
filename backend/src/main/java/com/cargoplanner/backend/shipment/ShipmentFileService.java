@@ -691,6 +691,11 @@ public class ShipmentFileService {
   }
 
   private void lockGlobalStorageQuota() {
+    jdbcTemplate.update(
+        "INSERT INTO cp_shipment_file_storage_lock (id, lock_name) "
+            + "VALUES (1, 'shipment-file-capacity') "
+            + "ON DUPLICATE KEY UPDATE lock_name = VALUES(lock_name)"
+    );
     jdbcTemplate.queryForObject(
         "SELECT id FROM cp_shipment_file_storage_lock WHERE id = 1 FOR UPDATE",
         Integer.class

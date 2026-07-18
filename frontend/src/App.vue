@@ -868,7 +868,9 @@ import {
   Upload
 } from "@element-plus/icons-vue";
 import LanguageSwitcher from "./components/LanguageSwitcher.vue";
+import LoginPage from "./components/LoginPage.vue";
 import SystemWaitOverlay from "./components/SystemWaitOverlay.vue";
+import WorkbenchPortal from "./components/WorkbenchPortal.vue";
 import { exportPackingReportsZip, exportPackingReport } from "./services/exportReport";
 import { assignCargoModels } from "./utils/cargoModels";
 import { buildPreviewInWorker, readWorkbookInWorker } from "./services/excelImportClient";
@@ -886,9 +888,7 @@ const AdminDashboard = defineAsyncComponent(() => import("./components/AdminDash
 const AlgorithmPage = defineAsyncComponent(() => import("./components/AlgorithmPage.vue"));
 const ExcelTemplatePage = defineAsyncComponent(() => import("./components/ExcelTemplatePage.vue"));
 const HomePage = defineAsyncComponent(() => import("./components/HomePage.vue"));
-const LoginPage = defineAsyncComponent(() => import("./components/LoginPage.vue"));
 const PublicLandingPage = defineAsyncComponent(() => import("./components/PublicLandingPage.vue"));
-const WorkbenchPortal = defineAsyncComponent(() => import("./components/WorkbenchPortal.vue"));
 const BusinessCustomerPage = defineAsyncComponent(() => import("./components/BusinessCustomerPage.vue"));
 const CargoModal = defineAsyncComponent(() => import("./components/CargoModal.vue"));
 const ContainerModal = defineAsyncComponent(() => import("./components/ContainerModal.vue"));

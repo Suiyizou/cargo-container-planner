@@ -4587,6 +4587,111 @@ select {
   }
 }
 
+/* Business forms use one controlled select surface so dropdown motion is consistent. */
+.business-select.el-select {
+  width: 100%;
+}
+
+.business-select .el-select__wrapper {
+  min-height: 43px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 0 0 1px #b8c9dd inset;
+  transition:
+    box-shadow 180ms ease,
+    background-color 180ms ease,
+    transform 180ms ease;
+}
+
+.business-select .el-select__wrapper:hover {
+  box-shadow: 0 0 0 1px #7aaed8 inset;
+}
+
+.business-select .el-select__wrapper.is-focused {
+  box-shadow:
+    0 0 0 1px #1674c4 inset,
+    0 0 0 3px rgba(22, 116, 196, 0.11);
+}
+
+.business-select .el-select__selected-item,
+.business-select .el-select__placeholder {
+  color: #18324b;
+  font-weight: 650;
+}
+
+.business-select .el-select__caret {
+  transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.business-select-popper.el-popper {
+  overflow: hidden;
+  border: 1px solid #c8d8e7;
+  border-radius: 7px;
+  box-shadow: 0 18px 46px rgba(18, 52, 82, 0.18);
+}
+
+.business-select-popper .el-select-dropdown {
+  padding: 5px;
+}
+
+.business-select-popper .el-select-dropdown__item {
+  min-height: 36px;
+  margin: 2px 0;
+  border-radius: 4px;
+  color: #405870;
+  font-weight: 650;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease,
+    transform 140ms ease;
+}
+
+.business-select-popper .el-select-dropdown__item:hover,
+.business-select-popper .el-select-dropdown__item.is-hovering {
+  color: #0f68b2;
+  background: #edf6ff;
+  transform: translateX(2px);
+}
+
+.business-select-popper .el-select-dropdown__item.is-selected {
+  color: #0d66ad;
+  background: #e4f2ff;
+  font-weight: 800;
+}
+
+.business-select-popper.el-zoom-in-top-enter-active,
+.business-select-popper.el-zoom-in-top-leave-active {
+  transform-origin: center top;
+  transition:
+    opacity 230ms ease,
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+
+.business-select-popper.el-zoom-in-top-enter-from,
+.business-select-popper.el-zoom-in-top-leave-to {
+  opacity: 0;
+  transform: translateY(-7px) scaleY(0.94);
+}
+
+.admin-error-message-box {
+  border-radius: 8px;
+  box-shadow: 0 26px 70px rgba(32, 49, 69, 0.24);
+}
+
+.admin-error-message-box .el-message-box__status.el-icon {
+  color: #c43c52;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .business-select .el-select__wrapper,
+  .business-select .el-select__caret,
+  .business-select-popper,
+  .business-select-popper .el-select-dropdown__item {
+    transition: none !important;
+  }
+}
+
 @media (max-width: 720px) {
   .excel-import-mode-switch {
     display: grid;

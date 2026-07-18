@@ -1157,12 +1157,14 @@ messages["zh-CN"].customers = {
   codePrefixHint: "仅用于核对；完整客户码不会再次显示。",
   notAvailable: "未提供",
   shipmentsTitle: "已授权票单",
-  shipmentsDescription: "可按货票内部 ID，或承运人和业务单号绑定。",
+  shipmentsDescription: "优先按承运人与订舱号或提单号绑定；系统记录 ID 仅作为高级备用入口。",
   bindMode: "选择票单绑定方式",
-  bindByShipmentId: "按 Shipment ID",
   bindByReference: "按承运人与单号",
-  shipmentId: "Shipment publicId",
-  shipmentIdPlaceholder: "输入货票 publicId",
+  bindByShipmentId: "按系统记录 ID",
+  shipmentId: "系统货运记录 ID",
+  shipmentIdPlaceholder: "粘贴查询结果中的系统记录 ID",
+  shipmentIdHint: "这是平台自动生成的唯一 UUID，不是订舱号、提单号、箱号或客户订单号。",
+  referenceHint: "请先在货运追踪工作台查询并确认属于自己的业务票单，再在这里授权给客户。",
   carrier: "承运人",
   carrierPlaceholder: "例如 COSCO",
   referenceType: "单号类型",
@@ -1206,6 +1208,8 @@ messages["zh-CN"].customers = {
   deactivateFailed: "客户停用失败。",
   reactivateFailed: "客户重新启用失败。",
   bindFailed: "票单绑定失败，请检查 publicId 或承运人和单号是否存在。",
+  trackedShipmentNotFound: "未找到已追踪货物。请先进入货运追踪工作台查询并确认这是你的业务票单，再返回绑定。",
+  shipmentAccessRequired: "这张票单不在你的业务权限范围内，不能绑定给客户。请先确认票单归属或联系管理员授权。",
   unbindFailed: "票单解绑失败。"
 };
 
@@ -1248,12 +1252,14 @@ messages["en-US"].customers = {
   codePrefixHint: "For verification only; the full customer code is never displayed again.",
   notAvailable: "Not available",
   shipmentsTitle: "Authorized shipments",
-  shipmentsDescription: "Assign by internal shipment ID or by carrier and business reference.",
+  shipmentsDescription: "Prefer carrier plus booking or bill-of-lading number. The system record ID is an advanced fallback.",
   bindMode: "Choose shipment assignment mode",
-  bindByShipmentId: "By Shipment ID",
   bindByReference: "By carrier & reference",
-  shipmentId: "Shipment publicId",
-  shipmentIdPlaceholder: "Enter the shipment publicId",
+  bindByShipmentId: "By system record ID",
+  shipmentId: "System shipment record ID",
+  shipmentIdPlaceholder: "Paste the system record ID from tracking",
+  shipmentIdHint: "This is a platform-generated UUID, not a booking, bill-of-lading, container, customer-order, or forwarder job number.",
+  referenceHint: "Track and verify that the shipment belongs to your business before assigning customer access here.",
   carrier: "Carrier",
   carrierPlaceholder: "e.g. COSCO",
   referenceType: "Reference type",
@@ -1297,6 +1303,8 @@ messages["en-US"].customers = {
   deactivateFailed: "Could not deactivate the customer.",
   reactivateFailed: "Could not reactivate the customer.",
   bindFailed: "Could not assign the shipment. Check the publicId or carrier and reference.",
+  trackedShipmentNotFound: "No tracked shipment was found. Track it in the shipment workbench and verify it belongs to your business before assigning it here.",
+  shipmentAccessRequired: "This shipment is outside your business access scope and cannot be assigned. Verify ownership or ask an administrator to grant access.",
   unbindFailed: "Could not remove shipment access."
 };
 
@@ -1326,7 +1334,10 @@ messages["zh-CN"].admin = {
     temporaryPasswordCopied: "已复制",
     temporaryPasswordStored: "我已安全保存",
     temporaryPasswordMissing: "服务端未返回临时密码，请重试或检查部署版本。",
-    copyTemporaryPasswordFailed: "复制失败，请手动选择临时密码。"
+    copyTemporaryPasswordFailed: "复制失败，请手动选择临时密码。",
+    errorTitle: "操作未完成",
+    errorConfirm: "知道了",
+    errorFallback: "操作失败，请检查输入后重试。"
   }
 };
 
@@ -1356,6 +1367,21 @@ messages["en-US"].admin = {
     temporaryPasswordCopied: "Copied",
     temporaryPasswordStored: "I stored it safely",
     temporaryPasswordMissing: "The server did not return a temporary password. Retry or verify the deployed backend version.",
-    copyTemporaryPasswordFailed: "Copy failed. Select and copy the temporary password manually."
+    copyTemporaryPasswordFailed: "Copy failed. Select and copy the temporary password manually.",
+    errorTitle: "Operation not completed",
+    errorConfirm: "OK",
+    errorFallback: "The operation failed. Check the input and try again."
   }
+};
+
+messages["zh-CN"].homeOptions = {
+  workspace: "工作台",
+  packing: "装箱计算",
+  smartImport: "智能导入"
+};
+
+messages["en-US"].homeOptions = {
+  workspace: "Workspace",
+  packing: "Packing Calculation",
+  smartImport: "Smart Import"
 };

@@ -53,10 +53,13 @@ const relatedFilesBackdrop = document.querySelector("#related-files-backdrop");
 const relatedFilesDrawer = document.querySelector("#related-files-drawer");
 const relatedFilesCloseButton = document.querySelector("#related-files-close-button");
 const relatedFilesShipmentReference = document.querySelector("#related-files-shipment-reference");
-const relatedFilesCustomerSession = document.querySelector("#related-files-customer-session");
-const relatedFilesCustomerName = document.querySelector("#related-files-customer-name");
-const relatedFilesCustomerRole = document.querySelector("#related-files-customer-role");
-const relatedFilesCustomerLogoutButton = document.querySelector("#related-files-customer-logout");
+const trackingAccount = document.querySelector("#tracking-account");
+const trackingAccountTrigger = document.querySelector("#tracking-account-trigger");
+const trackingAccountMark = document.querySelector("#tracking-account-mark");
+const trackingAccountName = document.querySelector("#tracking-account-name");
+const trackingAccountRole = document.querySelector("#tracking-account-role");
+const trackingAccountMenu = document.querySelector("#tracking-account-menu");
+const trackingAccountLogoutButton = document.querySelector("#tracking-account-logout");
 const relatedFilesAuthRequired = document.querySelector("#related-files-auth-required");
 const relatedFilesAuthTitle = document.querySelector("#related-files-auth-title");
 const relatedFilesAuthDescription = document.querySelector("#related-files-auth-description");
@@ -71,6 +74,11 @@ const relatedFilesList = document.querySelector("#related-files-list");
 const relatedFilesUploadPanel = document.querySelector("#related-files-upload-panel");
 const relatedFilesUserName = document.querySelector("#related-files-user-name");
 const relatedFilesCategory = document.querySelector("#related-files-category");
+const relatedFilesCategorySelect = document.querySelector("#related-files-category-select");
+const relatedFilesCategoryTrigger = document.querySelector("#related-files-category-trigger");
+const relatedFilesCategoryLabel = document.querySelector("#related-files-category-label");
+const relatedFilesCategoryMenu = document.querySelector("#related-files-category-menu");
+const relatedFilesCategoryOptions = Array.from(document.querySelectorAll("[data-category-value]"));
 const relatedFilesUploadVisibilityField = document.querySelector("#related-files-upload-visibility-field");
 const relatedFilesUploadVisibility = document.querySelector("#related-files-upload-visibility");
 const relatedFilesTargetCustomerField = document.querySelector("#related-files-target-customer-field");
@@ -162,7 +170,7 @@ const MESSAGES = {
     "brand.subtitle": "Carrier intelligence desk",
     "nav.ariaLabel": "Primary navigation",
     "nav.workspace": "Workspace",
-    "nav.portal": "Platform home",
+    "nav.portal": "Open workbenches",
     "nav.overview": "Overview",
     "nav.tracking": "Shipment tracking",
     "nav.carriers": "Carrier adapters",
@@ -228,6 +236,13 @@ const MESSAGES = {
     "tracking.kicker": "SHIPMENT INTELLIGENCE",
     "tracking.title": "Shipment tracking",
     "tracking.description": "Query carrier sources and shape them into one consistent snapshot.",
+    "account.menu": "Open account menu",
+    "account.home": "Platform home",
+    "account.signOut": "Sign out",
+    "account.customer": "Customer access",
+    "account.roleAdmin": "Administrator",
+    "account.roleBusiness": "Business operator",
+    "account.roleUser": "Internal user",
     "files.trigger": "Related files",
     "files.unavailable": "Related files will be available after this shipment is saved by the platform.",
     "files.kicker": "SHIPMENT DOCUMENTS",
@@ -277,6 +292,7 @@ const MESSAGES = {
     "files.noSelection": "No files selected.",
     "files.selection": "{count} file(s) selected · {size}",
     "files.uploadFailed": "Upload failed: {message}",
+    "files.serverError": "The server could not save the file. Please try again or contact the administrator.",
     "files.download": "Download",
     "files.downloading": "Downloading…",
     "files.downloadFailed": "Download failed: {message}",
@@ -438,7 +454,7 @@ const MESSAGES = {
     "brand.subtitle": "船司数据工作台",
     "nav.ariaLabel": "主导航",
     "nav.workspace": "工作区",
-    "nav.portal": "返回平台首页",
+    "nav.portal": "进入业务工作台",
     "nav.overview": "总览",
     "nav.tracking": "货物跟踪",
     "nav.carriers": "船司适配器",
@@ -504,6 +520,13 @@ const MESSAGES = {
     "tracking.kicker": "货运信息",
     "tracking.title": "货物跟踪",
     "tracking.description": "查询船司数据源，并转换为统一的运输状态快照。",
+    "account.menu": "打开账户菜单",
+    "account.home": "返回平台首页",
+    "account.signOut": "退出登录",
+    "account.customer": "客户身份",
+    "account.roleAdmin": "系统管理员",
+    "account.roleBusiness": "业务员",
+    "account.roleUser": "内部用户",
     "files.trigger": "相关文件",
     "files.unavailable": "平台保存这票货物后即可使用相关文件。",
     "files.kicker": "货物文档",
@@ -553,6 +576,7 @@ const MESSAGES = {
     "files.noSelection": "尚未选择文件。",
     "files.selection": "已选择 {count} 个文件 · {size}",
     "files.uploadFailed": "上传失败：{message}",
+    "files.serverError": "服务器暂时无法保存文件，请稍后重试或联系管理员。",
     "files.download": "下载",
     "files.downloading": "正在下载…",
     "files.downloadFailed": "下载失败：{message}",
@@ -794,6 +818,8 @@ let relatedFilesErrorText = "";
 let relatedFilesRequestSequence = 0;
 let relatedFilesUploading = false;
 let relatedFilesCloseTimer = null;
+let relatedFilesCategoryOpen = false;
+let trackingAccountMenuOpen = false;
 let relatedFilesExpiredSessionKind = "";
 let platformPrincipalAwaitingRefresh = false;
 let customerPrincipalAwaitingRefresh = false;
@@ -982,8 +1008,6 @@ function clearSensitiveRelatedFilesDom() {
   relatedFilesList.replaceChildren();
   relatedFilesCount.textContent = "0";
   relatedFilesCount.hidden = true;
-  relatedFilesCustomerName.textContent = "";
-  relatedFilesCustomerRole.textContent = "";
   relatedFilesUserName.textContent = "";
   relatedFilesErrorMessage.textContent = "";
   relatedFilesLoading.hidden = true;
@@ -1006,7 +1030,9 @@ function resetRelatedFilesSessionState({ expiredKind = "" } = {}) {
   relatedFilesUploading = false;
   relatedFilesExpiredSessionKind = expiredKind;
   relatedFilesUploadInput.value = "";
-  relatedFilesCategory.value = "OTHER";
+  setRelatedFilesCategory("CARGO_DETAIL");
+  setRelatedFilesCategoryOpen(false);
+  setTrackingAccountMenuOpen(false);
   relatedFilesUploadVisibility.value = "INTERNAL";
   setRelatedFilesUploadMessage();
   closeRelatedFilesDrawer({ immediate: true });
@@ -1127,6 +1153,37 @@ function fileSessionDisplayName(session = readFileSession()) {
     principal.code ??
     ""
   );
+}
+
+function fileSessionRoleLabel(session = readFileSession()) {
+  if (session.kind === "CUSTOMER") {
+    return customerLogisticsRoleLabel(session) || t("account.customer");
+  }
+  const role = String(session.user?.role ?? "").trim().toUpperCase();
+  return t({ ADMIN: "account.roleAdmin", BUSINESS: "account.roleBusiness" }[role] ?? "account.roleUser");
+}
+
+function setTrackingAccountMenuOpen(open) {
+  trackingAccountMenuOpen = Boolean(open && !trackingAccount.hidden);
+  trackingAccount.classList.toggle("is-open", trackingAccountMenuOpen);
+  trackingAccountTrigger.setAttribute("aria-expanded", String(trackingAccountMenuOpen));
+  trackingAccountMenu.setAttribute("aria-hidden", String(!trackingAccountMenuOpen));
+}
+
+function renderTrackingAccount(session = readFileSession()) {
+  const authenticated = Boolean(session.token);
+  trackingAccount.hidden = !authenticated;
+  if (!authenticated) {
+    trackingAccountName.textContent = "";
+    trackingAccountRole.textContent = "";
+    trackingAccountMark.textContent = "U";
+    setTrackingAccountMenuOpen(false);
+    return;
+  }
+  const name = fileSessionDisplayName(session) || t("account.roleUser");
+  trackingAccountName.textContent = name;
+  trackingAccountRole.textContent = fileSessionRoleLabel(session);
+  trackingAccountMark.textContent = Array.from(name.trim())[0]?.toUpperCase() || "U";
 }
 
 function customerLogisticsRoleLabel(session = readFileSession()) {
@@ -1271,6 +1328,33 @@ function fileCategoryLabel(value) {
   return t(key ?? "files.categoryOther");
 }
 
+const RELATED_FILE_CATEGORY_KEYS = Object.freeze({
+  CARGO_DETAIL: "files.categoryCargo",
+  INVOICE: "files.categoryInvoice",
+  SHIPPING: "files.categoryShipping",
+  OTHER: "files.categoryOther"
+});
+
+function setRelatedFilesCategory(value) {
+  const category = Object.hasOwn(RELATED_FILE_CATEGORY_KEYS, value) ? value : "OTHER";
+  relatedFilesCategory.value = category;
+  const key = RELATED_FILE_CATEGORY_KEYS[category];
+  relatedFilesCategoryLabel.dataset.i18n = key;
+  relatedFilesCategoryLabel.textContent = t(key);
+  relatedFilesCategoryOptions.forEach((option) => {
+    const selected = option.dataset.categoryValue === category;
+    option.classList.toggle("is-selected", selected);
+    option.setAttribute("aria-selected", String(selected));
+  });
+}
+
+function setRelatedFilesCategoryOpen(open) {
+  relatedFilesCategoryOpen = Boolean(open && !relatedFilesCategoryTrigger.disabled);
+  relatedFilesCategorySelect.classList.toggle("is-open", relatedFilesCategoryOpen);
+  relatedFilesCategoryTrigger.setAttribute("aria-expanded", String(relatedFilesCategoryOpen));
+  relatedFilesCategoryMenu.setAttribute("aria-hidden", String(!relatedFilesCategoryOpen));
+}
+
 function fileVisibilityLabel(value) {
   return t(
     String(value ?? "").toUpperCase() === "INTERNAL"
@@ -1311,6 +1395,7 @@ function normalizeRelatedFileItem(item) {
 }
 
 function relatedFilesApiMessage(payload, response) {
+  if (response.status >= 500) return t("files.serverError");
   return (
     payload?.message ??
     payload?.error?.message ??
@@ -1403,6 +1488,7 @@ function updateRelatedFilesSelection() {
     files.length > 0
       ? t("files.selection", { count: files.length, size: formatFileSize(totalSize) })
       : t("files.noSelection");
+  relatedFilesSelection.dataset.state = files.length > 0 ? "ready" : "empty";
   relatedFilesUploadButton.disabled =
     relatedFilesUploading ||
     files.length === 0 ||
@@ -1662,6 +1748,8 @@ function renderRelatedFilesDrawer() {
   const isCustomer = session.kind === "CUSTOMER";
   const canManageVisibility = canManageFileVisibility(session);
   const canAssignCustomer = canAssignRelatedFilesCustomer(session);
+  renderTrackingAccount(session);
+  setRelatedFilesCategory(relatedFilesCategory.value);
 
   if (
     session.kind !== "INTERNAL" ||
@@ -1705,11 +1793,6 @@ function renderRelatedFilesDrawer() {
     customerSessionExpired ? "files.customerLoginAction" : "files.loginAction"
   );
   relatedFilesAuthLink.href = customerSessionExpired ? "/" : "/workbenches";
-  relatedFilesCustomerSession.hidden = !isCustomer;
-  relatedFilesCustomerName.textContent = isCustomer ? fileSessionDisplayName(session) : "";
-  const customerRoleLabel = customerLogisticsRoleLabel(session);
-  relatedFilesCustomerRole.textContent = customerRoleLabel;
-  relatedFilesCustomerRole.hidden = !customerRoleLabel;
   relatedFilesContent.hidden = !authenticated;
   relatedFilesUploadPanel.hidden =
     !authenticated ||
@@ -1732,7 +1815,11 @@ function renderRelatedFilesDrawer() {
 
   relatedFilesSelectButton.disabled = relatedFilesUploading;
   relatedFilesUploadInput.disabled = relatedFilesUploading;
+  relatedFilesUploadButton.classList.toggle("is-uploading", relatedFilesUploading);
+  relatedFilesUploadButton.setAttribute("aria-busy", String(relatedFilesUploading));
   relatedFilesCategory.disabled = relatedFilesUploading;
+  relatedFilesCategoryTrigger.disabled = relatedFilesUploading;
+  if (relatedFilesUploading) setRelatedFilesCategoryOpen(false);
   relatedFilesUploadVisibility.disabled = relatedFilesUploading;
   relatedFilesTargetCustomer.disabled = relatedFilesUploading;
   updateRelatedFilesSelection();
@@ -1765,6 +1852,7 @@ function openRelatedFilesDrawer() {
 }
 
 function closeRelatedFilesDrawer({ immediate = false } = {}) {
+  setRelatedFilesCategoryOpen(false);
   relatedFilesButton.setAttribute("aria-expanded", "false");
   relatedFilesBackdrop.classList.remove("is-open");
   relatedFilesDrawer.classList.remove("is-open");
@@ -1882,7 +1970,7 @@ async function uploadRelatedFiles() {
 
   const sessionFingerprint = relatedFilesSessionFingerprint;
   relatedFilesUploading = true;
-  setRelatedFilesUploadMessage(t("files.uploading"));
+  setRelatedFilesUploadMessage(t("files.uploading"), "progress");
   renderRelatedFilesDrawer();
   const formData = new FormData();
   for (const file of files) formData.append("files", file);
@@ -4082,6 +4170,17 @@ relatedFilesRetryButton.addEventListener("click", () => {
 relatedFilesSelectButton.addEventListener("click", () => {
   if (!relatedFilesUploading) relatedFilesUploadInput.click();
 });
+relatedFilesCategoryTrigger.addEventListener("click", () => {
+  setRelatedFilesCategoryOpen(!relatedFilesCategoryOpen);
+});
+relatedFilesCategoryOptions.forEach((option) => {
+  option.addEventListener("click", () => {
+    setRelatedFilesCategory(option.dataset.categoryValue);
+    setRelatedFilesCategoryOpen(false);
+    relatedFilesCategoryTrigger.focus({ preventScroll: true });
+    setRelatedFilesUploadMessage();
+  });
+});
 relatedFilesUploadInput.addEventListener("change", () => {
   setRelatedFilesUploadMessage();
   updateRelatedFilesSelection();
@@ -4102,12 +4201,15 @@ relatedFilesTargetCustomer.addEventListener("change", () => {
 relatedFilesUploadButton.addEventListener("click", () => {
   void uploadRelatedFiles();
 });
-relatedFilesCustomerLogoutButton.addEventListener("click", async () => {
+trackingAccountTrigger.addEventListener("click", () => {
+  setTrackingAccountMenuOpen(!trackingAccountMenuOpen);
+});
+trackingAccountLogoutButton.addEventListener("click", async () => {
   const session = readFileSession();
-  if (session.kind !== "CUSTOMER" || !session.token) return;
-  relatedFilesCustomerLogoutButton.disabled = true;
+  if (!session.token) return;
+  trackingAccountLogoutButton.disabled = true;
   try {
-    await fetch("/api/customer/logout", {
+    await fetch(session.kind === "CUSTOMER" ? "/api/customer/logout" : "/api/auth/logout", {
       method: "POST",
       headers: { ...fileAuthHeaders(session) }
     });
@@ -4115,14 +4217,26 @@ relatedFilesCustomerLogoutButton.addEventListener("click", async () => {
     // Local sign-out must remain available when the server cannot be reached.
   } finally {
     clearFileSession(session);
-    relatedFilesCustomerLogoutButton.disabled = false;
+    trackingAccountLogoutButton.disabled = false;
+    setTrackingAccountMenuOpen(false);
     renderRelatedFilesDrawer();
+    showPlatformRouteWait();
+    window.setTimeout(() => window.location.assign("/"), 120);
+  }
+});
+document.addEventListener("click", (event) => {
+  if (trackingAccountMenuOpen && !trackingAccount.contains(event.target)) {
+    setTrackingAccountMenuOpen(false);
+  }
+  if (relatedFilesCategoryOpen && !relatedFilesCategorySelect.contains(event.target)) {
+    setRelatedFilesCategoryOpen(false);
   }
 });
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !relatedFilesDrawer.hidden) {
-    closeRelatedFilesDrawer();
-  }
+  if (event.key !== "Escape") return;
+  if (trackingAccountMenuOpen) setTrackingAccountMenuOpen(false);
+  if (relatedFilesCategoryOpen) setRelatedFilesCategoryOpen(false);
+  if (!relatedFilesDrawer.hidden) closeRelatedFilesDrawer();
 });
 
 window.addEventListener("storage", (event) => {

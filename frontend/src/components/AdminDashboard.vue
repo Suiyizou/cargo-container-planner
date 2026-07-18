@@ -634,27 +634,40 @@
           </label>
           <label>
             <span>角色</span>
-            <select v-model="employeeForm.role">
-              <option value="EMPLOYEE">{{ ui('profile.role.employee') }}</option>
-              <option value="BUSINESS">{{ ui('profile.role.business') }}</option>
-              <option value="ADMIN">{{ ui('profile.role.admin') }}</option>
-            </select>
+            <el-select
+              v-model="employeeForm.role"
+              class="business-select"
+              popper-class="business-select-popper"
+            >
+              <el-option value="EMPLOYEE" :label="ui('profile.role.employee')" />
+              <el-option value="BUSINESS" :label="ui('profile.role.business')" />
+              <el-option value="ADMIN" :label="ui('profile.role.admin')" />
+            </el-select>
           </label>
           <label>
             <span>{{ t("admin.employee.partyRole") }}</span>
-            <select v-model="employeeForm.partyRole" :disabled="employeeForm.role !== 'EMPLOYEE'">
-              <option value="AGENT">{{ t("customers.roleAgent") }}</option>
-              <option value="SHIPPER">{{ t("customers.roleShipper") }}</option>
-              <option value="CONSIGNEE">{{ t("customers.roleConsignee") }}</option>
-            </select>
+            <el-select
+              v-model="employeeForm.partyRole"
+              class="business-select"
+              popper-class="business-select-popper"
+              :disabled="employeeForm.role !== 'EMPLOYEE'"
+            >
+              <el-option value="AGENT" :label="t('customers.roleAgent')" />
+              <el-option value="SHIPPER" :label="t('customers.roleShipper')" />
+              <el-option value="CONSIGNEE" :label="t('customers.roleConsignee')" />
+            </el-select>
             <small v-if="employeeForm.role !== 'EMPLOYEE'">{{ t("admin.employee.agentForcedHint") }}</small>
           </label>
           <label>
             <span>状态</span>
-            <select v-model="employeeForm.status">
-              <option value="ACTIVE">启用</option>
-              <option value="DISABLED">禁用</option>
-            </select>
+            <el-select
+              v-model="employeeForm.status"
+              class="business-select"
+              popper-class="business-select-popper"
+            >
+              <el-option value="ACTIVE" :label="statusText('ACTIVE')" />
+              <el-option value="DISABLED" :label="statusText('DISABLED')" />
+            </el-select>
           </label>
           <div class="modal-actions">
             <button type="button" @click="closeEmployeeDialog">取消</button>
@@ -695,6 +708,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from "vue";
+import { ElMessageBox } from "element-plus";
 import {
   clearAdminToken,
   createEmployee,
@@ -911,7 +925,7 @@ async function handleSaveEmployee() {
     closeEmployeeDialog();
     await loadDashboard(false);
     showMessage(t(wasEditing ? "admin.employee.saved" : "admin.employee.created"));
-  });
+  }, { popupError: true });
 }
 
 async function handleResetPassword(user) {
@@ -927,7 +941,7 @@ async function handleResetPassword(user) {
     temporaryPasswordDialog.copied = false;
     await loadDashboard(false);
     showMessage(t("admin.employee.resetPasswordSuccess", { username: user.username }));
-  });
+  }, { popupError: true });
 }
 
 async function copyTemporaryPassword() {
@@ -935,8 +949,7 @@ async function copyTemporaryPassword() {
     await navigator.clipboard.writeText(temporaryPasswordDialog.password);
     temporaryPasswordDialog.copied = true;
   } catch {
-    hasError.value = true;
-    message.value = t("admin.employee.copyTemporaryPasswordFailed");
+    await showAdminErrorDialog(t("admin.employee.copyTemporaryPasswordFailed"));
   }
 }
 
@@ -1071,18 +1084,34 @@ function syncLlmForm(settings) {
   llmForm.clearApiKey = false;
 }
 
-async function withLoading(action) {
+async function withLoading(action, { popupError = false } = {}) {
   loading.value = true;
   message.value = "";
   hasError.value = false;
   try {
     await action();
   } catch (error) {
-    hasError.value = true;
-    message.value = tr(error.message || "操作失败");
+    const errorText = tr(error.message || t("admin.employee.errorFallback"));
+    if (popupError) {
+      await showAdminErrorDialog(errorText);
+    } else {
+      hasError.value = true;
+      message.value = errorText;
+    }
   } finally {
     loading.value = false;
   }
+}
+
+async function showAdminErrorDialog(errorText) {
+  await ElMessageBox.alert(errorText, t("admin.employee.errorTitle"), {
+    type: "error",
+    confirmButtonText: t("admin.employee.errorConfirm"),
+    closeOnClickModal: false,
+    closeOnPressEscape: false,
+    showClose: false,
+    customClass: "admin-error-message-box"
+  });
 }
 
 function showMessage(text) {

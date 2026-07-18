@@ -117,6 +117,25 @@ class ShipmentFileServiceTest {
   }
 
   @Test
+  void repairsMissingStorageLockRowBeforeUpload() {
+    jdbcTemplate.update("DELETE FROM cp_shipment_file_storage_lock WHERE id = 1");
+
+    ShipmentFileService.SavedShipmentFile saved = service.storeCustomer(
+        upload("cargo-details.pdf", "cargo-data"),
+        "shipment-public-id",
+        portalCustomer,
+        "CARGO_DETAIL",
+        "127.0.0.1"
+    );
+
+    assertThat(saved.record().status()).isEqualTo("READY");
+    assertThat(jdbcTemplate.queryForObject(
+        "SELECT COUNT(*) FROM cp_shipment_file_storage_lock WHERE id = 1",
+        Integer.class
+    )).isEqualTo(1);
+  }
+
+  @Test
   void enforcesParticipantVisibilityAndSoftDeleteRules() throws Exception {
     ShipmentFileService.SavedShipmentFile saved = service.store(
         upload("invoice.pdf", "invoice-data"),

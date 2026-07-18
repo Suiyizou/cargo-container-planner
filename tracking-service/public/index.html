@@ -32,12 +32,12 @@
           <p class="nav-title" data-i18n="nav.workspace">Workspace</p>
           <a
             class="nav-item portal-return-link"
-            href="/"
+            href="/workbenches"
             data-home-link
             data-i18n-aria-label="nav.portal"
           >
             <span class="nav-icon" aria-hidden="true">&#8592;</span>
-            <span data-i18n="nav.portal">Platform home</span>
+            <span data-i18n="nav.portal">Open workbenches</span>
           </a>
           <a class="nav-item is-active" href="#overview" data-view-target="overview">
             <span class="nav-icon">◫</span>
@@ -88,6 +88,33 @@
             <div class="language-switch" role="group" aria-label="Language">
               <button type="button" data-language="en" class="is-active">EN</button>
               <button type="button" data-language="zh">中文</button>
+            </div>
+            <div class="tracking-account" id="tracking-account" hidden>
+              <button
+                class="tracking-account-trigger"
+                id="tracking-account-trigger"
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded="false"
+                data-i18n-aria-label="account.menu"
+              >
+                <span class="tracking-account-mark" id="tracking-account-mark" aria-hidden="true">U</span>
+                <span class="tracking-account-copy">
+                  <strong id="tracking-account-name"></strong>
+                  <small id="tracking-account-role"></small>
+                </span>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4" /></svg>
+              </button>
+              <div class="tracking-account-menu" id="tracking-account-menu" role="menu" aria-hidden="true">
+                <a href="/" role="menuitem" data-home-link>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 11 8-7 8 7v9h-5v-6H9v6H4z" /></svg>
+                  <span data-i18n="account.home">Platform home</span>
+                </a>
+                <button id="tracking-account-logout" type="button" role="menuitem">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H5v14h5M14 8l4 4-4 4M18 12H9" /></svg>
+                  <span data-i18n="account.signOut">Sign out</span>
+                </button>
+              </div>
             </div>
           </div>
         </header>
@@ -633,18 +660,6 @@
         </button>
       </header>
 
-      <section class="related-files-customer-session" id="related-files-customer-session" hidden>
-        <span class="related-files-customer-mark" aria-hidden="true">C</span>
-        <div>
-          <small data-i18n="files.customerSession">Customer access</small>
-          <strong id="related-files-customer-name"></strong>
-          <span id="related-files-customer-role" hidden></span>
-        </div>
-        <button id="related-files-customer-logout" type="button" data-i18n="files.customerLogout">
-          Sign out
-        </button>
-      </section>
-
       <section class="related-files-auth" id="related-files-auth-required" hidden>
         <span class="related-files-auth-icon" aria-hidden="true">↗</span>
         <div>
@@ -690,15 +705,28 @@
         </div>
 
         <div class="related-files-upload-options">
-          <label>
+          <div class="related-files-option-field">
             <span data-i18n="files.category">Category</span>
-            <select id="related-files-category">
-              <option value="CARGO_DETAIL" data-i18n="files.categoryCargo">Cargo details</option>
-              <option value="INVOICE" data-i18n="files.categoryInvoice">Invoice</option>
-              <option value="SHIPPING" data-i18n="files.categoryShipping">Shipping document</option>
-              <option value="OTHER" data-i18n="files.categoryOther">Other</option>
-            </select>
-          </label>
+            <div class="related-files-custom-select" id="related-files-category-select">
+              <button
+                class="related-files-custom-select-trigger"
+                id="related-files-category-trigger"
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded="false"
+              >
+                <span id="related-files-category-label" data-i18n="files.categoryCargo">Cargo details</span>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4" /></svg>
+              </button>
+              <div class="related-files-custom-select-menu" id="related-files-category-menu" role="listbox" aria-hidden="true">
+                <button type="button" role="option" data-category-value="CARGO_DETAIL" data-i18n="files.categoryCargo">Cargo details</button>
+                <button type="button" role="option" data-category-value="INVOICE" data-i18n="files.categoryInvoice">Invoice</button>
+                <button type="button" role="option" data-category-value="SHIPPING" data-i18n="files.categoryShipping">Shipping document</button>
+                <button type="button" role="option" data-category-value="OTHER" data-i18n="files.categoryOther">Other</button>
+              </div>
+              <input id="related-files-category" type="hidden" value="CARGO_DETAIL" />
+            </div>
+          </div>
           <label id="related-files-upload-visibility-field" hidden>
             <span data-i18n="files.visibility">Visibility</span>
             <select id="related-files-upload-visibility">
@@ -747,8 +775,8 @@
             <span data-i18n="files.upload">Upload</span>
           </button>
         </div>
-        <p class="related-files-selection" id="related-files-selection" data-i18n="files.noSelection">No files selected.</p>
-        <p class="related-files-upload-message" id="related-files-upload-message" role="status" hidden></p>
+        <p class="related-files-selection" id="related-files-selection" data-i18n="files.noSelection" data-state="empty">No files selected.</p>
+        <p class="related-files-upload-message" id="related-files-upload-message" role="status" aria-live="polite" hidden></p>
       </footer>
     </aside>
 

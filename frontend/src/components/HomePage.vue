@@ -49,11 +49,18 @@
           </label>
           <label>
             <span>默认首页</span>
-            <select v-model="profile.startPage">
-              <option value="/home">工作台</option>
-              <option value="/planner/config">装箱计算</option>
-              <option value="/smart-import">智能导入</option>
-            </select>
+            <el-select
+              v-model="profile.startPage"
+              class="business-select"
+              popper-class="business-select-popper"
+            >
+              <el-option
+                v-for="option in startPageOptions"
+                :key="option.value"
+                :value="option.value"
+                :label="option.label"
+              />
+            </el-select>
           </label>
         </div>
         <button class="primary" type="button" @click="saveProfile">保存偏好</button>
@@ -83,7 +90,7 @@
 
 <script setup>
 import { computed, reactive, ref } from "vue";
-import { currentLocale } from "../i18n";
+import { currentLocale, t } from "../i18n";
 import { translateLegacyText } from "../i18n/legacyText";
 
 const STORAGE_KEY = "cargo-planner-user-profile";
@@ -98,6 +105,11 @@ const emit = defineEmits(["save-settings"]);
 const profile = reactive(loadProfile());
 const message = ref("");
 const greetingName = computed(() => profile.displayName || props.user?.displayName || props.user?.username || "操作员");
+const startPageOptions = computed(() => [
+  { value: "/home", label: t("homeOptions.workspace") },
+  { value: "/planner/config", label: t("homeOptions.packing") },
+  { value: "/smart-import", label: t("homeOptions.smartImport") }
+]);
 const todayText = computed(() =>
   new Intl.DateTimeFormat(currentLocale.value === "en-US" ? "en-US" : "zh-CN", {
     year: "numeric",

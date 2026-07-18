@@ -61,11 +61,15 @@
             </label>
             <label>
               <span>{{ t("customers.partyRole") }}</span>
-              <select v-model="createForm.partyRole" required>
-                <option value="SHIPPER">{{ t("customers.roleShipper") }}</option>
-                <option value="CONSIGNEE">{{ t("customers.roleConsignee") }}</option>
-                <option value="AGENT">{{ t("customers.roleAgent") }}</option>
-              </select>
+              <el-select
+                v-model="createForm.partyRole"
+                class="business-select"
+                popper-class="business-select-popper"
+              >
+                <el-option value="SHIPPER" :label="t('customers.roleShipper')" />
+                <el-option value="CONSIGNEE" :label="t('customers.roleConsignee')" />
+                <el-option value="AGENT" :label="t('customers.roleAgent')" />
+              </el-select>
             </label>
             <button class="customer-access-primary" type="submit" :disabled="creating">
               {{ creating ? t("customers.creating") : t("customers.create") }}
@@ -159,11 +163,15 @@
                 </label>
                 <label>
                   <span>{{ t("customers.partyRole") }}</span>
-                  <select v-model="editForm.partyRole" required>
-                    <option value="SHIPPER">{{ t("customers.roleShipper") }}</option>
-                    <option value="CONSIGNEE">{{ t("customers.roleConsignee") }}</option>
-                    <option value="AGENT">{{ t("customers.roleAgent") }}</option>
-                  </select>
+                  <el-select
+                    v-model="editForm.partyRole"
+                    class="business-select"
+                    popper-class="business-select-popper"
+                  >
+                    <el-option value="SHIPPER" :label="t('customers.roleShipper')" />
+                    <el-option value="CONSIGNEE" :label="t('customers.roleConsignee')" />
+                    <el-option value="AGENT" :label="t('customers.roleAgent')" />
+                  </el-select>
                 </label>
                 <button class="customer-access-primary" type="submit" :disabled="mutatingCustomer">
                   {{ t("customers.saveProfile") }}
@@ -187,16 +195,17 @@
 
               <form class="customer-bind-form" @submit.prevent="bindShipment">
                 <div class="customer-bind-mode" role="group" :aria-label="t('customers.bindMode')">
-                  <button type="button" :class="{ 'is-active': bindMode === 'shipmentId' }" @click="bindMode = 'shipmentId'">
-                    {{ t("customers.bindByShipmentId") }}
-                  </button>
                   <button type="button" :class="{ 'is-active': bindMode === 'reference' }" @click="bindMode = 'reference'">
                     {{ t("customers.bindByReference") }}
+                  </button>
+                  <button type="button" :class="{ 'is-active': bindMode === 'shipmentId' }" @click="bindMode = 'shipmentId'">
+                    {{ t("customers.bindByShipmentId") }}
                   </button>
                 </div>
                 <label v-if="bindMode === 'shipmentId'" class="customer-bind-wide">
                   <span>{{ t("customers.shipmentId") }}</span>
                   <input v-model.trim="bindForm.shipmentId" :placeholder="t('customers.shipmentIdPlaceholder')" required />
+                  <small class="customer-field-hint">{{ t("customers.shipmentIdHint") }}</small>
                 </label>
                 <template v-else>
                   <label>
@@ -205,15 +214,20 @@
                   </label>
                   <label>
                     <span>{{ t("customers.referenceType") }}</span>
-                    <select v-model="bindForm.referenceType" required>
-                      <option value="BOOKING">{{ t("customers.referenceBooking") }}</option>
-                      <option value="BILLOFLADING">{{ t("customers.referenceBill") }}</option>
-                    </select>
+                    <el-select
+                      v-model="bindForm.referenceType"
+                      class="business-select"
+                      popper-class="business-select-popper"
+                    >
+                      <el-option value="BOOKING" :label="t('customers.referenceBooking')" />
+                      <el-option value="BILLOFLADING" :label="t('customers.referenceBill')" />
+                    </el-select>
                   </label>
                   <label>
                     <span>{{ t("customers.referenceNo") }}</span>
                     <input v-model.trim="bindForm.referenceNo" :placeholder="t('customers.referenceNoPlaceholder')" required />
                   </label>
+                  <p class="customer-reference-hint">{{ t("customers.referenceHint") }}</p>
                 </template>
                 <button class="customer-access-primary" type="submit" :disabled="bindingShipment">
                   {{ bindingShipment ? t("customers.binding") : t("customers.bind") }}
@@ -302,7 +316,7 @@ const pageMessage = ref("");
 const messageIsError = ref(false);
 const revealedCode = ref(null);
 const codeCopied = ref(false);
-const bindMode = ref("shipmentId");
+const bindMode = ref("reference");
 const createForm = reactive({ username: "", displayName: "", partyRole: "SHIPPER" });
 const editForm = reactive({ username: "", displayName: "", partyRole: "SHIPPER" });
 const bindForm = reactive({ shipmentId: "", carrier: "COSCO", referenceType: "BOOKING", referenceNo: "" });
@@ -554,7 +568,14 @@ function showSuccess(key) {
 }
 
 function showError(error, fallbackKey) {
-  pageMessage.value = error?.message || t(fallbackKey);
+  const message = String(error?.message || "");
+  if (/Tracked shipment not found|Shipment not found/i.test(message)) {
+    pageMessage.value = t("customers.trackedShipmentNotFound");
+  } else if (/explicit operator access|permission|forbidden/i.test(message)) {
+    pageMessage.value = t("customers.shipmentAccessRequired");
+  } else {
+    pageMessage.value = message || t(fallbackKey);
+  }
   messageIsError.value = true;
 }
 </script>
@@ -925,7 +946,7 @@ function showError(error, fallbackKey) {
   margin-top: 18px;
   padding: 14px;
   border: 1px solid #dbe7f1;
-  border-radius: 12px;
+  border-radius: 6px;
   background: #f8fbfe;
 }
 .customer-bind-mode {
@@ -935,14 +956,14 @@ function showError(error, fallbackKey) {
   width: fit-content;
   padding: 3px;
   border: 1px solid #d7e3ee;
-  border-radius: 9px;
+  border-radius: 5px;
   background: #fff;
 }
 .customer-bind-mode button {
   min-height: 32px;
   padding: 6px 10px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 3px;
   color: #6c8196;
   background: transparent;
   font-size: 10px;
@@ -952,11 +973,26 @@ function showError(error, fallbackKey) {
 .customer-bind-wide { grid-column: span 3; }
 .customer-bind-form .customer-access-primary { padding: 0 18px; }
 
+.customer-field-hint,
+.customer-reference-hint {
+  margin: 0;
+  color: #6f8296;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.55;
+}
+
+.customer-reference-hint {
+  grid-column: 1 / -2;
+  padding: 2px 2px 0;
+}
+
 .customer-shipment-table {
+  display: grid;
+  gap: 8px;
   margin-top: 16px;
-  overflow: hidden;
-  border: 1px solid #dce7f1;
-  border-radius: 12px;
+  border: 0;
+  border-radius: 0;
 }
 .customer-shipment-table-head,
 .customer-shipment-row {
@@ -967,6 +1003,7 @@ function showError(error, fallbackKey) {
   padding: 11px 14px;
 }
 .customer-shipment-table-head {
+  border: 1px solid #dce7f1;
   color: #75889b;
   background: #f3f7fb;
   font-size: 9px;
@@ -974,7 +1011,24 @@ function showError(error, fallbackKey) {
   letter-spacing: .08em;
   text-transform: uppercase;
 }
-.customer-shipment-row { border-top: 1px solid #e8eef5; font-size: 10px; }
+.customer-shipment-row {
+  border: 1px solid #dce7f1;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 4px 14px rgba(28, 66, 103, 0.035);
+  font-size: 10px;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+.customer-shipment-row:hover {
+  border-color: #a9cbe8;
+  box-shadow: 0 8px 20px rgba(28, 86, 138, 0.08);
+  transform: translateY(-1px);
+}
+.customer-shipment-table > .customer-access-empty {
+  border: 1px solid #dce7f1;
+  border-radius: 4px;
+  background: #fff;
+}
 .customer-shipment-row > span:first-child { display: grid; gap: 3px; }
 .customer-shipment-row b { font-size: 11px; }
 .customer-shipment-row small { color: #72869a; }
@@ -1045,7 +1099,8 @@ button:disabled { cursor: wait; opacity: .58; }
   .customer-edit-form,
   .customer-bind-form { grid-template-columns: 1fr; }
   .customer-bind-wide,
-  .customer-bind-mode { grid-column: 1; }
+  .customer-bind-mode,
+  .customer-reference-hint { grid-column: 1; }
   .customer-shipment-table-head { display: none; }
   .customer-shipment-row { grid-template-columns: 1fr auto; }
   .customer-shipment-row > span:nth-child(2),
